@@ -69,7 +69,60 @@ import type { Schedule, Report, Contact, ScheduleExportFormat } from "@/lib/type
 import { describeCronValue, isValidCronValue } from "@/lib/schedule-cron"
 import { resolveSchedulePageNames } from "@/lib/schedule-pages"
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+function stripHtmlTags(value: string) {
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
+}
+
+async function readApiPayload(response: Response): Promise<unknown> {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+
+  if (contentType.includes("application/json")) {
+    return response.json().catch(() => null)
+  }
+
+  const raw = await response.text().catch(() => "")
+  const trimmed = raw.trim()
+
+  if (!trimmed) {
+    return null
+  }
+
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    const normalizedText = stripHtmlTags(trimmed)
+    const shortMessage =
+      normalizedText.length > 160
+        ? `${normalizedText.slice(0, 157).trimEnd()}...`
+        : normalizedText
+
+    return {
+      error: trimmed.startsWith("<")
+        ? `A API respondeu HTML em vez de JSON. ${shortMessage || "Verifique a sessao ou o deploy."}`
+        : shortMessage || "A API retornou uma resposta em formato inesperado.",
+    }
+  }
+}
+
+async function fetchApi(url: string, init?: RequestInit) {
+  const response = await fetch(url, init)
+  const data = await readApiPayload(response)
+
+  return { response, data }
+}
+
+const fetcher = async <T,>(url: string): Promise<T> => {
+  const { response, data } = await fetchApi(url)
+
+  if (!response.ok) {
+    throw new Error(
+      extractApiErrorMessage(data) ??
+        `Erro ao carregar ${url.replace(/^\/api\//, "").replaceAll("/", " ")}`
+    )
+  }
+
+  return data as T
+}
 
 type BotQrStatus = {
   status: "starting" | "awaiting_qr" | "connected" | "reconnecting" | "offline" | "error"
@@ -347,15 +400,13 @@ export default function SchedulesPage() {
         is_active: formActive,
       }
 
-      const res = await fetch("/api/schedules", {
+      const { response, data } = await fetchApi("/api/schedules", {
         method: editSchedule ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
 
-      const data = await res.json().catch(() => null)
-
-      if (!res.ok) {
+      if (!response.ok) {
         const apiFieldErrors = mapApiFieldErrors(data)
         const firstFieldError = Object.values(apiFieldErrors).find(
           (message): message is string =>
@@ -390,13 +441,19 @@ export default function SchedulesPage() {
     if (!deleteId) return
 
     try {
-      const res = await fetch(`/api/schedules?id=${deleteId}`, { method: "DELETE" })
-      if (!res.ok) throw new Error()
+      const { response, data } = await fetchApi(`/api/schedules?id=${deleteId}`, {
+        method: "DELETE",
+      })
+      if (!response.ok) {
+        throw new Error(extractApiErrorMessage(data) ?? "Erro ao excluir")
+      }
 
       toast.success("Rotina excluida!")
       mutate("/api/schedules")
-    } catch {
-      toast.error("Erro ao excluir")
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message ? error.message : "Erro ao excluir"
+      )
     } finally {
       setDeleteId(null)
     }
@@ -406,16 +463,22 @@ export default function SchedulesPage() {
     setDispatching(scheduleId)
 
     try {
-      const res = await fetch("/api/dispatch", {
+      const { response, data } = await fetchApi("/api/dispatch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schedule_id: scheduleId }),
       })
 
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      if (!response.ok) {
+        throw new Error(extractApiErrorMessage(data) ?? "Erro no disparo")
+      }
 
-      toast.success(`Disparo iniciado! ${data.logs_created} logs criados.`)
+      const logsCreated =
+        typeof (data as { logs_created?: unknown } | null)?.logs_created === "number"
+          ? (data as { logs_created: number }).logs_created
+          : 0
+
+      toast.success(`Disparo iniciado! ${logsCreated} logs criados.`)
       mutate("/api/logs?limit=10")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro no disparo")
@@ -457,24 +520,32 @@ export default function SchedulesPage() {
     setSyncingBotContacts(true)
 
     try {
-      const res = await fetch("/api/contacts/sync-bot", {
+      const { response, data } = await fetchApi("/api/contacts/sync-bot", {
         method: "POST",
       })
-      const data = await res.json()
 
-      if (!res.ok) {
-        throw new Error(data.error || "Erro ao sincronizar contatos do bot")
+      if (!response.ok) {
+        throw new Error(
+          extractApiErrorMessage(data) ?? "Erro ao sincronizar contatos do bot"
+        )
       }
 
       await mutate("/api/contacts")
 
       if (!silent) {
-        if ((data.inserted ?? 0) === 0 && (data.updated ?? 0) === 0) {
+        const inserted =
+          typeof (data as { inserted?: unknown } | null)?.inserted === "number"
+            ? (data as { inserted: number }).inserted
+            : 0
+        const updated =
+          typeof (data as { updated?: unknown } | null)?.updated === "number"
+            ? (data as { updated: number }).updated
+            : 0
+
+        if (inserted === 0 && updated === 0) {
           toast.success("Contatos do bot ja estao atualizados.")
         } else {
-          toast.success(
-            `${data.inserted ?? 0} contato(s) novo(s) e ${data.updated ?? 0} atualizado(s).`
-          )
+          toast.success(`${inserted} contato(s) novo(s) e ${updated} atualizado(s).`)
         }
       }
     } catch (error) {
@@ -505,10 +576,9 @@ export default function SchedulesPage() {
       setReportPagesError("")
 
       try {
-        const res = await fetch(`/api/reports/${formReportId}/pages`)
-        const data = await res.json().catch(() => null)
+        const { response, data } = await fetchApi(`/api/reports/${formReportId}/pages`)
 
-        if (!res.ok) {
+        if (!response.ok) {
           throw new Error(
             extractApiErrorMessage(data) ?? "Erro ao carregar paginas do relatorio"
           )
@@ -516,8 +586,9 @@ export default function SchedulesPage() {
 
         if (ignore) return
 
-        const pages = Array.isArray(data?.pages)
-          ? (data.pages as ReportPageOption[])
+        const payload = data as { pages?: unknown } | null
+        const pages = Array.isArray(payload?.pages)
+          ? (payload.pages as ReportPageOption[])
           : []
 
         setReportPages(pages)
@@ -633,15 +704,32 @@ export default function SchedulesPage() {
                           <Switch
                             checked={schedule.is_active}
                             onCheckedChange={async (checked) => {
-                              await fetch("/api/schedules", {
-                                method: "PUT",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  id: schedule.id,
-                                  is_active: checked,
-                                }),
-                              })
-                              mutate("/api/schedules")
+                              try {
+                                const { response, data } = await fetchApi("/api/schedules", {
+                                  method: "PUT",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    id: schedule.id,
+                                    is_active: checked,
+                                  }),
+                                })
+
+                                if (!response.ok) {
+                                  throw new Error(
+                                    extractApiErrorMessage(data) ??
+                                      "Nao foi possivel atualizar o status da rotina"
+                                  )
+                                }
+
+                                mutate("/api/schedules")
+                              } catch (error) {
+                                toast.error(
+                                  error instanceof Error && error.message
+                                    ? error.message
+                                    : "Nao foi possivel atualizar o status da rotina"
+                                )
+                                mutate("/api/schedules")
+                              }
                             }}
                           />
                         </TableCell>
