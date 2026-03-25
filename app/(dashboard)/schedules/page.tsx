@@ -11,13 +11,10 @@ import {
   Loader2,
   RefreshCw,
   Search,
-  Check,
   ChevronDown,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { useBotContactSync } from "@/hooks/use-bot-contact-sync"
-import { getContactSearchDetail, matchesContactSearch } from "@/lib/contact-search"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,6 +23,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Dialog,
   DialogContent,
@@ -44,6 +42,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -61,27 +64,15 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CronBuilder } from "@/components/schedules/cron-builder"
 import type { Schedule, Report, Contact, ScheduleExportFormat } from "@/lib/types"
 import { describeCronValue, isValidCronValue } from "@/lib/schedule-cron"
-import { cn } from "@/lib/utils"
+import { resolveSchedulePageNames } from "@/lib/schedule-pages"
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 type BotQrStatus = {
   status: "starting" | "awaiting_qr" | "connected" | "reconnecting" | "offline" | "error"
-  jid?: string | null
-  phone_number?: string | null
-  connected_at?: string | null
 }
 
 type ScheduleReportOption = {
@@ -99,6 +90,7 @@ type ReportPageOption = {
 const POWERBI_FORMATS: ScheduleExportFormat[] = ["PDF", "PNG", "PPTX"]
 const DEFAULT_SCHEDULE_CRON = "0 8 * * 1-5"
 const DEFAULT_SCHEDULE_MESSAGE = "Segue o relatorio {report_name} em anexo."
+
 function formatLabel(format: ScheduleExportFormat) {
   if (format === "table") return "Tabela (texto)"
   return format.toUpperCase()
@@ -178,6 +170,8 @@ function mapApiFieldErrors(payload: unknown): Record<string, string> {
             ? "cron"
             : key === "contact_ids"
               ? "contacts"
+              : key === "pbi_page_names"
+                ? "pageNames"
               : key === "name"
                 ? "name"
                 : key
@@ -202,7 +196,6 @@ export default function SchedulesPage() {
   const contactList = Array.isArray(contacts) ? contacts : []
 
   const canShowContacts = botQrConfig?.status === "connected"
-  const { syncingBotContacts, syncContactsFromBot } = useBotContactSync(botQrConfig)
   const activeContacts = canShowContacts
     ? contactList.filter((contact) => contact.is_active)
     : []
@@ -221,6 +214,7 @@ export default function SchedulesPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [editSchedule, setEditSchedule] = useState<Schedule | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
+  const [syncingBotContacts, setSyncingBotContacts] = useState(false)
 
   const [formName, setFormName] = useState("")
   const [formReportId, setFormReportId] = useState("")
@@ -235,7 +229,6 @@ export default function SchedulesPage() {
   const [saving, setSaving] = useState(false)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [contactSearch, setContactSearch] = useState("")
-  const [reportPagesOpen, setReportPagesOpen] = useState(false)
   const [reportPages, setReportPages] = useState<ReportPageOption[]>([])
   const [loadingReportPages, setLoadingReportPages] = useState(false)
   const [reportPagesError, setReportPagesError] = useState("")
@@ -243,36 +236,15 @@ export default function SchedulesPage() {
   const formatOptions = POWERBI_FORMATS
 
   const filteredContacts = activeContacts.filter((contact) => {
-    return matchesContactSearch(contact, contactSearch)
+    const search = contactSearch.trim().toLowerCase()
+    if (!search) return true
+
+    return (
+      contact.name.toLowerCase().includes(search) ||
+      (contact.phone ?? "").toLowerCase().includes(search) ||
+      (contact.whatsapp_group_id ?? "").toLowerCase().includes(search)
+    )
   })
-
-  const selectedReportPages = useMemo(
-    () =>
-      formPageNames.map((pageName) => {
-        const matchedPage = reportPages.find((page) => page.name === pageName)
-        return {
-          name: pageName,
-          displayName: matchedPage?.displayName ?? pageName,
-        }
-      }),
-    [formPageNames, reportPages]
-  )
-
-  const reportPagesTriggerLabel = useMemo(() => {
-    if (loadingReportPages) {
-      return "Carregando paginas..."
-    }
-
-    if (selectedReportPages.length === 0) {
-      return "Configuracao padrao do relatorio"
-    }
-
-    if (selectedReportPages.length <= 2) {
-      return selectedReportPages.map((page) => page.displayName).join(", ")
-    }
-
-    return `${selectedReportPages.length} paginas selecionadas`
-  }, [loadingReportPages, selectedReportPages])
 
   const handleCronValueChange = useCallback((value: string) => {
     setFormCron(value)
@@ -291,7 +263,6 @@ export default function SchedulesPage() {
     setFormActive(true)
     setFormErrors({})
     setContactSearch("")
-    setReportPagesOpen(false)
     setReportPages([])
     setReportPagesError("")
   }
@@ -309,7 +280,7 @@ export default function SchedulesPage() {
     setDialogOpen(true)
 
     if (canShowContacts) {
-      void handleSyncBotContacts(true)
+      void syncContactsFromBot(true)
     }
   }
 
@@ -317,7 +288,7 @@ export default function SchedulesPage() {
     setEditSchedule(schedule)
     setFormName(schedule.name)
     setFormReportId(schedule.report_id)
-    setFormPageNames(schedule.pbi_page_names ?? (schedule.pbi_page_name ? [schedule.pbi_page_name] : []))
+    setFormPageNames(resolveSchedulePageNames(schedule))
     setFormCron(schedule.cron_expression)
     setFormFormat(normalizeScheduleFormat(schedule.export_format))
     setFormMessage(schedule.message_template ?? DEFAULT_SCHEDULE_MESSAGE)
@@ -330,7 +301,7 @@ export default function SchedulesPage() {
     setDialogOpen(true)
 
     if (canShowContacts) {
-      void handleSyncBotContacts(true)
+      void syncContactsFromBot(true)
     }
   }
 
@@ -342,6 +313,9 @@ export default function SchedulesPage() {
     if (!formCron.trim()) errors.cron = "Frequencia obrigatoria"
     if (formCron.trim() && !isValidCronValue(formCron)) {
       errors.cron = "Cada horario deve ter uma expressao CRON valida com 5 campos"
+    }
+    if (formPageNames.length > 1 && formFormat !== "PDF") {
+      errors.pageNames = "Selecione varias paginas apenas quando o formato for PDF"
     }
 
     if (!canShowContacts && formContactIds.length === 0) {
@@ -364,6 +338,7 @@ export default function SchedulesPage() {
         ...(editSchedule ? { id: editSchedule.id } : {}),
         name: formName.trim(),
         report_id: formReportId,
+        pbi_page_name: formPageNames[0] ?? null,
         pbi_page_names: formPageNames,
         cron_expression: formCron,
         export_format: formFormat,
@@ -452,18 +427,19 @@ export default function SchedulesPage() {
   }
 
   function toggleReportPage(pageName: string) {
-    setFormPageNames((current) =>
-      current.includes(pageName)
-        ? current.filter((item) => item !== pageName)
+    setFormPageNames((current) => {
+      const next = current.includes(pageName)
+        ? current.filter((value) => value !== pageName)
         : [...current, pageName]
-    )
+
+      return reportPages
+        .filter((page) => next.includes(page.name))
+        .map((page) => page.name)
+    })
+    setFormErrors((prev) => ({ ...prev, pageNames: "" }))
   }
 
-  function clearSelectedReportPages() {
-    setFormPageNames([])
-  }
-
-  async function handleSyncBotContacts(silent = false) {
+  async function syncContactsFromBot(silent = false) {
     if (!canShowContacts) {
       if (!silent) {
         toast.error(
@@ -473,8 +449,19 @@ export default function SchedulesPage() {
       return
     }
 
+    setSyncingBotContacts(true)
+
     try {
-      const data = await syncContactsFromBot(silent)
+      const res = await fetch("/api/contacts/sync-bot", {
+        method: "POST",
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "Erro ao sincronizar contatos do bot")
+      }
+
+      await mutate("/api/contacts")
 
       if (!silent) {
         if ((data.inserted ?? 0) === 0 && (data.updated ?? 0) === 0) {
@@ -493,12 +480,13 @@ export default function SchedulesPage() {
             : "Erro ao sincronizar contatos do bot"
         )
       }
+    } finally {
+      setSyncingBotContacts(false)
     }
   }
 
   useEffect(() => {
     if (!dialogOpen || !formReportId) {
-      setReportPagesOpen(false)
       setReportPages([])
       setReportPagesError("")
       setLoadingReportPages(false)
@@ -529,12 +517,11 @@ export default function SchedulesPage() {
 
         setReportPages(pages)
         setFormPageNames((current) =>
-          current.filter((pageName) => pages.some((page) => page.name === pageName))
+          pages.filter((page) => current.includes(page.name)).map((page) => page.name)
         )
       } catch (error) {
         if (ignore) return
 
-        setReportPagesOpen(false)
         setReportPages([])
         setFormPageNames([])
         setReportPagesError(
@@ -555,6 +542,18 @@ export default function SchedulesPage() {
       ignore = true
     }
   }, [dialogOpen, formReportId])
+
+  const selectedPageDisplayNames = useMemo(() => {
+    if (formPageNames.length === 0) {
+      return []
+    }
+
+    const pageNameMap = new Map(
+      reportPages.map((page) => [page.name, page.displayName || page.name] as const)
+    )
+
+    return formPageNames.map((pageName) => pageNameMap.get(pageName) ?? pageName)
+  }, [formPageNames, reportPages])
 
   return (
     <div className="flex flex-1 flex-col">
@@ -723,7 +722,6 @@ export default function SchedulesPage() {
                 onValueChange={(v) => {
                   setFormReportId(v)
                   setFormPageNames([])
-                  setReportPagesOpen(false)
                   setReportPages([])
                   setReportPagesError("")
                   const option = reportOptions.find((item) => item.id === v)
@@ -775,82 +773,103 @@ export default function SchedulesPage() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Pagina do Relatorio</Label>
-              <Popover open={reportPagesOpen} onOpenChange={setReportPagesOpen}>
+              <Label>Paginas do Relatorio</Label>
+              <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
                     variant="outline"
-                    role="combobox"
                     className="w-full justify-between font-normal"
                     disabled={!formReportId || loadingReportPages}
                   >
-                    <span className="truncate text-left">{reportPagesTriggerLabel}</span>
-                    <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
+                    <span className="truncate">
+                      {loadingReportPages
+                        ? "Carregando paginas..."
+                        : formPageNames.length === 0
+                          ? "Pagina padrao do relatorio"
+                          : formPageNames.length === 1
+                            ? selectedPageDisplayNames[0]
+                            : `${formPageNames.length} paginas selecionadas`}
+                    </span>
+                    <ChevronDown className="size-4 opacity-50" />
                   </Button>
                 </PopoverTrigger>
+                <PopoverContent className="w-[360px] p-0" align="start">
+                  <div className="border-b px-3 py-3">
+                    <p className="text-sm font-medium">Paginas do relatorio</p>
+                    <p className="text-xs text-muted-foreground">
+                      Selecione uma ou mais paginas. Sem selecao, o envio usa a pagina padrao.
+                    </p>
+                  </div>
 
-                <PopoverContent
-                  className="w-[var(--radix-popover-trigger-width)] p-0"
-                  align="start"
-                >
-                  <Command>
-                    <CommandInput placeholder="Buscar paginas..." />
-                    <CommandList>
-                      <CommandEmpty>Nenhuma pagina encontrada.</CommandEmpty>
-                      <CommandGroup>
-                        <CommandItem onSelect={clearSelectedReportPages}>
-                          <Check
-                            className={cn(
-                              "size-4",
-                              formPageNames.length === 0 ? "opacity-100" : "opacity-0"
-                            )}
-                          />
-                          Usar configuracao padrao do relatorio
-                        </CommandItem>
+                  <div className="border-b px-3 py-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-full justify-start px-2 text-xs"
+                      onClick={() => {
+                        setFormPageNames([])
+                        setFormErrors((prev) => ({ ...prev, pageNames: "" }))
+                      }}
+                      disabled={formPageNames.length === 0}
+                    >
+                      Usar pagina padrao do relatorio
+                    </Button>
+                  </div>
 
-                        {reportPages.map((page) => {
-                          const isSelected = formPageNames.includes(page.name)
-
-                          return (
-                            <CommandItem
-                              key={page.name}
-                              value={`${page.displayName} ${page.name}`}
-                              onSelect={() => toggleReportPage(page.name)}
-                            >
-                              <Check
-                                className={cn(
-                                  "size-4",
-                                  isSelected ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              {page.displayName}
-                            </CommandItem>
-                          )
-                        })}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
+                  <ScrollArea className="max-h-64">
+                    <div className="space-y-1 p-2">
+                      {reportPages.length === 0 ? (
+                        <div className="px-2 py-4 text-xs text-muted-foreground">
+                          Nenhuma pagina disponivel para este relatorio.
+                        </div>
+                      ) : (
+                        reportPages.map((page) => (
+                          <label
+                            key={page.name}
+                            className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 hover:bg-accent"
+                          >
+                            <Checkbox
+                              checked={formPageNames.includes(page.name)}
+                              onCheckedChange={() => toggleReportPage(page.name)}
+                            />
+                            <div className="min-w-0">
+                              <p className="truncate text-sm">{page.displayName}</p>
+                              {page.displayName !== page.name ? (
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {page.name}
+                                </p>
+                              ) : null}
+                            </div>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
                 </PopoverContent>
               </Popover>
-
-              {selectedReportPages.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {selectedReportPages.map((page) => (
-                    <Badge key={page.name} variant="secondary">
-                      {page.displayName}
+              {selectedPageDisplayNames.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {selectedPageDisplayNames.map((pageDisplayName, index) => (
+                    <Badge key={`${formPageNames[index]}-${index}`} variant="secondary">
+                      {pageDisplayName}
                     </Badge>
                   ))}
                 </div>
               ) : null}
-
+              {formErrors.pageNames && (
+                <p className="text-xs text-destructive">{formErrors.pageNames}</p>
+              )}
               {reportPagesError ? (
                 <p className="text-xs text-destructive">{reportPagesError}</p>
               ) : formReportId ? (
                 <p className="text-xs text-muted-foreground">
                   {loadingReportPages
                     ? "Buscando paginas disponiveis no Power BI..."
-                    : "Selecione uma ou mais paginas. Se nenhuma for marcada, a exportacao usa a configuracao padrao do relatorio."}
+                    : formFormat === "PDF"
+                      ? "Selecione uma ou mais paginas especificas para gerar um unico PDF, ou mantenha a pagina padrao."
+                      : "Para formatos diferentes de PDF, selecione no maximo uma pagina especifica ou mantenha a pagina padrao."}
                 </p>
               ) : null}
             </div>
@@ -879,7 +898,7 @@ export default function SchedulesPage() {
                   variant="outline"
                   size="sm"
                   className="h-8 gap-1.5 text-xs"
-                  onClick={() => void handleSyncBotContacts(false)}
+                  onClick={() => void syncContactsFromBot(false)}
                   disabled={syncingBotContacts || !canShowContacts}
                 >
                   {syncingBotContacts ? (
@@ -912,7 +931,7 @@ export default function SchedulesPage() {
                       <Input
                         value={contactSearch}
                         onChange={(e) => setContactSearch(e.target.value)}
-                        placeholder="Pesquisar nome, telefone ou ID..."
+                        placeholder="Pesquisar contato ou grupo..."
                         className="pl-9"
                       />
                     </div>
@@ -932,14 +951,7 @@ export default function SchedulesPage() {
                               checked={formContactIds.includes(contact.id)}
                               onCheckedChange={() => toggleContact(contact.id)}
                             />
-                            <div className="min-w-0 flex-1">
-                              <span className="block truncate text-sm">{contact.name}</span>
-                              {getContactSearchDetail(contact) ? (
-                                <span className="block truncate text-xs text-muted-foreground">
-                                  {getContactSearchDetail(contact)}
-                                </span>
-                              ) : null}
-                            </div>
+                            <span className="text-sm">{contact.name}</span>
                             <Badge variant="outline" className="ml-auto text-xs">
                               {contact.type === "group" ? "Grupo" : "Individual"}
                             </Badge>

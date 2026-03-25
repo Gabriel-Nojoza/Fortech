@@ -7,20 +7,16 @@ import {
   Search,
   Trash2,
   Pencil,
-  Loader2,
   Phone,
   UsersRound,
   Bot,
   QrCode,
   RotateCcw,
-  RefreshCw,
   PlugZap,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { matchesContactSearch } from "@/lib/contact-search"
 import { formatDateTimePtBr } from "@/lib/datetime"
-import { useBotContactSync } from "@/hooks/use-bot-contact-sync"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -100,6 +96,18 @@ type BotQrConfig = {
   source: "runtime" | "manual" | "none"
 }
 
+function normalizeSearchText(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+}
+
+function normalizeDigits(value: string | null | undefined) {
+  return (value ?? "").replace(/\D/g, "")
+}
+
 export default function ContactsPage() {
   const { data: contacts, isLoading } = useSWR<Contact[]>("/api/contacts", fetcher)
   const { data: botQrConfig, isLoading: isLoadingBotQr } = useSWR<BotQrConfig>(
@@ -107,7 +115,6 @@ export default function ContactsPage() {
     fetcher,
     { refreshInterval: 5000 }
   )
-  const { syncingBotContacts, syncContactsFromBot } = useBotContactSync(botQrConfig)
 
   const [mounted, setMounted] = useState(false)
   const [search, setSearch] = useState("")
@@ -117,9 +124,9 @@ export default function ContactsPage() {
   const [editContact, setEditContact] = useState<Contact | null>(null)
   const [manualBotQrUrl, setManualBotQrUrl] = useState("")
   const [savingBotQr, setSavingBotQr] = useState(false)
-  const [botActionLoading, setBotActionLoading] = useState<"disconnect" | "restart" | null>(
-    null
-  )
+  const [botActionLoading, setBotActionLoading] = useState<
+    "disconnect" | "restart" | "switch_phone" | null
+  >(null)
 
   const [formName, setFormName] = useState("")
   const [formPhone, setFormPhone] = useState("")
@@ -150,14 +157,24 @@ export default function ContactsPage() {
     )
   }
 
+  const normalizedSearch = normalizeSearchText(search)
+  const numericSearch = normalizeDigits(search)
+
   const filtered = (contacts ?? []).filter((contact) => {
-    const matchesSearch = matchesContactSearch(contact, search)
+    const matchesSearch =
+      normalizedSearch.length === 0 ||
+      normalizeSearchText(contact.name).includes(normalizedSearch) ||
+      normalizeSearchText(contact.phone).includes(normalizedSearch) ||
+      normalizeSearchText(contact.whatsapp_group_id).includes(normalizedSearch) ||
+      (numericSearch.length > 0 &&
+        (normalizeDigits(contact.phone).includes(numericSearch) ||
+          normalizeDigits(contact.whatsapp_group_id).includes(numericSearch)))
+
     const matchesType = typeFilter === "all" || contact.type === typeFilter
     return matchesSearch && matchesType
   })
 
-  const shouldShowContacts = botQrConfig?.status === "connected"
-  const visibleContacts = shouldShowContacts ? filtered : []
+  const visibleContacts = filtered
 
   const savedManualBotQrUrl = (botQrConfig?.manual_qr_code_url ?? "").trim()
   const currentManualBotQrUrl = manualBotQrUrl.trim()
@@ -204,6 +221,9 @@ export default function ContactsPage() {
           : botQrConfig?.status === "reconnecting"
             ? "Reconectando o bot ao WhatsApp."
             : "Bot desconectado. Clique em Gerar QR para conectar novamente."
+
+  const connectedPhoneLabel = botQrConfig?.phone_number || "-"
+  const connectedNameLabel = botQrConfig?.display_name || "-"
 
   function openCreate() {
     setEditContact(null)
@@ -349,7 +369,7 @@ export default function ContactsPage() {
     }
   }
 
-  async function handleBotControl(action: "disconnect" | "restart") {
+  async function handleBotControl(action: "disconnect" | "restart" | "switch_phone") {
     setBotActionLoading(action)
 
     try {
@@ -367,38 +387,16 @@ export default function ContactsPage() {
 
       await mutate("/api/bot/qr")
       toast.success(
-        action === "restart"
-          ? "Novo QR solicitado. Aguarde ele aparecer."
-          : "Bot desconectado. Clique em Gerar QR para conectar novamente."
+        action === "switch_phone"
+          ? "Sessao anterior removida. Aguarde o novo QR para conectar outro celular."
+          : action === "restart"
+            ? "Novo QR solicitado. Aguarde ele aparecer."
+            : "Bot desconectado. Clique em Gerar QR para conectar novamente."
       )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao controlar bot")
     } finally {
       setBotActionLoading(null)
-    }
-  }
-
-  async function handleSyncBotContacts() {
-    if (!shouldShowContacts) {
-      toast.error("Conecte o WhatsApp pela leitura do QR Code antes de sincronizar.")
-      return
-    }
-
-    try {
-      const data = await syncContactsFromBot()
-
-      if ((data.inserted ?? 0) === 0 && (data.updated ?? 0) === 0) {
-        toast.success("Contatos do bot ja estao atualizados.")
-        return
-      }
-
-      toast.success(
-        `${data.inserted ?? 0} contato(s) novo(s) e ${data.updated ?? 0} atualizado(s).`
-      )
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Erro ao sincronizar contatos do bot"
-      )
     }
   }
 
@@ -416,7 +414,7 @@ export default function ContactsPage() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Buscar por nome, telefone ou ID..."
+              placeholder="Buscar por nome ou telefone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
@@ -452,8 +450,8 @@ export default function ContactsPage() {
                 </div>
 
                 <CardDescription>
-                  O bot agora publica o QR automaticamente neste painel quando precisar
-                  reconectar. O campo abaixo fica como fallback manual.
+                  O bot publica o QR automaticamente neste painel. Use "Trocar celular"
+                  para apagar a sessao atual e parear com qualquer outro aparelho.
                 </CardDescription>
               </div>
             </div>
@@ -475,14 +473,14 @@ export default function ContactsPage() {
                 <div className="rounded-xl border bg-muted/10 p-4">
                   <p className="text-xs text-muted-foreground">Nome da conta</p>
                   <p className="mt-1 text-sm font-medium">
-                    {botQrConfig?.display_name || "-"}
+                    {connectedNameLabel}
                   </p>
                 </div>
 
                 <div className="rounded-xl border bg-muted/10 p-4">
                   <p className="text-xs text-muted-foreground">Numero conectado</p>
                   <p className="mt-1 text-sm font-medium">
-                    {botQrConfig?.phone_number || "-"}
+                    {connectedPhoneLabel}
                   </p>
                 </div>
 
@@ -495,19 +493,6 @@ export default function ContactsPage() {
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  variant="outline"
-                  onClick={handleSyncBotContacts}
-                  disabled={syncingBotContacts || !shouldShowContacts}
-                >
-                  {syncingBotContacts ? (
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 size-4" />
-                  )}
-                  {syncingBotContacts ? "Sincronizando..." : "Sincronizar contatos"}
-                </Button>
-
                 <Button
                   variant="outline"
                   onClick={() => handleBotControl("disconnect")}
@@ -524,6 +509,17 @@ export default function ContactsPage() {
                   <RotateCcw className="mr-2 size-4" />
                   {botActionLoading === "restart" ? "Gerando QR..." : "Gerar QR"}
                 </Button>
+
+                <Button
+                  variant="secondary"
+                  onClick={() => handleBotControl("switch_phone")}
+                  disabled={botActionLoading !== null}
+                >
+                  <RotateCcw className="mr-2 size-4" />
+                  {botActionLoading === "switch_phone"
+                    ? "Trocando celular..."
+                    : "Trocar celular"}
+                </Button>
               </div>
 
               <div className="flex flex-col gap-2">
@@ -536,8 +532,9 @@ export default function ContactsPage() {
                   className="min-h-28 resize-y"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Se o bot estiver rodando, o preview acima usa o QR automatico. Esse campo
-                  so entra como reserva manual.
+                  Se o bot estiver rodando, o preview acima usa o QR automatico. "Trocar
+                  celular" apaga a sessao salva e gera um QR novo. Este campo so entra como
+                  reserva manual.
                 </p>
               </div>
 
@@ -600,18 +597,13 @@ export default function ContactsPage() {
                   <Skeleton key={i} className="h-12 rounded" />
                 ))}
               </div>
-            ) : syncingBotContacts && visibleContacts.length === 0 ? (
-              <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Sincronizando contatos do telefone conectado...
-              </div>
             ) : visibleContacts.length === 0 ? (
               <p className="py-12 text-center text-sm text-muted-foreground">
-                {!shouldShowContacts
-                  ? "Bot desconectado. Conecte o WhatsApp para exibir novamente os contatos sincronizados."
-                  : contacts?.length === 0
+                {contacts?.length === 0
+                  ? botQrConfig?.status === "connected"
                     ? "Nenhum contato cadastrado. Clique em 'Novo Contato' para adicionar."
-                    : "Nenhum resultado encontrado."}
+                    : "Nenhum contato cadastrado. Conecte o WhatsApp para sincronizar ou clique em 'Novo Contato' para adicionar manualmente."
+                  : "Nenhum resultado encontrado."}
               </p>
             ) : (
               <div className="overflow-x-auto">

@@ -109,7 +109,11 @@ export async function POST(request: NextRequest) {
     await getRequestContext()
     const body = await request.json()
     const action =
-      body?.action === "disconnect" || body?.action === "restart" ? body.action : null
+      body?.action === "disconnect" ||
+      body?.action === "restart" ||
+      body?.action === "switch_phone"
+        ? body.action
+        : null
 
     if (!action) {
       return NextResponse.json({ error: "Acao invalida" }, { status: 400 })

@@ -34,6 +34,7 @@ const grupos = [
 let sock = null
 let isStarting = false
 let pendingControlAction = null
+let allowAuthStateWrites = true
 const botContacts = new Map()
 const botChats = new Map()
 const botGroups = new Map()
@@ -361,49 +362,6 @@ function getFileNameFromUrl(url) {
   }
 }
 
-function looksLikePdf(buffer) {
-  return (
-    Buffer.isBuffer(buffer) &&
-    buffer.length >= 5 &&
-    buffer.subarray(0, 5).toString("ascii") === "%PDF-"
-  )
-}
-
-function readBufferPreview(buffer, length = 160) {
-  return buffer.subarray(0, Math.min(buffer.length, length)).toString("utf-8").trim()
-}
-
-function validateDocumentBuffer(buffer, fileName, mimeType) {
-  const normalizedFileName =
-    typeof fileName === "string" ? fileName.trim().toLowerCase() : ""
-  const normalizedMimeType =
-    typeof mimeType === "string" ? mimeType.trim().toLowerCase() : ""
-  const expectsPdf =
-    normalizedMimeType === "application/pdf" || normalizedFileName.endsWith(".pdf")
-
-  if (!expectsPdf || looksLikePdf(buffer)) {
-    return
-  }
-
-  const preview = readBufferPreview(buffer)
-
-  if (preview.startsWith("file://")) {
-    throw createValidationError(
-      "O arquivo recebido nao e um PDF real. O fluxo enviou um caminho temporario (file://...) em vez do binario do PDF."
-    )
-  }
-
-  if (/^<!doctype html/i.test(preview) || /^<html/i.test(preview)) {
-    throw createValidationError(
-      "O arquivo recebido nao e um PDF real. O fluxo enviou HTML em vez do binario do PDF."
-    )
-  }
-
-  throw createValidationError(
-    "O arquivo recebido nao e um PDF valido. Verifique no N8N se o node baixa o arquivo em binario e envia document_base64."
-  )
-}
-
 async function resolveDocumentPayload(input) {
   const base64Input =
     typeof input?.document_base64 === "string" ? input.document_base64.trim() : ""
@@ -466,7 +424,6 @@ async function resolveDocumentPayload(input) {
 
   fileName = fileName || "arquivo"
   mimeType = mimeType || inferMimeType(fileName)
-  validateDocumentBuffer(buffer, fileName, mimeType)
 
   return {
     buffer,
@@ -537,14 +494,19 @@ function scheduleBotStart(delayMs = 0) {
   }, delayMs)
 }
 
+function isRestartLikeAction(action) {
+  return action === "restart" || action === "switch_phone"
+}
+
 async function applyControlAction(action) {
   pendingControlAction = action
 
   if (!sock) {
+    allowAuthStateWrites = false
     await resetAuthState()
     clearDirectoryCache()
 
-    if (action === "restart") {
+    if (isRestartLikeAction(action)) {
       await writeStoppedRuntimeState("starting")
       pendingControlAction = null
       scheduleBotStart(300)
@@ -558,7 +520,8 @@ async function applyControlAction(action) {
 
   try {
     clearDirectoryCache()
-    await writeStoppedRuntimeState(action === "restart" ? "starting" : "offline")
+    allowAuthStateWrites = false
+    await writeStoppedRuntimeState(isRestartLikeAction(action) ? "starting" : "offline")
     await sock.logout()
   } catch (error) {
     console.error("Erro ao aplicar acao de controle:", error)
@@ -567,7 +530,7 @@ async function applyControlAction(action) {
     await resetAuthState()
     clearDirectoryCache()
 
-    if (action === "restart") {
+    if (isRestartLikeAction(action)) {
       await writeStoppedRuntimeState("starting")
       scheduleBotStart(300)
     } else {
@@ -676,6 +639,7 @@ async function startBot() {
   })
 
   try {
+    allowAuthStateWrites = true
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
     const { version } = await fetchLatestBaileysVersion()
 
@@ -686,7 +650,13 @@ async function startBot() {
       browser: ["SolucaoInteligenteBot", "Chrome", "1.0.0"],
     })
 
-    sock.ev.on("creds.update", saveCreds)
+    sock.ev.on("creds.update", () => {
+      if (!allowAuthStateWrites) {
+        return
+      }
+
+      void saveCreds()
+    })
     sock.ev.on("messaging-history.set", ({ contacts = [], chats = [] }) => {
       contacts.forEach((contact) => upsertContactCache(contact))
       chats.forEach((chat) => upsertChatCache(chat))
@@ -765,9 +735,13 @@ async function startBot() {
           await resetAuthState()
           clearDirectoryCache()
 
-          if (controlAction === "restart") {
+          if (isRestartLikeAction(controlAction)) {
             await writeStoppedRuntimeState("starting")
-            console.log("Bot reiniciado manualmente. Gerando novo QR...")
+            console.log(
+              controlAction === "switch_phone"
+                ? "Sessao anterior removida. Gerando QR para conectar outro celular..."
+                : "Bot reiniciado manualmente. Gerando novo QR..."
+            )
             scheduleBotStart(300)
           } else {
             await writeStoppedRuntimeState("offline")
@@ -868,7 +842,9 @@ app.get("/directory", async (_req, res) => {
 
 app.post("/control", async (req, res) => {
   const action =
-    req.body?.action === "disconnect" || req.body?.action === "restart"
+    req.body?.action === "disconnect" ||
+    req.body?.action === "restart" ||
+    req.body?.action === "switch_phone"
       ? req.body.action
       : null
 
@@ -881,7 +857,7 @@ app.post("/control", async (req, res) => {
     const runtimeState = await readRuntimeState()
     return res.json(
       runtimeState || {
-        status: action === "restart" ? "starting" : "offline",
+        status: isRestartLikeAction(action) ? "starting" : "offline",
         qr_code_data_url: "",
         updated_at: new Date().toISOString(),
         connected_at: null,

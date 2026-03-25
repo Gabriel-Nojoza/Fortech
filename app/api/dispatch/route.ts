@@ -12,7 +12,10 @@ import {
   buildN8nEndpointUrls,
   normalizeN8nSettings,
 } from "@/lib/n8n-webhook"
-import { getSchedulePageNames } from "@/lib/schedule-page-selection"
+import {
+  getPrimarySchedulePageName,
+  resolveSchedulePageNames,
+} from "@/lib/schedule-pages"
 
 function getDispatchLogTarget(contact: {
   phone?: string | null
@@ -41,27 +44,10 @@ function getRequestOrigin(request: NextRequest) {
   )
 }
 
-function getReportDatasetId(report: Record<string, unknown>) {
-  return (
-    (typeof report.pbi_dataset_id === "string" && report.pbi_dataset_id.trim()) ||
-    (typeof report.dataset_id === "string" && report.dataset_id.trim()) ||
-    null
-  )
-}
-
-function getScheduleQuery(schedule: Record<string, unknown>) {
-  return (
-    (typeof schedule.dax_query === "string" && schedule.dax_query.trim()) ||
-    (typeof schedule.query === "string" && schedule.query.trim()) ||
-    null
-  )
-}
-
 export async function POST(request: NextRequest) {
   const { companyId } = await resolveRequestCompanyContext(request, {
     allowCallbackSecret: true,
   })
-
   const supabase = createClient()
   const body = await request.json()
   const { schedule_id } = body
@@ -94,7 +80,6 @@ export async function POST(request: NextRequest) {
     .eq("schedule_id", schedule_id)
 
   const contactIds = (scContacts ?? []).map((sc) => sc.contact_id)
-
   const { data: contacts } = await supabase
     .from("contacts")
     .select("*")
@@ -172,7 +157,6 @@ export async function POST(request: NextRequest) {
     })
 
     const runPayload = await runResponse.json().catch(() => null)
-
     if (!runResponse.ok) {
       return NextResponse.json(
         { error: runPayload?.error || "Erro ao disparar relatorio salvo" },
@@ -192,6 +176,19 @@ export async function POST(request: NextRequest) {
       report_name: automation.name,
       source: "created",
     })
+  }
+
+  const selectedPageNames = resolveSchedulePageNames(schedule)
+  const primaryPageName = getPrimarySchedulePageName(selectedPageNames)
+
+  if (selectedPageNames.length > 1 && schedule.export_format !== "PDF") {
+    return NextResponse.json(
+      {
+        error:
+          "Selecione varias paginas apenas quando o formato de exportacao for PDF.",
+      },
+      { status: 400 }
+    )
   }
 
   const logs = normalizedContacts.map((contact) => ({
@@ -245,22 +242,12 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const reportRecord = report as Record<string, unknown>
-  const scheduleRecord = schedule as Record<string, unknown>
-  const selectedPageNames = getSchedulePageNames(scheduleRecord)
-
-  const datasetId = getReportDatasetId(reportRecord)
-  const query = getScheduleQuery(scheduleRecord)
-  const useDataExport = false
-
   let dispatchErrorMessage: string | null = null
 
   try {
     const appUrl = getRequestOrigin(request)
     const { callbackUrl, botSendUrl } = buildN8nEndpointUrls(appUrl)
-
     const reportExportUrl = `${appUrl.trim().replace(/\/+$/, "")}/api/reports/export`
-
     const callbackHeaders = buildN8nCallbackHeaders(callbackSecret)
     const dispatchTargets = buildDispatchTargets(
       normalizedContacts,
@@ -275,44 +262,38 @@ export async function POST(request: NextRequest) {
         schedule_name: schedule.name,
         cron_expression: schedule.cron_expression,
         is_active: schedule.is_active,
-
         report_name: report.name,
         app_report_id: report.id,
         report_id: report.pbi_report_id,
-
-        workspace_id: reportRecord.workspaces
-          ? (reportRecord.workspaces as Record<string, string>).pbi_workspace_id
+        workspace_id: (report as Record<string, unknown>).workspaces
+          ? ((report as Record<string, unknown>).workspaces as Record<string, string>)
+              .pbi_workspace_id
           : "",
-
-        dataset_id: datasetId || null,
-        query: query || null,
-        use_data_export: useDataExport,
-
-        pbi_page_name: selectedPageNames[0] ?? null,
-        page_name: selectedPageNames[0] ?? null,
-        pbi_page_names: selectedPageNames,
-        page_names: selectedPageNames,
+        pbi_page_name: primaryPageName,
+        pbi_page_names: selectedPageNames.length > 0 ? selectedPageNames : null,
+        page_name: primaryPageName,
         export_format: schedule.export_format,
-
         report_export_url: reportExportUrl,
         report_export_headers: callbackHeaders,
-
+        report_export_payload: {
+          report_id: report.id,
+          format: schedule.export_format,
+          pbi_page_name: primaryPageName,
+          pbi_page_names: selectedPageNames.length > 0 ? selectedPageNames : null,
+          callback_secret: callbackSecret,
+        },
         contacts: normalizedContacts.map((contact) => ({
           name: contact.name,
           phone: contact.phone,
           type: contact.type,
           whatsapp_group_id: contact.whatsapp_group_id,
         })),
-
         message,
-
         dispatch_log_ids: (insertedLogs ?? []).map((log) => log.id),
         dispatch_targets: dispatchTargets,
-
         callback_url: callbackUrl,
         callback_secret: callbackSecret,
         callback_headers: callbackHeaders,
-
         bot_send_url: botSendUrl,
         bot_send_headers: callbackHeaders,
       }),
@@ -357,9 +338,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: dispatchErrorMessage }, { status: 502 })
   }
 
-  return NextResponse.json({
-    success: true,
-    logs_created: (insertedLogs ?? []).length,
-    export_mode: "report",
-  })
+  return NextResponse.json({ success: true, logs_created: (insertedLogs ?? []).length })
 }

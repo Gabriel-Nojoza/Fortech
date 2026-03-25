@@ -9,10 +9,17 @@ import {
   isPowerBiFeatureNotAvailableError,
 } from "@/lib/powerbi"
 import { exportPowerBIReportPdf, sanitizeFileName } from "@/lib/powerbi-report-pdf"
-import { normalizeSchedulePageNames } from "@/lib/schedule-page-selection"
+import {
+  getPrimarySchedulePageName,
+  resolveSchedulePageNames,
+} from "@/lib/schedule-pages"
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Erro desconhecido"
 }
 
 function jsonError(error: string, status = 500) {
@@ -108,16 +115,6 @@ function detectPdfProfile(
     : "desktop"
 }
 
-function buildDynamicEmbedUrl(reportId: string, workspaceId: string) {
-  const base = "https://app.powerbi.com/reportEmbed"
-  const params = new URLSearchParams({
-    reportId,
-    groupId: workspaceId,
-  })
-
-  return `${base}?${params.toString()}`
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -140,12 +137,8 @@ export async function POST(request: NextRequest) {
 
     const reportId = String(body?.report_id ?? "").trim()
     const format = String(body?.format ?? "PDF").trim().toUpperCase()
-    const pbiPageNames = normalizeSchedulePageNames(
-      body?.pbi_page_names ??
-        body?.page_names ??
-        body?.pbi_page_name ??
-        body?.page_name
-    )
+    const pbiPageNames = resolveSchedulePageNames(body ?? {})
+    const pbiPageName = getPrimarySchedulePageName(pbiPageNames)
 
     const pdfProfile = detectPdfProfile(
       body?.pdf_profile,
@@ -155,14 +148,36 @@ export async function POST(request: NextRequest) {
     const preferNativePowerBiExport = body?.prefer_native_export === true
 
     if (!reportId) {
-      return jsonError("report_id obrigatorio", 400)
+      return new Response(JSON.stringify({ error: "report_id obrigatorio" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      })
     }
 
     if (!["PDF", "PNG", "PPTX"].includes(format)) {
-      return jsonError("Formato invalido. Use PDF, PNG ou PPTX.", 400)
+      return new Response(
+        JSON.stringify({ error: "Formato invalido. Use PDF, PNG ou PPTX." }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
     }
 
-    const { data: report, error: reportError } = await supabase
+    if (format !== "PDF" && pbiPageNames.length > 1) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "Selecione varias paginas apenas quando o formato de exportacao for PDF.",
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    }
+
+    const { data: report, error } = await supabase
       .from("reports")
       .select("id, name, pbi_report_id, workspace_id, embed_url, is_active")
       .eq("company_id", companyId)
@@ -170,8 +185,14 @@ export async function POST(request: NextRequest) {
       .eq("is_active", true)
       .single()
 
-    if (reportError || !report) {
-      return jsonError("Relatorio nao encontrado", 404)
+    if (error || !report) {
+      return new Response(
+        JSON.stringify({ error: "Relatorio nao encontrado" }),
+        {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
     }
 
     const { data: workspace, error: workspaceError } = await supabase
@@ -183,15 +204,53 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (workspaceError || !workspace?.pbi_workspace_id) {
-      return jsonError("Workspace do relatorio nao encontrado", 404)
-    }
-
-    if (!report.pbi_report_id) {
-      return jsonError("Relatorio sem pbi_report_id configurado", 500)
+      return new Response(
+        JSON.stringify({ error: "Workspace do relatorio nao encontrado" }),
+        {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
     }
 
     const token = await getAccessToken(companyId)
     const safeName = sanitizeFileName(report.name || "relatorio")
+    let browserPdfErrorMessage: string | null = null
+
+    if (format === "PDF" && !preferNativePowerBiExport) {
+      try {
+        const pdfBuffer = await exportPowerBIReportPdf({
+          token,
+          workspaceId: workspace.pbi_workspace_id,
+          reportId: report.pbi_report_id,
+          reportName: report.name,
+          embedUrl: report.embed_url,
+          pageNames: pbiPageNames,
+          pageName: pbiPageName,
+          pdfProfile,
+        })
+
+        return new Response(pdfBuffer, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `inline; filename="${safeName}.pdf"`,
+            "Cache-Control": "no-store",
+          },
+        })
+      } catch (browserPdfError) {
+        if (isPowerBiEntityNotFoundError(browserPdfError)) {
+          await deactivateMissingReport(supabase, companyId, report.id)
+          return jsonError(getMissingReportMessage(), 404)
+        }
+
+        browserPdfErrorMessage = getErrorMessage(browserPdfError)
+        console.error(
+          "Captura da pagina do sistema falhou, tentando ExportTo",
+          browserPdfError
+        )
+      }
+    }
 
     let exportJob: Awaited<ReturnType<typeof exportReport>>
 
@@ -209,54 +268,28 @@ export async function POST(request: NextRequest) {
         return jsonError(getMissingReportMessage(), 404)
       }
 
-      const shouldAttemptBrowserFallback =
+      if (
         format === "PDF" &&
-        pbiPageNames.length === 0 &&
-        preferNativePowerBiExport !== true
+        pbiPageNames.length > 1 &&
+        isPowerBiFeatureNotAvailableError(exportError)
+      ) {
+        return jsonError(
+          "Nao foi possivel gerar um unico PDF com varias paginas neste ambiente porque o ExportTo nativo do Power BI nao esta disponivel para este relatorio.",
+          500
+        )
+      }
 
-      if (shouldAttemptBrowserFallback) {
-        try {
-          console.error("ExportTo do Power BI falhou, tentando captura visual", exportError)
+      if (format === "PDF" && browserPdfErrorMessage) {
+        console.error(
+          "ExportTo do Power BI falhou apos erro na captura da pagina",
+          exportError
+        )
 
-          const embedUrl = buildDynamicEmbedUrl(
-            report.pbi_report_id,
-            workspace.pbi_workspace_id
-          )
+        const errorMessage = isPowerBiFeatureNotAvailableError(exportError)
+          ? "Nao foi possivel gerar o PDF automaticamente neste ambiente. A captura da pagina falhou e o ExportTo nativo do Power BI nao esta disponivel para este relatorio."
+          : "Nao foi possivel gerar o PDF deste relatorio agora. Tente novamente."
 
-          const pdfBuffer = await exportPowerBIReportPdf({
-            token,
-            workspaceId: workspace.pbi_workspace_id,
-            reportId: report.pbi_report_id,
-            reportName: report.name,
-            embedUrl,
-            pdfProfile,
-          })
-
-          return new Response(pdfBuffer, {
-            status: 200,
-            headers: {
-              "Content-Type": "application/pdf",
-              "Content-Disposition": `inline; filename="${safeName}.pdf"`,
-              "Cache-Control": "no-store",
-            },
-          })
-        } catch (browserPdfError) {
-          if (isPowerBiEntityNotFoundError(browserPdfError)) {
-            await deactivateMissingReport(supabase, companyId, report.id)
-            return jsonError(getMissingReportMessage(), 404)
-          }
-
-          console.error(
-            "Captura visual do Power BI falhou apos erro no ExportTo",
-            browserPdfError
-          )
-
-          const errorMessage = isPowerBiFeatureNotAvailableError(exportError)
-            ? "Nao foi possivel gerar o PDF automaticamente neste ambiente. O ExportTo nativo do Power BI nao esta disponivel para este relatorio e a captura visual tambem falhou."
-            : "Nao foi possivel gerar o PDF deste relatorio agora. Tente novamente."
-
-          return jsonError(errorMessage, 500)
-        }
+        return jsonError(errorMessage, 500)
       }
 
       throw exportError

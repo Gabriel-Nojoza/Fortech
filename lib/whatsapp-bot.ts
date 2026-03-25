@@ -141,7 +141,7 @@ async function readWhatsAppBotRuntimeStateFromFile(): Promise<WhatsAppBotRuntime
 }
 
 export async function controlWhatsAppBot(
-  action: "disconnect" | "restart"
+  action: "disconnect" | "restart" | "switch_phone"
 ): Promise<WhatsAppBotRuntimeState> {
   const response = await fetch(`${getWhatsAppBotServiceBaseUrl()}/control`, {
     method: "POST",

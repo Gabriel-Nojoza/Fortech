@@ -46,7 +46,7 @@ export interface Schedule {
   name: string
   report_id: string
   pbi_page_name?: string | null
-  pbi_page_names?: string[]
+  pbi_page_names?: string[] | null
   cron_expression: string
   export_format: ScheduleExportFormat
   message_template: string | null

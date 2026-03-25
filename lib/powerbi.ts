@@ -280,27 +280,26 @@ export async function exportReport(
   reportId: string,
   format: "PDF" | "PNG" | "PPTX",
   options?: {
-    pageName?: string | null
     pageNames?: string[] | null
+    pageName?: string | null
   }
 ) {
-  const pageNames = Array.from(
-    new Set(
-      [
-        ...(Array.isArray(options?.pageNames) ? options.pageNames : []),
-        ...(typeof options?.pageName === "string" ? [options.pageName] : []),
-      ]
-        .map((pageName) => (typeof pageName === "string" ? pageName.trim() : ""))
-        .filter(Boolean)
-    )
-  )
+  const pageNames = Array.isArray(options?.pageNames)
+    ? [...new Set(options.pageNames.map((pageName) => pageName.trim()).filter(Boolean))]
+    : []
+  const fallbackPageName =
+    typeof options?.pageName === "string" && options.pageName.trim()
+      ? options.pageName.trim()
+      : null
+  const selectedPageNames =
+    pageNames.length > 0 ? pageNames : fallbackPageName ? [fallbackPageName] : []
 
   const body =
-    pageNames.length > 0
+    selectedPageNames.length > 0
       ? {
           format,
           powerBIReportConfiguration: {
-            pages: pageNames.map((pageName) => ({ pageName })),
+            pages: selectedPageNames.map((pageName) => ({ pageName })),
             settings: {
               layoutType: "Print",
             },

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "child_process"
 import { promises as fs } from "fs"
+import os from "os"
 import path from "path"
 import { pathToFileURL } from "url"
 
@@ -60,8 +61,6 @@ type ScreenshotReadyState = {
   error: string | null
   scrollWidth: number
   scrollHeight: number
-  reportPending?: boolean
-  reportReady?: boolean
 }
 
 type PdfRenderOptions = {
@@ -105,6 +104,11 @@ type SegmentMetadata = {
   height: number
   scrollTop: number
   viewportHeight: number
+}
+
+type ScreenshotDocument = {
+  segments: string[]
+  metadata: SegmentMetadata[]
 }
 
 type ClipBox = {
@@ -155,6 +159,180 @@ function millimetersToCssPixels(value: number) {
   )
 }
 
+function parseScreenshotDocument(screenshotPayload: Buffer): ScreenshotDocument {
+  try {
+    const parsed = JSON.parse(screenshotPayload.toString("utf-8")) as {
+      segments?: string[]
+      metadata?: SegmentMetadata[]
+    }
+
+    const segments = Array.isArray(parsed.segments) ? parsed.segments : []
+    const metadata = Array.isArray(parsed.metadata) ? parsed.metadata : []
+
+    if (segments.length > 0 && metadata.length > 0) {
+      return { segments, metadata }
+    }
+  } catch {
+    // Quando nao vier JSON segmentado, tratamos como uma imagem PNG unica.
+  }
+
+  const dimensions = parsePngDimensions(screenshotPayload)
+  return {
+    segments: [screenshotPayload.toString("base64")],
+    metadata: [
+      {
+        width: dimensions.width,
+        height: dimensions.height,
+        scrollTop: 0,
+        viewportHeight: dimensions.height,
+      },
+    ],
+  }
+}
+
+export async function renderScreenshotPayloadsToPdf(
+  screenshotPayloads: Buffer[],
+  options?: Pick<
+    ScreenshotToPdfOptions,
+    "pdfTimeoutMs" | "pageWidthMm" | "pageHeightMm" | "pageMarginMm"
+  >
+) {
+  const documents = screenshotPayloads.map((payload) => parseScreenshotDocument(payload))
+
+  const pages = documents.flatMap((document) =>
+    document.segments.map((segment, index) => ({
+      segmentBase64: segment,
+      info: document.metadata[index],
+    }))
+  )
+
+  if (
+    pages.length === 0 ||
+    pages.some((page) => !page.info || !page.info.width || !page.info.height)
+  ) {
+    throw new Error("Nenhuma captura valida foi gerada para o relatorio")
+  }
+
+  const pageWidthMm = options?.pageWidthMm ?? 420
+  const pageHeightMm = options?.pageHeightMm ?? 594
+  const pageMarginMm = options?.pageMarginMm ?? 8
+
+  const pageWidthPx = millimetersToCssPixels(pageWidthMm)
+  const pageHeightPx = millimetersToCssPixels(pageHeightMm)
+  const pageMarginPx = millimetersToCssPixels(pageMarginMm)
+  const contentWidthPx = Math.max(1, pageWidthPx - pageMarginPx * 2)
+  const contentHeightPx = Math.max(1, pageHeightPx - pageMarginPx * 2)
+
+  const pagesHtml = pages
+    .map(({ segmentBase64, info }, index) => {
+      const renderedImageWidthPx = contentWidthPx
+      const renderedImageHeightPx = Math.max(
+        1,
+        Math.round((info.height * renderedImageWidthPx) / info.width)
+      )
+
+      const localSlices = Math.max(
+        1,
+        Math.ceil(renderedImageHeightPx / contentHeightPx)
+      )
+
+      return Array.from({ length: localSlices }, (_, sliceIndex) => {
+        const offsetY = sliceIndex * contentHeightPx
+
+        return `
+          <section class="pdf-page">
+            <div class="slice">
+              <img
+                src="data:image/png;base64,${escapeHtmlAttribute(segmentBase64)}"
+                alt="Relatorio Power BI - segmento ${index + 1}"
+                style="transform: translateY(-${offsetY}px);"
+              />
+            </div>
+          </section>
+        `
+      }).join("")
+    })
+    .join("")
+
+  const imageHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @page {
+      size: ${pageWidthMm}mm ${pageHeightMm}mm;
+      margin: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+    }
+
+    body {
+      background: #ffffff;
+    }
+
+    .pdf-page {
+      width: ${pageWidthPx}px;
+      height: ${pageHeightPx}px;
+      padding: ${pageMarginPx}px;
+      background: #ffffff;
+      overflow: hidden;
+      break-after: page;
+      page-break-after: always;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+    }
+
+    .pdf-page:last-child {
+      break-after: auto;
+      page-break-after: auto;
+    }
+
+    .slice {
+      width: ${contentWidthPx}px;
+      height: ${contentHeightPx}px;
+      overflow: hidden;
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    img {
+      display: block;
+      width: ${contentWidthPx}px;
+      max-width: none;
+      max-height: none;
+      object-fit: contain;
+      image-rendering: auto;
+    }
+  </style>
+</head>
+<body>
+  ${pagesHtml}
+</body>
+</html>`
+
+  return renderHtmlToPdf(imageHtml, {
+    timeoutMs: options?.pdfTimeoutMs ?? 60000,
+    virtualTimeBudgetMs: 3000,
+    pageWidthMm,
+    pageHeightMm,
+    marginMm: 0,
+    printBackground: true,
+  })
+}
+
 function escapeHtmlAttribute(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -170,37 +348,6 @@ async function pathExists(targetPath: string) {
   } catch {
     return false
   }
-}
-
-async function ensureDir(targetPath: string) {
-  await fs.mkdir(targetPath, { recursive: true })
-}
-
-function getBrowserWorkspaceRoot() {
-  const configured = process.env.REPORT_PDF_TMP_DIR?.trim()
-
-  if (configured) {
-    return path.isAbsolute(configured)
-      ? configured
-      : path.join(process.cwd(), configured)
-  }
-
-  return path.join(process.cwd(), ".tmp", "browser-pdf")
-}
-
-async function waitForFile(targetPath: string, timeoutMs = 5000) {
-  const startedAt = Date.now()
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      await fs.access(targetPath)
-      return
-    } catch {
-      await delay(150)
-    }
-  }
-
-  throw new Error(`Arquivo temporario nao ficou disponivel: ${targetPath}`)
 }
 
 async function findExecutableOnPath(command: string) {
@@ -258,16 +405,12 @@ async function createBrowserWorkspace(
   prefix: string,
   html: string
 ): Promise<BrowserWorkspace> {
-  const rootDir = getBrowserWorkspaceRoot()
-  await ensureDir(rootDir)
-
-  const workingDir = await fs.mkdtemp(path.join(rootDir, prefix))
+  const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix))
   const htmlPath = path.join(workingDir, "report.html")
   const profilePath = path.join(workingDir, "profile")
 
   await fs.mkdir(profilePath, { recursive: true })
   await fs.writeFile(htmlPath, html, "utf-8")
-  await waitForFile(htmlPath, 5000)
 
   return {
     workingDir,
@@ -277,11 +420,7 @@ async function createBrowserWorkspace(
 }
 
 async function cleanupBrowserWorkspace(workspace: BrowserWorkspace) {
-  try {
-    await fs.rm(workspace.workingDir, { recursive: true, force: true })
-  } catch {
-    // ignora erro de limpeza
-  }
+  await fs.rm(workspace.workingDir, { recursive: true, force: true })
 }
 
 function getCommonBrowserArgs(profilePath: string) {
@@ -592,6 +731,10 @@ async function closeChrome(child: ChildProcess) {
 async function openHtmlInNewPage(client: CdpClient, htmlUrl: string) {
   const targetResult = await client.send("Target.createTarget", {
     url: "about:blank",
+    width: 1280,
+    height: 720,
+    newWindow: false,
+    background: true,
   })
 
   const targetId = String(targetResult.targetId)
@@ -613,8 +756,6 @@ async function openHtmlInNewPage(client: CdpClient, htmlUrl: string) {
   await client.send("Runtime.enable", {}, { sessionId })
   await client.send("DOM.enable", {}, { sessionId })
   await client.send("Network.enable", {}, { sessionId })
-
-  await waitForFile(new URL(htmlUrl).pathname, 5000).catch(() => {})
 
   const navigateResult = await client.send(
     "Page.navigate",
@@ -692,15 +833,13 @@ async function withBrowserPage<T>(
   } finally {
     if (client) {
       await client.close().catch(() => {})
-      await delay(250)
     }
 
     if (chrome) {
       await closeChrome(chrome.child).catch(() => {})
-      await delay(500)
     }
 
-    await cleanupBrowserWorkspace(workspace)
+    await cleanupBrowserWorkspace(workspace).catch(() => {})
   }
 }
 
@@ -709,71 +848,47 @@ async function waitForDomReady(
   sessionId: string,
   virtualTimeBudgetMs: number
 ) {
-  const maxWaitMs = Math.max(1000, Math.min(virtualTimeBudgetMs, 45000))
-  const pollIntervalMs = 500
-  const startedAt = Date.now()
-  let latestState: ScreenshotReadyState = {
-    ready: false,
-    error: null,
-    scrollWidth: 0,
-    scrollHeight: 0,
-  }
+  await delay(Math.max(300, Math.min(virtualTimeBudgetMs, 5000)))
 
-  while (Date.now() - startedAt <= maxWaitMs) {
-    const state = await client.send(
-      "Runtime.evaluate",
-      {
-        expression: `(() => {
-          const readyState = document.readyState;
-          const body = document.body;
-          const documentElement = document.documentElement;
-          const reportPending = window.__REPORT_PENDING__ === true;
-          const reportReady = Boolean(window.__REPORT_READY__);
-          const reportError =
-            typeof window.__REPORT_ERROR__ === "string" &&
-            window.__REPORT_ERROR__.trim()
-              ? window.__REPORT_ERROR__.trim()
-              : null;
+  const state = await client.send(
+    "Runtime.evaluate",
+    {
+      expression: `(() => {
+        const readyState = document.readyState;
+        const body = document.body;
+        const documentElement = document.documentElement;
 
-          return {
-            ready:
-              (readyState === "complete" || readyState === "interactive") &&
-              (!reportPending || reportReady || Boolean(reportError)),
-            error: reportError,
-            reportPending,
-            reportReady,
-            scrollWidth: Math.max(
-              body?.scrollWidth || 0,
-              documentElement?.scrollWidth || 0
-            ),
-            scrollHeight: Math.max(
-              body?.scrollHeight || 0,
-              documentElement?.scrollHeight || 0
-            )
-          };
-        })()`,
-        returnByValue: true,
-        awaitPromise: true,
-      },
-      { sessionId }
-    )
+        return {
+          ready: readyState === 'complete' || readyState === 'interactive',
+          error: null,
+          scrollWidth: Math.max(
+            body?.scrollWidth || 0,
+            documentElement?.scrollWidth || 0
+          ),
+          scrollHeight: Math.max(
+            body?.scrollHeight || 0,
+            documentElement?.scrollHeight || 0
+          )
+        };
+      })()`,
+      returnByValue: true,
+      awaitPromise: true,
+    },
+    { sessionId }
+  )
 
-    latestState =
-      (state.result as { value?: ScreenshotReadyState } | undefined)?.value ?? {
-        ready: false,
-        error: "Nao foi possivel ler o DOM do relatorio",
-        scrollWidth: 0,
-        scrollHeight: 0,
-      }
+  const resultValue = (
+    state.result as { value?: ScreenshotReadyState } | undefined
+  )?.value
 
-    if (latestState.ready) {
-      return latestState
+  return (
+    resultValue ?? {
+      ready: false,
+      error: "Nao foi possivel ler o DOM do relatorio",
+      scrollWidth: 0,
+      scrollHeight: 0,
     }
-
-    await delay(pollIntervalMs)
-  }
-
-  return latestState
+  )
 }
 
 async function prepareScrollableSegments(
@@ -1066,10 +1181,6 @@ export async function renderHtmlToPdf(
   return withBrowserPage(html, timeoutMs, async (client, sessionId) => {
     const lastState = await waitForDomReady(client, sessionId, virtualTimeBudgetMs)
 
-    if (lastState.error) {
-      throw new Error(lastState.error)
-    }
-
     if (!lastState.ready) {
       throw new Error(
         lastState.error || "O HTML do relatorio nao ficou pronto para gerar o PDF"
@@ -1140,10 +1251,6 @@ export async function renderHtmlToPng(
     )
 
     const lastState = await waitForDomReady(client, sessionId, 4000)
-
-    if (lastState.error) {
-      throw new Error(lastState.error)
-    }
 
     if (!lastState.ready) {
       throw new Error(
@@ -1322,154 +1429,7 @@ export async function renderHtmlScreenshotToPdf(
     screenshotScale: options?.screenshotScale,
     forceExpandScrollable: true,
   })
-
-  let segments: string[] = []
-  let metadata: SegmentMetadata[] = []
-
-  try {
-    const parsed = JSON.parse(screenshotPayload.toString("utf-8")) as {
-      segments?: string[]
-      metadata?: SegmentMetadata[]
-    }
-
-    segments = Array.isArray(parsed.segments) ? parsed.segments : []
-    metadata = Array.isArray(parsed.metadata) ? parsed.metadata : []
-  } catch {
-    segments = [screenshotPayload.toString("base64")]
-    const dimensions = parsePngDimensions(screenshotPayload)
-    metadata = [
-      {
-        width: dimensions.width,
-        height: dimensions.height,
-        scrollTop: 0,
-        viewportHeight: dimensions.height,
-      },
-    ]
-  }
-
-  if (!segments.length || !metadata.length) {
-    throw new Error("Nenhuma captura valida foi gerada para o relatorio")
-  }
-
-  const pageWidthMm = options?.pageWidthMm ?? 420
-  const pageHeightMm = options?.pageHeightMm ?? 594
-  const pageMarginMm = options?.pageMarginMm ?? 8
-
-  const pageWidthPx = millimetersToCssPixels(pageWidthMm)
-  const pageHeightPx = millimetersToCssPixels(pageHeightMm)
-  const pageMarginPx = millimetersToCssPixels(pageMarginMm)
-  const contentWidthPx = Math.max(1, pageWidthPx - pageMarginPx * 2)
-  const contentHeightPx = Math.max(1, pageHeightPx - pageMarginPx * 2)
-
-  const pagesHtml = segments
-    .map((segmentBase64, index) => {
-      const info = metadata[index]
-      const renderedImageWidthPx = contentWidthPx
-      const renderedImageHeightPx = Math.max(
-        1,
-        Math.round((info.height * renderedImageWidthPx) / info.width)
-      )
-
-      const localSlices = Math.max(
-        1,
-        Math.ceil(renderedImageHeightPx / contentHeightPx)
-      )
-
-      return Array.from({ length: localSlices }, (_, sliceIndex) => {
-        const offsetY = sliceIndex * contentHeightPx
-
-        return `
-          <section class="pdf-page">
-            <div class="slice">
-              <img
-                src="data:image/png;base64,${escapeHtmlAttribute(segmentBase64)}"
-                alt="Relatorio Power BI - segmento ${index + 1}"
-                style="transform: translateY(-${offsetY}px);"
-              />
-            </div>
-          </section>
-        `
-      }).join("")
-    })
-    .join("")
-
-  const imageHtml = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    @page {
-      size: ${pageWidthMm}mm ${pageHeightMm}mm;
-      margin: 0;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html, body {
-      width: 100%;
-      margin: 0;
-      padding: 0;
-      background: #ffffff;
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-
-    body {
-      background: #ffffff;
-    }
-
-    .pdf-page {
-      width: ${pageWidthPx}px;
-      height: ${pageHeightPx}px;
-      padding: ${pageMarginPx}px;
-      background: #ffffff;
-      overflow: hidden;
-      break-after: page;
-      page-break-after: always;
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-    }
-
-    .pdf-page:last-child {
-      break-after: auto;
-      page-break-after: auto;
-    }
-
-    .slice {
-      width: ${contentWidthPx}px;
-      height: ${contentHeightPx}px;
-      overflow: hidden;
-      position: relative;
-      flex: 0 0 auto;
-    }
-
-    img {
-      display: block;
-      width: ${contentWidthPx}px;
-      max-width: none;
-      max-height: none;
-      object-fit: contain;
-      image-rendering: auto;
-    }
-  </style>
-</head>
-<body>
-  ${pagesHtml}
-</body>
-</html>`
-
-  return renderHtmlToPdf(imageHtml, {
-    timeoutMs: options?.pdfTimeoutMs ?? 60000,
-    virtualTimeBudgetMs: 3000,
-    pageWidthMm,
-    pageHeightMm,
-    marginMm: 0,
-    printBackground: true,
-  })
+  return renderScreenshotPayloadsToPdf([screenshotPayload], options)
 }
 
 export async function renderHtmlToPdfViaCli(
@@ -1483,8 +1443,6 @@ export async function renderHtmlToPdfViaCli(
   const htmlUrl = pathToFileURL(workspace.htmlPath).toString()
 
   try {
-    await waitForFile(workspace.htmlPath, 5000)
-
     const args = [
       ...getCommonBrowserArgs(workspace.profilePath),
       `--print-to-pdf=${outputPath}`,
@@ -1492,10 +1450,8 @@ export async function renderHtmlToPdfViaCli(
     ]
 
     await runProcess(executablePath, args, timeoutMs)
-    await waitForFile(outputPath, 10000)
-
     return await fs.readFile(outputPath)
   } finally {
-    await cleanupBrowserWorkspace(workspace)
+    await cleanupBrowserWorkspace(workspace).catch(() => {})
   }
 }

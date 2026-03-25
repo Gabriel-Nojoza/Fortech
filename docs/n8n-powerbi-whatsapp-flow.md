@@ -5,7 +5,13 @@ O N8N recebe:
 
 - `report_name`
 - `report_id`
+- `app_report_id`
 - `workspace_id`
+- `pbi_page_name`
+- `pbi_page_names`
+- `report_export_url`
+- `report_export_headers`
+- `report_export_payload`
 - `export_format`
 - `contacts`
 - `message`
@@ -71,9 +77,29 @@ Exemplo:
   "cron_expression": "0 8 * * 1-5",
   "is_active": true,
   "report_name": "Relatorio 01",
+  "app_report_id": "relatorio-app-123",
   "report_id": "xxxxxxxx",
   "workspace_id": "yyyyyyyy",
+  "pbi_page_name": "ReportSectionResumoEquipe",
+  "pbi_page_names": [
+    "ReportSectionResumoEquipe",
+    "ReportSectionMetaEquipe"
+  ],
   "export_format": "PDF",
+  "report_export_url": "https://seu-app.com/api/reports/export",
+  "report_export_headers": {
+    "x-callback-secret": "seu-segredo"
+  },
+  "report_export_payload": {
+    "report_id": "relatorio-app-123",
+    "format": "PDF",
+    "pbi_page_name": "ReportSectionResumoEquipe",
+    "pbi_page_names": [
+      "ReportSectionResumoEquipe",
+      "ReportSectionMetaEquipe"
+    ],
+    "callback_secret": "seu-segredo"
+  },
   "contacts": [
     {
       "name": "Grupo Vendas",
@@ -114,19 +140,7 @@ Os campos `schedule_id`, `schedule_name`, `cron_expression` e `is_active` identi
 
 Se vier `test = true`, responda `200 OK` e finalize.
 
-### 3. Token Azure AD
-
-Use um node `HTTP Request` para obter token:
-
-- Metodo: `POST`
-- URL: `https://login.microsoftonline.com/<TENANT_ID>/oauth2/v2.0/token`
-- Body form-urlencoded:
-  - `client_id`
-  - `client_secret`
-  - `grant_type=client_credentials`
-  - `scope=https://analysis.windows.net/powerbi/api/.default`
-
-### 4. Iniciar exportacao do Power BI
+### 3. Iniciar exportacao do relatorio
 
 Use `HTTP Request`:
 
@@ -134,41 +148,36 @@ Use `HTTP Request`:
 - URL:
 
 ```text
-https://api.powerbi.com/v1.0/myorg/groups/{{$json.workspace_id}}/reports/{{$json.report_id}}/ExportTo
+={{ $('Webhook').item.json.report_export_url }}
 ```
 
-- Header: `Authorization: Bearer <token>`
+- Header:
+
+```text
+x-callback-secret: ={{ $('Webhook').item.json.callback_secret }}
+Content-Type: application/json
+```
+
 - Body JSON:
 
 ```json
 {
-  "format": "PDF"
+  "report_id": "={{ $('Webhook').item.json.report_export_payload.report_id }}",
+  "format": "={{ $('Webhook').item.json.report_export_payload.format }}",
+  "pbi_page_name": "={{ $('Webhook').item.json.report_export_payload.pbi_page_name }}",
+  "pbi_page_names": "={{ $('Webhook').item.json.report_export_payload.pbi_page_names }}",
+  "callback_secret": "={{ $('Webhook').item.json.callback_secret }}"
 }
 ```
 
-Guarde o `id` da exportacao.
+Se `pbi_page_names` vier com varios itens, o app gera um unico PDF com todas as paginas selecionadas no campo `Paginas do Relatorio`.
+Se vier apenas `pbi_page_name`, o app exporta somente aquela pagina.
 
-### 5. Consultar status ate concluir
+### 4. Receber o arquivo exportado
 
-Use `Loop` + `Wait` + `HTTP Request`:
+Ative `Download` para o arquivo vir em binario. O endpoint do app ja cuida do processo de exportacao e retorna o arquivo final.
 
-```text
-GET https://api.powerbi.com/v1.0/myorg/groups/{{$json.workspace_id}}/reports/{{$json.report_id}}/exports/{{$json.export_id}}
-```
-
-Continue ate `status = Succeeded`.
-
-### 6. Baixar o arquivo
-
-Use `HTTP Request` com download de arquivo:
-
-```text
-GET https://api.powerbi.com/v1.0/myorg/groups/{{$json.workspace_id}}/reports/{{$json.report_id}}/exports/{{$json.export_id}}/file
-```
-
-Ative `Download` para o arquivo vir em binario.
-
-### 7. Converter binario para base64
+### 5. Converter binario para base64
 
 Use `Move Binary Data`:
 
@@ -176,7 +185,7 @@ Use `Move Binary Data`:
 - Campo binario: `data`
 - Campo JSON destino: `document_base64`
 
-### 8. Separar contatos
+### 6. Separar contatos
 
 Use `Split Out` em `dispatch_targets`.
 
@@ -195,7 +204,7 @@ Depois monte o payload do bot com um `Set` ou `Code`:
 }
 ```
 
-## 9. Enviar pelo bot do app
+## 7. Enviar pelo bot do app
 
 Use `HTTP Request`:
 
@@ -230,7 +239,7 @@ Content-Type: application/json
 
 Observacao: com `dispatch_log_id`, o proprio `/api/bot/send` ja marca o log como `delivered` ou `failed`. O callback abaixo continua util para falhas antes do envio individual ou para reforcar o status.
 
-## 10. Callback de sucesso ou erro
+## 8. Callback de sucesso ou erro
 
 Se o envio funcionar:
 

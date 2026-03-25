@@ -1,6 +1,50 @@
-import { chromium } from "playwright"
-
 export type AppPdfProfile = "desktop" | "mobile"
+
+async function loadPlaywrightChromium() {
+  try {
+    const importer = Function("return import('playwright')")
+    const playwrightModule = (await importer()) as {
+      chromium?: {
+        launch: (options: {
+          headless: boolean
+          args: string[]
+        }) => Promise<{
+          newPage: (options: {
+            viewport: { width: number; height: number }
+            deviceScaleFactor: number
+          }) => Promise<{
+            goto: (url: string, options: { waitUntil: string; timeout: number }) => Promise<void>
+            waitForSelector: (selector: string, options: { timeout: number }) => Promise<void>
+            emulateMedia: (options: { media: string }) => Promise<void>
+            addStyleTag: (options: { content: string }) => Promise<void>
+            waitForTimeout: (timeout: number) => Promise<void>
+            pdf: (options: {
+              printBackground: boolean
+              width: string
+              height: string
+              margin: Record<string, string>
+              preferCSSPageSize: boolean
+              scale: number
+            }) => Promise<Buffer>
+          }>
+          close: () => Promise<void>
+        }>
+      }
+    }
+
+    if (!playwrightModule?.chromium) {
+      throw new Error("Playwright nao retornou o navegador chromium.")
+    }
+
+    return playwrightModule.chromium
+  } catch (error) {
+    throw new Error(
+      error instanceof Error && error.message
+        ? `Playwright nao esta disponivel neste ambiente: ${error.message}`
+        : "Playwright nao esta disponivel neste ambiente."
+    )
+  }
+}
 
 function getPreset(profile: AppPdfProfile) {
   if (profile === "mobile") {
@@ -37,6 +81,7 @@ export async function exportAppReportPdf(input: {
   pdfProfile?: AppPdfProfile
   waitForSelector?: string
 }) {
+  const chromium = await loadPlaywrightChromium()
   const browser = await chromium.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],

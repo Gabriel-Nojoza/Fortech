@@ -7,16 +7,23 @@ import {
   loadStoredAutomations,
 } from "@/lib/automation-storage"
 import {
-  buildSchedulePageSelectionPayload,
+  getPrimarySchedulePageName,
   normalizeSchedulePageNames,
-  normalizeSchedulePageSelectionForResponse,
-  schedulesSupportPageNames,
-} from "@/lib/schedule-page-selection"
+  resolveSchedulePageNames,
+} from "@/lib/schedule-pages"
 
 function isMissingSchedulesUpdatedAtColumn(message?: string | null) {
   return (
     typeof message === "string" &&
     message.includes("updated_at") &&
+    message.includes("schedules")
+  )
+}
+
+function isMissingSchedulePageNamesColumn(message?: string | null) {
+  return (
+    typeof message === "string" &&
+    message.includes("pbi_page_names") &&
     message.includes("schedules")
   )
 }
@@ -28,36 +35,28 @@ const nullableTrimmedString = z.preprocess((value) => {
   return trimmed.length > 0 ? trimmed : null
 }, z.string().min(1).nullable().optional())
 
-const requiredTrimmedString = z.preprocess((value) => {
-  if (typeof value !== "string") return value
+const pageNamesSchema = z.preprocess(
+  (value) => {
+    if (value === undefined) {
+      return undefined
+    }
 
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : value
-}, z.string().min(1))
+    return normalizeSchedulePageNames(value)
+  },
+  z.array(z.string().min(1)).optional()
+)
 
 const scheduleSchema = z.object({
   name: z.string().min(1),
-
   report_id: z.string().uuid(),
-
   pbi_page_name: nullableTrimmedString,
-
-  pbi_page_names: z.array(z.string().min(1)).optional(),
-
-  dax_query: nullableTrimmedString,
-
-  dataset_id: nullableTrimmedString,
-
+  pbi_page_names: pageNamesSchema,
   cron_expression: z.string().min(1),
-
   export_format: z
     .enum(["PDF", "PNG", "PPTX", "table", "csv", "pdf"])
     .default("PDF"),
-
   message_template: z.string().nullable().optional(),
-
   is_active: z.boolean().default(true),
-
   contact_ids: z.array(z.string().uuid()).optional(),
 })
 
@@ -142,7 +141,7 @@ export async function GET() {
       }
 
       return {
-        ...normalizeSchedulePageSelectionForResponse(schedule),
+        ...schedule,
         report_name:
           reportMap.get(schedule.report_id) ??
           automationMap.get(schedule.report_id) ??
@@ -173,35 +172,44 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { contact_ids, pbi_page_name, pbi_page_names, ...scheduleData } = parsed.data
-  const normalizedPageNames = normalizeSchedulePageNames(
-    pbi_page_names ?? pbi_page_name
-  )
-  const supportsPageNames = await schedulesSupportPageNames(supabase)
+  const { contact_ids, ...scheduleData } = parsed.data
+  const pageNames = resolveSchedulePageNames(parsed.data)
 
-  if (!supportsPageNames && normalizedPageNames.length > 1) {
+  if (pageNames.length > 1 && scheduleData.export_format !== "PDF") {
     return NextResponse.json(
       {
-        error:
-          "O banco ainda nao suporta selecionar varias paginas por rotina. Aplique a migracao mais recente do Supabase.",
+        error: {
+          pbi_page_names: [
+            "Selecione varias paginas apenas quando o formato de exportacao for PDF.",
+          ],
+        },
       },
       { status: 400 }
     )
   }
 
-  const schedulePayload = {
-    ...scheduleData,
-    ...buildSchedulePageSelectionPayload(normalizedPageNames, supportsPageNames),
-    company_id: companyId,
-  }
-
   const { data: schedule, error } = await supabase
     .from("schedules")
-    .insert(schedulePayload)
+    .insert({
+      ...scheduleData,
+      company_id: companyId,
+      pbi_page_name: getPrimarySchedulePageName(pageNames),
+      pbi_page_names: pageNames.length > 0 ? pageNames : null,
+    })
     .select()
     .single()
 
   if (error) {
+    if (isMissingSchedulePageNamesColumn(error.message)) {
+      return NextResponse.json(
+        {
+          error:
+            "O banco ainda nao suporta varias paginas por rotina. Execute a migration 20260324_schedule_page_names.sql no Supabase.",
+        },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
@@ -220,7 +228,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json(normalizeSchedulePageSelectionForResponse(schedule), { status: 201 })
+  return NextResponse.json(schedule, { status: 201 })
 }
 
 export async function PUT(request: NextRequest) {
@@ -236,18 +244,39 @@ export async function PUT(request: NextRequest) {
     )
   }
 
-  const { id, contact_ids, pbi_page_name, pbi_page_names, ...updates } = parsed.data
-  const supportsPageNames = await schedulesSupportPageNames(supabase)
-  const hasPageSelectionUpdate = pbi_page_name !== undefined || pbi_page_names !== undefined
-  const normalizedPageNames = hasPageSelectionUpdate
-    ? normalizeSchedulePageNames(pbi_page_names ?? pbi_page_name)
-    : null
+  const { id, contact_ids, ...updates } = parsed.data
+  const isUpdatingPageSelection =
+    Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_name") ||
+    Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_names")
 
-  if (!supportsPageNames && (normalizedPageNames?.length ?? 0) > 1) {
+  const { data: existingSchedule, error: existingScheduleError } = await supabase
+    .from("schedules")
+    .select("id, export_format, pbi_page_name, pbi_page_names")
+    .eq("company_id", companyId)
+    .eq("id", id)
+    .maybeSingle()
+
+  if (existingScheduleError) {
+    return NextResponse.json({ error: existingScheduleError.message }, { status: 500 })
+  }
+
+  if (!existingSchedule) {
+    return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
+  }
+
+  const pageNames = isUpdatingPageSelection
+    ? resolveSchedulePageNames(parsed.data)
+    : resolveSchedulePageNames(existingSchedule)
+  const effectiveExportFormat = parsed.data.export_format ?? existingSchedule.export_format
+
+  if (effectiveExportFormat !== "PDF" && pageNames.length > 1) {
     return NextResponse.json(
       {
-        error:
-          "O banco ainda nao suporta selecionar varias paginas por rotina. Aplique a migracao mais recente do Supabase.",
+        error: {
+          pbi_page_names: [
+            "Selecione varias paginas apenas quando o formato de exportacao for PDF.",
+          ],
+        },
       },
       { status: 400 }
     )
@@ -257,16 +286,9 @@ export async function PUT(request: NextRequest) {
     Object.entries(updates).filter(([, value]) => value !== undefined)
   )
 
-  if (normalizedPageNames) {
-    Object.assign(
-      scheduleUpdates,
-      buildSchedulePageSelectionPayload(normalizedPageNames, supportsPageNames)
-    )
-  } else if (hasPageSelectionUpdate) {
-    Object.assign(
-      scheduleUpdates,
-      buildSchedulePageSelectionPayload([], supportsPageNames)
-    )
+  if (isUpdatingPageSelection) {
+    scheduleUpdates.pbi_page_name = getPrimarySchedulePageName(pageNames)
+    scheduleUpdates.pbi_page_names = pageNames.length > 0 ? pageNames : null
   }
 
   const updateSchedule = async (payload: Record<string, unknown>) =>
@@ -288,6 +310,16 @@ export async function PUT(request: NextRequest) {
   }
 
   if (result.error) {
+    if (isMissingSchedulePageNamesColumn(result.error.message)) {
+      return NextResponse.json(
+        {
+          error:
+            "O banco ainda nao suporta varias paginas por rotina. Execute a migration 20260324_schedule_page_names.sql no Supabase.",
+        },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json({ error: result.error.message }, { status: 500 })
   }
 
@@ -317,7 +349,7 @@ export async function PUT(request: NextRequest) {
     }
   }
 
-  return NextResponse.json(normalizeSchedulePageSelectionForResponse(result.data))
+  return NextResponse.json(result.data)
 }
 
 export async function DELETE(request: NextRequest) {

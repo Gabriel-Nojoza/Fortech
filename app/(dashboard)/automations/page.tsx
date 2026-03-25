@@ -39,7 +39,6 @@ import {
 } from "@/lib/quick-filters"
 import { toast } from "sonner"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import { useBotContactSync } from "@/hooks/use-bot-contact-sync"
 import type {
   Workspace,
   Contact,
@@ -93,14 +92,10 @@ export default function AutomationsPage() {
   const { data: stats } = useSWR<{ n8nConfigured?: boolean }>("/api/stats", fetcher)
   const { data: botQrConfig } = useSWR<{
     status?: "starting" | "awaiting_qr" | "connected" | "reconnecting" | "offline" | "error"
-    jid?: string | null
-    phone_number?: string | null
-    connected_at?: string | null
   }>("/api/bot/qr", fetcher)
 
   const workspaces: Workspace[] = Array.isArray(rawWorkspaces) ? rawWorkspaces : []
   const contacts: Contact[] = Array.isArray(rawContacts) ? rawContacts : []
-  useBotContactSync(botQrConfig)
   const canShowContacts = botQrConfig?.status === "connected"
 
   const selectedWs = workspaces.find((w) => w.id === selectedWorkspace)
