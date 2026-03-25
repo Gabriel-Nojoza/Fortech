@@ -45,6 +45,7 @@ function buildPowerBICaptureHtml(input: {
       --frame-bg: #ffffff;
       --status-bg: rgba(15, 23, 42, 0.82);
       --status-text: #f8fafc;
+      --error-bg: rgba(153, 27, 27, 0.94);
     }
 
     * {
@@ -59,6 +60,7 @@ function buildPowerBICaptureHtml(input: {
       min-height: 100%;
       background: var(--canvas-bg);
       font-family: "Segoe UI", Tahoma, sans-serif;
+      overflow: hidden;
     }
 
     body {
@@ -87,6 +89,7 @@ function buildPowerBICaptureHtml(input: {
     #report-container {
       width: 100%;
       height: 100%;
+      background: #ffffff;
     }
 
     .status {
@@ -94,15 +97,18 @@ function buildPowerBICaptureHtml(input: {
       top: 18px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 2;
+      z-index: 20;
       border-radius: 999px;
       background: var(--status-bg);
       color: var(--status-text);
       padding: 10px 16px;
       font-size: 13px;
-      line-height: 1;
+      line-height: 1.2;
       letter-spacing: 0.01em;
       box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+      max-width: calc(100% - 40px);
+      text-align: center;
+      white-space: normal;
     }
 
     .status[hidden] {
@@ -110,7 +116,7 @@ function buildPowerBICaptureHtml(input: {
     }
 
     .status.error {
-      background: rgba(153, 27, 27, 0.92);
+      background: var(--error-bg);
     }
   </style>
 </head>
@@ -131,63 +137,71 @@ function buildPowerBICaptureHtml(input: {
       const errorNode = document.getElementById("error")
       const reportContainer = document.getElementById("report-container")
       const frameNode = document.querySelector(".frame")
+
       let finished = false
+      let loadedFired = false
+      let renderedFired = false
+      let fallbackAfterLoadedTimer = null
+      let globalForceTimer = null
+
       window.__REPORT_PENDING__ = true
+      window.__REPORT_READY__ = false
+      window.__REPORT_ERROR__ = null
+
+      function setStatus(message) {
+        if (!statusNode) return
+        statusNode.hidden = false
+        statusNode.textContent = message
+      }
+
+      function clearLoadedFallbackTimer() {
+        if (fallbackAfterLoadedTimer) {
+          clearTimeout(fallbackAfterLoadedTimer)
+          fallbackAfterLoadedTimer = null
+        }
+      }
+
+      function clearGlobalForceTimer() {
+        if (globalForceTimer) {
+          clearTimeout(globalForceTimer)
+          globalForceTimer = null
+        }
+      }
 
       function markReady(reason) {
         if (finished) return
         finished = true
+        clearLoadedFallbackTimer()
+        clearGlobalForceTimer()
         window.__REPORT_PENDING__ = false
-        statusNode.hidden = true
+        window.__REPORT_ERROR__ = null
         window.__REPORT_READY__ = reason || "rendered"
+        if (statusNode) statusNode.hidden = true
+        if (errorNode) errorNode.hidden = true
+        console.log("[powerbi-capture] ready:", window.__REPORT_READY__)
       }
 
       function markError(message) {
         if (finished) return
         finished = true
+        clearLoadedFallbackTimer()
+        clearGlobalForceTimer()
         window.__REPORT_PENDING__ = false
-        statusNode.hidden = true
-        errorNode.hidden = false
-        errorNode.textContent = message
+        window.__REPORT_READY__ = false
         window.__REPORT_ERROR__ = message
-      }
-
-      const client = window.powerbi
-      const modelsSource = window["powerbi-client"]
-      const models = modelsSource && modelsSource.models
-
-      if (!client || !models) {
-        markError("Nao foi possivel carregar o cliente do Power BI.")
-        return
-      }
-
-      const report = client.embed(reportContainer, {
-        type: "report",
-        id: config.reportId,
-        embedUrl: config.embedUrl,
-        accessToken: config.accessToken,
-        tokenType: models.TokenType.Embed,
-        permissions: models.Permissions.Read,
-        settings: {
-          filterPaneEnabled: false,
-          navContentPaneEnabled: false,
-          layoutType: models.LayoutType.Custom,
-          customLayout: {
-            displayOption: models.DisplayOption.FitToWidth
-          },
-          panes: {
-            filters: { visible: false },
-            pageNavigation: { visible: false }
-          },
-          background: models.BackgroundType.Transparent
+        if (statusNode) statusNode.hidden = true
+        if (errorNode) {
+          errorNode.hidden = false
+          errorNode.textContent = message
         }
-      })
+        console.error("[powerbi-capture] error:", message)
+      }
 
-      async function syncFrameToActivePage() {
-        if (!frameNode || !reportContainer) return
+      async function syncFrameToActivePage(reportInstance) {
+        if (!frameNode || !reportContainer || !reportInstance) return
 
         try {
-          const pages = await report.getPages()
+          const pages = await reportInstance.getPages()
           const activePage =
             Array.isArray(pages) && pages.length
               ? pages.find((page) => page.isActive) || pages[0]
@@ -210,10 +224,7 @@ function buildPowerBICaptureHtml(input: {
           }
 
           const frameWidth = frameNode.clientWidth || reportContainer.clientWidth
-
-          if (!frameWidth) {
-            return
-          }
+          if (!frameWidth) return
 
           const nextHeight = Math.max(
             920,
@@ -221,45 +232,145 @@ function buildPowerBICaptureHtml(input: {
           )
 
           frameNode.style.height = nextHeight + "px"
-        } catch {
-          // Se nao conseguir ler a pagina ativa, mantemos a altura padrao.
+        } catch (error) {
+          console.warn("[powerbi-capture] nao foi possivel sincronizar altura:", error)
         }
       }
 
-      report.on("loaded", async () => {
-        statusNode.textContent = "Relatorio carregado. Finalizando renderizacao..."
-        await syncFrameToActivePage()
-      })
-
-      report.on("rendered", () => {
-        window.setTimeout(async () => {
-          await syncFrameToActivePage()
-          markReady("rendered")
-        }, 1800)
-      })
-
-      report.on("error", (event) => {
-        const message =
+      function extractPowerBiErrorMessage(event) {
+        const directMessage =
           event &&
           event.detail &&
           typeof event.detail.message === "string" &&
           event.detail.message.trim()
             ? event.detail.message.trim()
-            : "Erro ao renderizar o relatorio do Power BI."
+            : ""
 
+        const nestedMessage =
+          event &&
+          event.detail &&
+          event.detail.error &&
+          typeof event.detail.error.message === "string" &&
+          event.detail.error.message.trim()
+            ? event.detail.error.message.trim()
+            : ""
+
+        return directMessage || nestedMessage || "Erro ao renderizar o relatorio do Power BI."
+      }
+
+      const client = window.powerbi
+      const modelsSource = window["powerbi-client"]
+      const models = modelsSource && modelsSource.models
+
+      if (!client || !models) {
+        markError("Nao foi possivel carregar o cliente do Power BI.")
+        return
+      }
+
+      if (!reportContainer) {
+        markError("Container do relatorio nao encontrado.")
+        return
+      }
+
+      let report = null
+
+      try {
+        setStatus("Inicializando Power BI...")
+
+        report = client.embed(reportContainer, {
+          type: "report",
+          id: config.reportId,
+          embedUrl: config.embedUrl,
+          accessToken: config.accessToken,
+          tokenType: models.TokenType.Embed,
+          permissions: models.Permissions.Read,
+          settings: {
+            filterPaneEnabled: false,
+            navContentPaneEnabled: false,
+            layoutType: models.LayoutType.Custom,
+            customLayout: {
+              displayOption: models.DisplayOption.FitToWidth
+            },
+            panes: {
+              filters: { visible: false },
+              pageNavigation: { visible: false }
+            },
+            background: models.BackgroundType.Transparent
+          }
+        })
+      } catch (error) {
+        markError(
+          error && typeof error.message === "string" && error.message.trim()
+            ? error.message.trim()
+            : "Falha ao iniciar o embed do Power BI."
+        )
+        return
+      }
+
+      report.on("loaded", async () => {
+        loadedFired = true
+        console.log("[powerbi-capture] event: loaded")
+        setStatus("Relatorio carregado. Finalizando renderizacao...")
+
+        await syncFrameToActivePage(report)
+
+        clearLoadedFallbackTimer()
+        fallbackAfterLoadedTimer = setTimeout(async () => {
+          if (finished) return
+          console.warn("[powerbi-capture] fallback apos loaded")
+          await syncFrameToActivePage(report)
+          markReady("loaded-fallback")
+        }, 12000)
+
+        try {
+          if (report && typeof report.render === "function") {
+            await report.render()
+          }
+        } catch (error) {
+          console.warn("[powerbi-capture] report.render() falhou:", error)
+        }
+      })
+
+      report.on("rendered", async () => {
+        renderedFired = true
+        console.log("[powerbi-capture] event: rendered")
+        setStatus("Relatorio renderizado. Preparando captura...")
+
+        clearLoadedFallbackTimer()
+
+        window.setTimeout(async () => {
+          if (finished) return
+          await syncFrameToActivePage(report)
+          markReady("rendered")
+        }, 2500)
+      })
+
+      report.on("error", (event) => {
+        const message = extractPowerBiErrorMessage(event)
         markError(message)
       })
 
-      window.setTimeout(() => {
-        if (!finished) {
-          markReady("timeout")
+      globalForceTimer = window.setTimeout(async () => {
+        if (finished) return
+
+        console.warn("[powerbi-capture] timeout global acionado", {
+          loadedFired,
+          renderedFired
+        })
+
+        if (loadedFired) {
+          await syncFrameToActivePage(report)
+          markReady(renderedFired ? "rendered-timeout" : "forced-timeout-after-loaded")
+          return
         }
-      }, 45000)
+
+        markError("O relatorio do Power BI nao terminou de carregar a tempo.")
+      }, 90000)
 
       window.addEventListener("resize", () => {
         window.setTimeout(() => {
-          void syncFrameToActivePage()
-        }, 120)
+          void syncFrameToActivePage(report)
+        }, 150)
       })
     })()
   </script>
@@ -323,8 +434,8 @@ export async function exportPowerBIReportPdf(input: {
   const preset = getPowerBiPdfPreset(input.pdfProfile ?? "desktop")
 
   return renderHtmlScreenshotToPdf(html, {
-    pngTimeoutMs: 70000,
-    pdfTimeoutMs: 60000,
+    pngTimeoutMs: 120000,
+    pdfTimeoutMs: 90000,
     captureWidth: preset.viewportWidth,
     captureHeight: preset.viewportHeight,
     deviceScaleFactor: preset.deviceScaleFactor,
