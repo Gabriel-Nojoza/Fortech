@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from "child_process"
 import { promises as fs } from "fs"
-import os from "os"
 import path from "path"
 import { pathToFileURL } from "url"
 
@@ -173,6 +172,37 @@ async function pathExists(targetPath: string) {
   }
 }
 
+async function ensureDir(targetPath: string) {
+  await fs.mkdir(targetPath, { recursive: true })
+}
+
+function getBrowserWorkspaceRoot() {
+  const configured = process.env.REPORT_PDF_TMP_DIR?.trim()
+
+  if (configured) {
+    return path.isAbsolute(configured)
+      ? configured
+      : path.join(process.cwd(), configured)
+  }
+
+  return path.join(process.cwd(), ".tmp", "browser-pdf")
+}
+
+async function waitForFile(targetPath: string, timeoutMs = 5000) {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    try {
+      await fs.access(targetPath)
+      return
+    } catch {
+      await delay(150)
+    }
+  }
+
+  throw new Error(`Arquivo temporario nao ficou disponivel: ${targetPath}`)
+}
+
 async function findExecutableOnPath(command: string) {
   const pathValue = process.env.PATH || ""
   const pathEntries = pathValue.split(path.delimiter).filter(Boolean)
@@ -228,12 +258,16 @@ async function createBrowserWorkspace(
   prefix: string,
   html: string
 ): Promise<BrowserWorkspace> {
-  const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix))
+  const rootDir = getBrowserWorkspaceRoot()
+  await ensureDir(rootDir)
+
+  const workingDir = await fs.mkdtemp(path.join(rootDir, prefix))
   const htmlPath = path.join(workingDir, "report.html")
   const profilePath = path.join(workingDir, "profile")
 
   await fs.mkdir(profilePath, { recursive: true })
   await fs.writeFile(htmlPath, html, "utf-8")
+  await waitForFile(htmlPath, 5000)
 
   return {
     workingDir,
@@ -243,7 +277,11 @@ async function createBrowserWorkspace(
 }
 
 async function cleanupBrowserWorkspace(workspace: BrowserWorkspace) {
-  await fs.rm(workspace.workingDir, { recursive: true, force: true })
+  try {
+    await fs.rm(workspace.workingDir, { recursive: true, force: true })
+  } catch {
+    // ignora erro de limpeza
+  }
 }
 
 function getCommonBrowserArgs(profilePath: string) {
@@ -576,6 +614,8 @@ async function openHtmlInNewPage(client: CdpClient, htmlUrl: string) {
   await client.send("DOM.enable", {}, { sessionId })
   await client.send("Network.enable", {}, { sessionId })
 
+  await waitForFile(new URL(htmlUrl).pathname, 5000).catch(() => {})
+
   const navigateResult = await client.send(
     "Page.navigate",
     { url: htmlUrl },
@@ -652,13 +692,15 @@ async function withBrowserPage<T>(
   } finally {
     if (client) {
       await client.close().catch(() => {})
+      await delay(250)
     }
 
     if (chrome) {
       await closeChrome(chrome.child).catch(() => {})
+      await delay(500)
     }
 
-    await cleanupBrowserWorkspace(workspace).catch(() => {})
+    await cleanupBrowserWorkspace(workspace)
   }
 }
 
@@ -1441,6 +1483,8 @@ export async function renderHtmlToPdfViaCli(
   const htmlUrl = pathToFileURL(workspace.htmlPath).toString()
 
   try {
+    await waitForFile(workspace.htmlPath, 5000)
+
     const args = [
       ...getCommonBrowserArgs(workspace.profilePath),
       `--print-to-pdf=${outputPath}`,
@@ -1448,8 +1492,10 @@ export async function renderHtmlToPdfViaCli(
     ]
 
     await runProcess(executablePath, args, timeoutMs)
+    await waitForFile(outputPath, 10000)
+
     return await fs.readFile(outputPath)
   } finally {
-    await cleanupBrowserWorkspace(workspace).catch(() => {})
+    await cleanupBrowserWorkspace(workspace)
   }
 }
