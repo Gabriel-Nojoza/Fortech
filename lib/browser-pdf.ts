@@ -498,7 +498,6 @@ function runProcess(command: string, args: string[], timeoutMs: number) {
 
 async function launchChromeWithDebugging(
   executablePath: string,
-  htmlUrl: string,
   profilePath: string,
   timeoutMs: number
 ): Promise<ChromeLaunchResult> {
@@ -730,7 +729,7 @@ async function closeChrome(child: ChildProcess) {
   }
 }
 
-async function openHtmlInNewPage(client: CdpClient, htmlUrl: string) {
+async function openHtmlInNewPage(client: CdpClient, html: string) {
   const targetResult = await client.send("Target.createTarget", {
     url: "about:blank",
   })
@@ -755,15 +754,27 @@ async function openHtmlInNewPage(client: CdpClient, htmlUrl: string) {
   await client.send("DOM.enable", {}, { sessionId })
   await client.send("Network.enable", {}, { sessionId })
 
-  const navigateResult = await client.send(
-    "Page.navigate",
-    { url: htmlUrl },
-    { sessionId }
+  const frameTreeResult = await client.send("Page.getFrameTree", {}, { sessionId })
+  const frameId = String(
+    (
+      frameTreeResult.frameTree as
+        | { frame?: { id?: string | null } | null }
+        | undefined
+    )?.frame?.id ?? ""
   )
 
-  if (!navigateResult.frameId) {
-    throw new Error("Nao foi possivel abrir o HTML temporario no navegador")
+  if (!frameId) {
+    throw new Error("Nao foi possivel localizar o frame principal do navegador")
   }
+
+  await client.send(
+    "Page.setDocumentContent",
+    {
+      frameId,
+      html,
+    },
+    { sessionId }
+  )
 
   await waitForPageLoad(client, sessionId, 30000)
 
@@ -807,11 +818,10 @@ async function waitForPageLoad(
 async function withBrowserPage<T>(
   html: string,
   timeoutMs: number,
-  fn: (client: CdpClient, sessionId: string, htmlUrl: string) => Promise<T>
+  fn: (client: CdpClient, sessionId: string) => Promise<T>
 ) {
   const executablePath = await resolvePdfBrowserExecutable()
   const workspace = await createBrowserWorkspace("browser-pdf-", html)
-  const htmlUrl = pathToFileURL(workspace.htmlPath).toString()
 
   let chrome: ChromeLaunchResult | null = null
   let client: CdpClient | null = null
@@ -819,15 +829,14 @@ async function withBrowserPage<T>(
   try {
     chrome = await launchChromeWithDebugging(
       executablePath,
-      htmlUrl,
       workspace.profilePath,
       timeoutMs
     )
 
     client = await connectCdp(chrome.websocketUrl)
-    const page = await openHtmlInNewPage(client, htmlUrl)
+    const page = await openHtmlInNewPage(client, html)
 
-    return await fn(client, page.sessionId, htmlUrl)
+    return await fn(client, page.sessionId)
   } finally {
     if (client) {
       await client.close().catch(() => {})
