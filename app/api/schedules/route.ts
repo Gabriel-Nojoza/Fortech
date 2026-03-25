@@ -57,7 +57,7 @@ const scheduleSchema = z.object({
     .default("PDF"),
   message_template: z.string().nullable().optional(),
   is_active: z.boolean().default(true),
-  contact_ids: z.array(z.string().uuid()).optional(),
+  contact_ids: z.array(z.string().trim().min(1)).optional(),
 })
 
 const scheduleUpdateSchema = scheduleSchema.partial().extend({
@@ -173,6 +173,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { contact_ids, ...scheduleData } = parsed.data
+  const normalizedContactIds = [...new Set((contact_ids ?? []).map((id) => id.trim()).filter(Boolean))]
   const pageNames = resolveSchedulePageNames(parsed.data)
 
   if (pageNames.length > 1 && scheduleData.export_format !== "PDF") {
@@ -213,8 +214,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  if (contact_ids && contact_ids.length > 0) {
-    const links = contact_ids.map((cid) => ({
+  if (normalizedContactIds.length > 0) {
+    const links = normalizedContactIds.map((cid) => ({
       schedule_id: schedule.id,
       contact_id: cid,
     }))
@@ -245,6 +246,10 @@ export async function PUT(request: NextRequest) {
   }
 
   const { id, contact_ids, ...updates } = parsed.data
+  const normalizedContactIds =
+    contact_ids === undefined
+      ? undefined
+      : [...new Set(contact_ids.map((contactId) => contactId.trim()).filter(Boolean))]
   const isUpdatingPageSelection =
     Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_name") ||
     Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_names")
@@ -323,7 +328,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: result.error.message }, { status: 500 })
   }
 
-  if (contact_ids !== undefined) {
+  if (normalizedContactIds !== undefined) {
     const { error: deleteContactsError } = await supabase
       .from("schedule_contacts")
       .delete()
@@ -333,8 +338,8 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: deleteContactsError.message }, { status: 500 })
     }
 
-    if (contact_ids.length > 0) {
-      const links = contact_ids.map((cid) => ({
+    if (normalizedContactIds.length > 0) {
+      const links = normalizedContactIds.map((cid) => ({
         schedule_id: id,
         contact_id: cid,
       }))

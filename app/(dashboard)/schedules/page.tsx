@@ -357,12 +357,17 @@ export default function SchedulesPage() {
 
       if (!res.ok) {
         const apiFieldErrors = mapApiFieldErrors(data)
+        const firstFieldError = Object.values(apiFieldErrors).find(
+          (message): message is string =>
+            typeof message === "string" && message.trim().length > 0
+        )
         if (Object.keys(apiFieldErrors).length > 0) {
           setFormErrors((prev) => ({ ...prev, ...apiFieldErrors }))
         }
 
         throw new Error(
           extractApiErrorMessage(data) ??
+            firstFieldError ??
             (editSchedule ? "Erro ao atualizar rotina" : "Erro ao criar rotina")
         )
       }
