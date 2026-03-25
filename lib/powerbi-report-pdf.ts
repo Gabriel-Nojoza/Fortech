@@ -497,7 +497,8 @@ export async function exportPowerBIReportPdf(input: {
       pageHeightMm: preset.pageHeightMm,
       pageMarginMm: preset.pageMarginMm,
       screenshotScale: 3.5,
-      forceExpandScrollable: false,
+      forceExpandScrollable: true,
+      scrollableSegmentationMode: "overview-and-segments",
       autoGrowPageHeight: true,
       maxPageHeightMm: 500,
     })
@@ -520,7 +521,8 @@ export async function exportPowerBIReportPdf(input: {
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
       screenshotScale: 3.5,
-      forceExpandScrollable: false,
+      forceExpandScrollable: true,
+      scrollableSegmentationMode: "overview-and-segments",
     })
 
     screenshotPayloads.push(screenshotPayload)

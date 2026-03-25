@@ -83,6 +83,7 @@ type PngRenderOptions = {
   deviceScaleFactor?: number
   screenshotScale?: number
   forceExpandScrollable?: boolean
+  scrollableSegmentationMode?: "segments-only" | "overview-and-segments"
 }
 
 type ScreenshotToPdfOptions = {
@@ -96,6 +97,7 @@ type ScreenshotToPdfOptions = {
   deviceScaleFactor?: number
   screenshotScale?: number
   forceExpandScrollable?: boolean
+  scrollableSegmentationMode?: "segments-only" | "overview-and-segments"
   autoGrowPageHeight?: boolean
   maxPageHeightMm?: number
 }
@@ -979,6 +981,11 @@ async function prepareScrollableSegments(
     "Runtime.evaluate",
     {
       expression: `(() => {
+        const previousTarget = document.querySelector('[data-report-scroll-target="1"]')
+        if (previousTarget instanceof HTMLElement) {
+          previousTarget.removeAttribute("data-report-scroll-target")
+        }
+
         const elements = Array.from(document.querySelectorAll("*"))
           .filter((el) => el instanceof HTMLElement)
 
@@ -996,9 +1003,14 @@ async function prepareScrollableSegments(
 
             const rect = el.getBoundingClientRect()
             const overflowHeight = el.scrollHeight - el.clientHeight
+            const textLength = (el.innerText || "").replace(/\s+/g, " ").trim().length
+
+            if (rect.width < 260 || rect.height < 180 || textLength < 24) {
+              return null
+            }
 
             return {
-              canScrollY,
+              el,
               scrollHeight: el.scrollHeight,
               clientHeight: el.clientHeight,
               scrollWidth: el.scrollWidth,
@@ -1006,16 +1018,21 @@ async function prepareScrollableSegments(
               overflowHeight,
               rectTop: rect.top,
               rectLeft: rect.left,
+              rectRight: rect.right,
+              rectBottom: rect.bottom,
               rectWidth: rect.width,
               rectHeight: rect.height,
               area: rect.width * rect.height,
-              textLength: (el.innerText || "").length,
+              textLength,
             }
           })
           .filter(Boolean)
           .sort((a, b) => {
             if (b.overflowHeight !== a.overflowHeight) {
               return b.overflowHeight - a.overflowHeight
+            }
+            if (b.textLength !== a.textLength) {
+              return b.textLength - a.textLength
             }
             if (b.rectHeight !== a.rectHeight) {
               return b.rectHeight - a.rectHeight
@@ -1036,9 +1053,42 @@ async function prepareScrollableSegments(
           }
         }
 
+        target.el.setAttribute("data-report-scroll-target", "1")
+
+        const baseRect = target.el.getBoundingClientRect()
+        let clipRect = baseRect
+        let ancestor = target.el.parentElement
+
+        while (
+          ancestor &&
+          ancestor !== document.body &&
+          ancestor !== document.documentElement
+        ) {
+          const rect = ancestor.getBoundingClientRect()
+          const containsTarget =
+            rect.left <= baseRect.left + 4 &&
+            rect.top <= baseRect.top + 4 &&
+            rect.right >= baseRect.right - 4 &&
+            rect.bottom >= baseRect.bottom - 4
+          const growsWidth = rect.width >= baseRect.width + 48
+          const keepsHeightClose =
+            rect.height >= baseRect.height - 40 &&
+            rect.height <= baseRect.height + 220
+          const staysInViewport =
+            rect.width <= window.innerWidth * 0.99 &&
+            rect.height <= Math.max(window.innerHeight, baseRect.height + 220)
+
+          if (containsTarget && growsWidth && keepsHeightClose && staysInViewport) {
+            clipRect = rect
+            break
+          }
+
+          ancestor = ancestor.parentElement
+        }
+
         const positions = []
         const maxScrollTop = Math.max(0, target.scrollHeight - target.clientHeight)
-        const step = Math.max(120, Math.floor(target.clientHeight * 0.55))
+        const step = Math.max(120, Math.floor(target.clientHeight * 0.72))
 
         for (let y = 0; y <= maxScrollTop; y += step) {
           positions.push(Math.min(y, maxScrollTop))
@@ -1054,10 +1104,10 @@ async function prepareScrollableSegments(
           totalHeight: target.scrollHeight,
           positions: Array.from(new Set(positions)),
           clip: {
-            x: Math.max(0, Math.floor(target.rectLeft)),
-            y: Math.max(0, Math.floor(target.rectTop)),
-            width: Math.max(1, Math.floor(target.rectWidth)),
-            height: Math.max(1, Math.floor(target.rectHeight)),
+            x: Math.max(0, Math.floor(clipRect.left)),
+            y: Math.max(0, Math.floor(clipRect.top)),
+            width: Math.max(1, Math.floor(clipRect.width)),
+            height: Math.max(1, Math.floor(clipRect.height)),
           },
         }
       })()`,
@@ -1081,48 +1131,12 @@ async function scrollSegmentTarget(
       expression: `async (() => {
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-        const elements = Array.from(document.querySelectorAll("*"))
-          .filter((el) => el instanceof HTMLElement)
-
-        const candidates = elements
-          .map((el) => {
-            const style = window.getComputedStyle(el)
-            const canScrollY =
-              (style.overflowY === "auto" ||
-                style.overflowY === "scroll" ||
-                style.overflow === "auto" ||
-                style.overflow === "scroll") &&
-              el.scrollHeight > el.clientHeight + 20
-
-            if (!canScrollY) return null
-
-            const rect = el.getBoundingClientRect()
-            const overflowHeight = el.scrollHeight - el.clientHeight
-
-            return {
-              el,
-              overflowHeight,
-              rectHeight: rect.height,
-              area: rect.width * rect.height,
-            }
-          })
-          .filter(Boolean)
-          .sort((a, b) => {
-            if (b.overflowHeight !== a.overflowHeight) {
-              return b.overflowHeight - a.overflowHeight
-            }
-            if (b.rectHeight !== a.rectHeight) {
-              return b.rectHeight - a.rectHeight
-            }
-            return b.area - a.area
-          })
-
-        const target = candidates[0]?.el || null
+        const target = document.querySelector('[data-report-scroll-target="1"]')
         if (!target) return false
 
         target.scrollTop = ${Math.max(0, scrollTop)}
         target.dispatchEvent(new Event("scroll", { bubbles: true }))
-        await sleep(1200)
+        await sleep(1700)
         return true
       })()`,
       returnByValue: true,
@@ -1141,43 +1155,7 @@ async function restoreSegmentTarget(
     "Runtime.evaluate",
     {
       expression: `(() => {
-        const elements = Array.from(document.querySelectorAll("*"))
-          .filter((el) => el instanceof HTMLElement)
-
-        const candidates = elements
-          .map((el) => {
-            const style = window.getComputedStyle(el)
-            const canScrollY =
-              (style.overflowY === "auto" ||
-                style.overflowY === "scroll" ||
-                style.overflow === "auto" ||
-                style.overflow === "scroll") &&
-              el.scrollHeight > el.clientHeight + 20
-
-            if (!canScrollY) return null
-
-            const rect = el.getBoundingClientRect()
-            const overflowHeight = el.scrollHeight - el.clientHeight
-
-            return {
-              el,
-              overflowHeight,
-              rectHeight: rect.height,
-              area: rect.width * rect.height,
-            }
-          })
-          .filter(Boolean)
-          .sort((a, b) => {
-            if (b.overflowHeight !== a.overflowHeight) {
-              return b.overflowHeight - a.overflowHeight
-            }
-            if (b.rectHeight !== a.rectHeight) {
-              return b.rectHeight - a.rectHeight
-            }
-            return b.area - a.area
-          })
-
-        const target = candidates[0]?.el || null
+        const target = document.querySelector('[data-report-scroll-target="1"]')
         if (!target) return false
 
         target.scrollTop = ${Math.max(0, scrollTop)}
@@ -1317,6 +1295,8 @@ export async function renderHtmlToPng(
   const screenshotScale =
     options?.screenshotScale ??
     parseEnvNumber("REPORT_PDF_SCREENSHOT_SCALE", 3.5)
+  const scrollableSegmentationMode =
+    options?.scrollableSegmentationMode ?? "segments-only"
 
   return withBrowserPage(html, timeoutMs, async (client, sessionId) => {
     await client.send(
@@ -1460,8 +1440,34 @@ export async function renderHtmlToPng(
     const clip = segmentation.clip as ClipBox | undefined
 
     const segmentBuffers: Buffer[] = []
+    const segmentMetadata: SegmentMetadata[] = []
 
-    for (const scrollTop of positions) {
+    if (scrollableSegmentationMode === "overview-and-segments") {
+      const overviewPng = await captureViewportPng(
+        client,
+        sessionId,
+        captureWidth,
+        captureHeight,
+        deviceScaleFactor,
+        screenshotScale
+      )
+
+      const overviewDimensions = parsePngDimensions(overviewPng)
+      segmentBuffers.push(overviewPng)
+      segmentMetadata.push({
+        width: overviewDimensions.width,
+        height: overviewDimensions.height,
+        scrollTop: 0,
+        viewportHeight: overviewDimensions.height,
+      })
+    }
+
+    const scrollPositions =
+      scrollableSegmentationMode === "overview-and-segments"
+        ? positions.filter((scrollTop) => scrollTop > 0)
+        : positions
+
+    for (const scrollTop of scrollPositions) {
       await scrollSegmentTarget(client, sessionId, scrollTop)
 
       const png = await captureViewportPng(
@@ -1475,23 +1481,25 @@ export async function renderHtmlToPng(
       )
 
       segmentBuffers.push(png)
+
+      const dimensions = parsePngDimensions(png)
+      segmentMetadata.push({
+        width: dimensions.width,
+        height: dimensions.height,
+        scrollTop,
+        viewportHeight,
+      })
     }
 
     await restoreSegmentTarget(client, sessionId, originalScrollTop)
 
-    const metadata: SegmentMetadata[] = segmentBuffers.map((buffer, index) => {
-      const dimensions = parsePngDimensions(buffer)
-      return {
-        width: dimensions.width,
-        height: dimensions.height,
-        scrollTop: positions[index] ?? 0,
-        viewportHeight,
-      }
-    })
+    if (segmentBuffers.length === 1 && scrollableSegmentationMode === "overview-and-segments") {
+      return segmentBuffers[0]
+    }
 
     const payload = {
       segments: segmentBuffers.map((buffer) => buffer.toString("base64")),
-      metadata,
+      metadata: segmentMetadata,
     }
 
     return Buffer.from(JSON.stringify(payload), "utf-8")
@@ -1509,6 +1517,7 @@ export async function renderHtmlScreenshotToPdf(
     deviceScaleFactor: options?.deviceScaleFactor,
     screenshotScale: options?.screenshotScale,
     forceExpandScrollable: options?.forceExpandScrollable ?? true,
+    scrollableSegmentationMode: options?.scrollableSegmentationMode,
   })
   return renderScreenshotPayloadsToPdf([screenshotPayload], options)
 }
