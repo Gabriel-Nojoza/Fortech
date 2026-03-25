@@ -352,9 +352,9 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
       viewportWidth: 2304,
       viewportHeight: 1536,
       deviceScaleFactor: 3,
-      pageWidthMm: 2378,
-      pageHeightMm: 1682,
-      pageMarginMm: 5,
+      pageWidthMm: 210,
+      pageHeightMm: 297,
+      pageMarginMm: 6,
     }
   }
 
@@ -362,9 +362,9 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
     viewportWidth: 2560,
     viewportHeight: 1703,
     deviceScaleFactor: 3,
-    pageWidthMm: 2378,
-    pageHeightMm: 1682,
-    pageMarginMm: 5,
+    pageWidthMm: 297,
+    pageHeightMm: 210,
+    pageMarginMm: 6,
   }
 }
 
