@@ -285,12 +285,12 @@ function buildPowerBICaptureHtml(input: {
           tokenType: models.TokenType.Embed,
           permissions: models.Permissions.Read,
           settings: {
-            filterPaneEnabled: false,
-            navContentPaneEnabled: false,
-            layoutType: models.LayoutType.Custom,
-            customLayout: {
-              displayOption: models.DisplayOption.FitToWidth
-            },
+            panes: {
+               filters: { visible: false },
+                pageNavigation: { visible: false }
+                      },
+                      background: models.BackgroundType.White
+                    }},
             panes: {
               filters: { visible: false },
               pageNavigation: { visible: false }
