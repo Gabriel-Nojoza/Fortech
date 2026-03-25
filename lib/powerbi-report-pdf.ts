@@ -448,6 +448,7 @@ export async function exportPowerBIReportPdf(input: {
       pageHeightMm: preset.pageHeightMm,
       pageMarginMm: preset.pageMarginMm,
       screenshotScale: 3.5,
+      forceExpandScrollable: false,
     })
   }
 
@@ -468,7 +469,7 @@ export async function exportPowerBIReportPdf(input: {
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
       screenshotScale: 3.5,
-      forceExpandScrollable: true,
+      forceExpandScrollable: false,
     })
 
     screenshotPayloads.push(screenshotPayload)

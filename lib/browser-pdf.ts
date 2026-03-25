@@ -95,6 +95,7 @@ type ScreenshotToPdfOptions = {
   captureHeight?: number
   deviceScaleFactor?: number
   screenshotScale?: number
+  forceExpandScrollable?: boolean
 }
 
 type CdpSendOptions = {
@@ -1478,7 +1479,7 @@ export async function renderHtmlScreenshotToPdf(
     captureHeight: options?.captureHeight,
     deviceScaleFactor: options?.deviceScaleFactor,
     screenshotScale: options?.screenshotScale,
-    forceExpandScrollable: true,
+    forceExpandScrollable: options?.forceExpandScrollable ?? true,
   })
   return renderScreenshotPayloadsToPdf([screenshotPayload], options)
 }
