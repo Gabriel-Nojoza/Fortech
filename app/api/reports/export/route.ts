@@ -15,10 +15,6 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Erro desconhecido"
-}
-
 function jsonError(error: string, status = 500) {
   return new Response(JSON.stringify({ error }), {
     status,
@@ -112,6 +108,16 @@ function detectPdfProfile(
     : "desktop"
 }
 
+function buildDynamicEmbedUrl(reportId: string, workspaceId: string) {
+  const base = "https://app.powerbi.com/reportEmbed"
+  const params = new URLSearchParams({
+    reportId,
+    groupId: workspaceId,
+  })
+
+  return `${base}?${params.toString()}`
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -135,7 +141,10 @@ export async function POST(request: NextRequest) {
     const reportId = String(body?.report_id ?? "").trim()
     const format = String(body?.format ?? "PDF").trim().toUpperCase()
     const pbiPageNames = normalizeSchedulePageNames(
-      body?.pbi_page_names ?? body?.page_names ?? body?.pbi_page_name ?? body?.page_name
+      body?.pbi_page_names ??
+        body?.page_names ??
+        body?.pbi_page_name ??
+        body?.page_name
     )
 
     const pdfProfile = detectPdfProfile(
@@ -146,23 +155,14 @@ export async function POST(request: NextRequest) {
     const preferNativePowerBiExport = body?.prefer_native_export === true
 
     if (!reportId) {
-      return new Response(JSON.stringify({ error: "report_id obrigatorio" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      })
+      return jsonError("report_id obrigatorio", 400)
     }
 
     if (!["PDF", "PNG", "PPTX"].includes(format)) {
-      return new Response(
-        JSON.stringify({ error: "Formato invalido. Use PDF, PNG ou PPTX." }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        }
-      )
+      return jsonError("Formato invalido. Use PDF, PNG ou PPTX.", 400)
     }
 
-    const { data: report, error } = await supabase
+    const { data: report, error: reportError } = await supabase
       .from("reports")
       .select("id, name, pbi_report_id, workspace_id, embed_url, is_active")
       .eq("company_id", companyId)
@@ -170,14 +170,8 @@ export async function POST(request: NextRequest) {
       .eq("is_active", true)
       .single()
 
-    if (error || !report) {
-      return new Response(
-        JSON.stringify({ error: "Relatorio nao encontrado" }),
-        {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        }
-      )
+    if (reportError || !report) {
+      return jsonError("Relatorio nao encontrado", 404)
     }
 
     const { data: workspace, error: workspaceError } = await supabase
@@ -189,13 +183,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (workspaceError || !workspace?.pbi_workspace_id) {
-      return new Response(
-        JSON.stringify({ error: "Workspace do relatorio nao encontrado" }),
-        {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        }
-      )
+      return jsonError("Workspace do relatorio nao encontrado", 404)
+    }
+
+    if (!report.pbi_report_id) {
+      return jsonError("Relatorio sem pbi_report_id configurado", 500)
     }
 
     const token = await getAccessToken(companyId)
@@ -226,12 +218,17 @@ export async function POST(request: NextRequest) {
         try {
           console.error("ExportTo do Power BI falhou, tentando captura visual", exportError)
 
+          const embedUrl = buildDynamicEmbedUrl(
+            report.pbi_report_id,
+            workspace.pbi_workspace_id
+          )
+
           const pdfBuffer = await exportPowerBIReportPdf({
             token,
             workspaceId: workspace.pbi_workspace_id,
             reportId: report.pbi_report_id,
             reportName: report.name,
-            embedUrl: report.embed_url,
+            embedUrl,
             pdfProfile,
           })
 
