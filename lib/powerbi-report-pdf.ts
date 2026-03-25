@@ -79,6 +79,7 @@ function buildPowerBICaptureHtml(input: {
     .frame {
       position: relative;
       width: 100%;
+      min-height: 1100px;
       height: 1100px;
       overflow: hidden;
       border-radius: 0;
@@ -89,6 +90,7 @@ function buildPowerBICaptureHtml(input: {
     #report-container {
       width: 100%;
       height: 100%;
+      min-height: 1100px;
       background: #ffffff;
     }
 
@@ -201,6 +203,8 @@ function buildPowerBICaptureHtml(input: {
         if (!frameNode || !reportContainer || !reportInstance) return
 
         try {
+          if (typeof reportInstance.getPages !== "function") return
+
           const pages = await reportInstance.getPages()
           const activePage =
             Array.isArray(pages) && pages.length
@@ -232,6 +236,7 @@ function buildPowerBICaptureHtml(input: {
           )
 
           frameNode.style.height = nextHeight + "px"
+          reportContainer.style.height = nextHeight + "px"
         } catch (error) {
           console.warn("[powerbi-capture] nao foi possivel sincronizar altura:", error)
         }
@@ -255,7 +260,19 @@ function buildPowerBICaptureHtml(input: {
             ? event.detail.error.message.trim()
             : ""
 
-        return directMessage || nestedMessage || "Erro ao renderizar o relatorio do Power BI."
+        const technical =
+          event &&
+          event.detail &&
+          event.detail.technicalDetails &&
+          typeof event.detail.technicalDetails.requestId === "string"
+            ? " requestId=" + event.detail.technicalDetails.requestId
+            : ""
+
+        return (
+          directMessage ||
+          nestedMessage ||
+          ("Erro ao renderizar o relatorio do Power BI." + technical)
+        )
       }
 
       const client = window.powerbi
@@ -286,16 +303,10 @@ function buildPowerBICaptureHtml(input: {
           permissions: models.Permissions.Read,
           settings: {
             panes: {
-               filters: { visible: false },
-                pageNavigation: { visible: false }
-                      },
-                      background: models.BackgroundType.White
-                    }},
-            panes: {
               filters: { visible: false },
               pageNavigation: { visible: false }
             },
-            background: models.BackgroundType.Transparent
+            background: models.BackgroundType.White
           }
         })
       } catch (error) {
@@ -321,14 +332,6 @@ function buildPowerBICaptureHtml(input: {
           await syncFrameToActivePage(report)
           markReady("loaded-fallback")
         }, 12000)
-
-        try {
-          if (report && typeof report.render === "function") {
-            await report.render()
-          }
-        } catch (error) {
-          console.warn("[powerbi-capture] report.render() falhou:", error)
-        }
       })
 
       report.on("rendered", async () => {
