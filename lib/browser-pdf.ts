@@ -61,6 +61,8 @@ type ScreenshotReadyState = {
   error: string | null
   scrollWidth: number
   scrollHeight: number
+  requiresExplicitReady: boolean
+  explicitReady: boolean
 }
 
 type PdfRenderOptions = {
@@ -844,45 +846,88 @@ async function waitForDomReady(
   sessionId: string,
   virtualTimeBudgetMs: number
 ) {
-  await delay(Math.max(300, Math.min(virtualTimeBudgetMs, 5000)))
+  const timeoutAt = Date.now() + Math.max(1500, virtualTimeBudgetMs)
+  let lastState: ScreenshotReadyState | null = null
 
-  const state = await client.send(
-    "Runtime.evaluate",
-    {
-      expression: `(() => {
-        const readyState = document.readyState;
-        const body = document.body;
-        const documentElement = document.documentElement;
+  while (Date.now() <= timeoutAt) {
+    const state = await client.send(
+      "Runtime.evaluate",
+      {
+        expression: `(() => {
+          const readyState = document.readyState;
+          const body = document.body;
+          const documentElement = document.documentElement;
+          const captureState = window.__REPORT_CAPTURE__ === true;
+          const explicitReadyRaw = window.__REPORT_READY__;
+          const explicitErrorRaw = window.__REPORT_ERROR__;
+          const explicitReady =
+            explicitReadyRaw === true ||
+            (typeof explicitReadyRaw === 'string' && explicitReadyRaw.trim().length > 0);
+          const explicitError =
+            typeof explicitErrorRaw === 'string' && explicitErrorRaw.trim().length > 0
+              ? explicitErrorRaw.trim()
+              : null;
+          const domReady = readyState === 'complete' || readyState === 'interactive';
 
-        return {
-          ready: readyState === 'complete' || readyState === 'interactive',
-          error: null,
-          scrollWidth: Math.max(
-            body?.scrollWidth || 0,
-            documentElement?.scrollWidth || 0
-          ),
-          scrollHeight: Math.max(
-            body?.scrollHeight || 0,
-            documentElement?.scrollHeight || 0
-          )
-        };
-      })()`,
-      returnByValue: true,
-      awaitPromise: true,
-    },
-    { sessionId }
-  )
+          return {
+            ready: captureState ? domReady && explicitReady && !explicitError : domReady,
+            error: explicitError,
+            requiresExplicitReady: captureState,
+            explicitReady,
+            scrollWidth: Math.max(
+              body?.scrollWidth || 0,
+              documentElement?.scrollWidth || 0
+            ),
+            scrollHeight: Math.max(
+              body?.scrollHeight || 0,
+              documentElement?.scrollHeight || 0
+            )
+          };
+        })()`,
+        returnByValue: true,
+        awaitPromise: true,
+      },
+      { sessionId }
+    )
 
-  const resultValue = (
-    state.result as { value?: ScreenshotReadyState } | undefined
-  )?.value
+    const resultValue = (
+      state.result as { value?: ScreenshotReadyState } | undefined
+    )?.value
+
+    lastState =
+      resultValue ?? {
+        ready: false,
+        error: "Nao foi possivel ler o DOM do relatorio",
+        scrollWidth: 0,
+        scrollHeight: 0,
+        requiresExplicitReady: false,
+        explicitReady: false,
+      }
+
+    if (lastState.error || lastState.ready) {
+      return lastState
+    }
+
+    await delay(500)
+  }
+
+  if (lastState?.requiresExplicitReady && !lastState.explicitReady) {
+    return {
+      ...lastState,
+      ready: false,
+      error:
+        "O relatorio do Power BI nao terminou de renderizar antes do tempo limite da captura.",
+    }
+  }
 
   return (
-    resultValue ?? {
+    lastState ?? {
       ready: false,
       error: "Nao foi possivel ler o DOM do relatorio",
       scrollWidth: 0,
       scrollHeight: 0,
+      requiresExplicitReady: false,
+      explicitReady: false,
     }
   )
 }

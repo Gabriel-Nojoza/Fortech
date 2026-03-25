@@ -135,6 +135,10 @@ function buildPowerBICaptureHtml(input: {
   <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2.23.1/dist/powerbi.min.js"></script>
   <script>
     (() => {
+      window.__REPORT_CAPTURE__ = true
+      window.__REPORT_READY__ = null
+      window.__REPORT_ERROR__ = null
+
       const config = ${config}
       const statusNode = document.getElementById("status")
       const errorNode = document.getElementById("error")
