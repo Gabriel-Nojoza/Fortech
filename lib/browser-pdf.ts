@@ -1276,6 +1276,7 @@ export async function renderHtmlToPng(
   options?: PngRenderOptions
 ) {
   const timeoutMs = options?.timeoutMs ?? 60000
+  const domReadyTimeoutMs = Math.max(4000, Math.min(timeoutMs, 60000))
   const captureWidth =
     options?.captureWidth ?? parseEnvNumber("REPORT_PDF_CAPTURE_WIDTH", 2560)
   const captureHeight =
@@ -1300,7 +1301,7 @@ export async function renderHtmlToPng(
       { sessionId }
     )
 
-    const lastState = await waitForDomReady(client, sessionId, 4000)
+    const lastState = await waitForDomReady(client, sessionId, domReadyTimeoutMs)
 
     if (!lastState.ready) {
       throw new Error(

@@ -139,6 +139,28 @@ function buildPowerBICaptureHtml(input: {
       window.__REPORT_READY__ = null
       window.__REPORT_ERROR__ = null
 
+      window.addEventListener("error", (event) => {
+        const message =
+          event && typeof event.message === "string" && event.message.trim()
+            ? event.message.trim()
+            : "Erro inesperado ao preparar a captura do relatorio."
+
+        window.__REPORT_ERROR__ = message
+      })
+
+      window.addEventListener("unhandledrejection", (event) => {
+        const reason =
+          event && "reason" in event ? event.reason : "Erro inesperado"
+        const message =
+          typeof reason === "string"
+            ? reason
+            : reason && typeof reason.message === "string"
+              ? reason.message
+              : "Erro inesperado ao preparar a captura do relatorio."
+
+        window.__REPORT_ERROR__ = message
+      })
+
       const config = ${config}
       const statusNode = document.getElementById("status")
       const errorNode = document.getElementById("error")
