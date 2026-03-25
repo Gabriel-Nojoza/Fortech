@@ -166,7 +166,10 @@ function buildPowerBICaptureHtml(input: {
       const errorNode = document.getElementById("error")
       const reportContainer = document.getElementById("report-container")
       const frameNode = document.querySelector(".frame")
+      const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
       let finished = false
+      let settlingRender = false
+      let lastVisualRenderedAt = 0
 
       function markReady(reason) {
         if (finished) return
@@ -203,6 +206,7 @@ function buildPowerBICaptureHtml(input: {
         settings: {
           filterPaneEnabled: false,
           navContentPaneEnabled: false,
+          visualRenderedEvents: true,
           layoutType: models.LayoutType.Custom,
           customLayout: {
             displayOption: models.DisplayOption.FitToWidth
@@ -297,6 +301,35 @@ function buildPowerBICaptureHtml(input: {
         }
       }
 
+      async function waitForVisualStability() {
+        const startedAt = Date.now()
+        const fallbackDelayMs = 5000
+        const quietPeriodMs = 2200
+        const maxWaitMs = 15000
+
+        while (Date.now() - startedAt < maxWaitMs) {
+          if (finished) {
+            return false
+          }
+
+          await syncFrameToActivePage()
+
+          if (lastVisualRenderedAt > 0) {
+            if (Date.now() - lastVisualRenderedAt >= quietPeriodMs) {
+              await wait(1200)
+              return true
+            }
+          } else if (Date.now() - startedAt >= fallbackDelayMs) {
+            await wait(1200)
+            return true
+          }
+
+          await wait(500)
+        }
+
+        return true
+      }
+
       report.on("loaded", async () => {
         statusNode.textContent = selectedPageName
           ? "Relatorio carregado. Abrindo a pagina selecionada..."
@@ -308,7 +341,17 @@ function buildPowerBICaptureHtml(input: {
         await syncFrameToActivePage()
       })
 
+      report.on("visualRendered", () => {
+        lastVisualRenderedAt = Date.now()
+      })
+
       report.on("rendered", () => {
+        if (settlingRender || finished) {
+          return
+        }
+
+        settlingRender = true
+
         window.setTimeout(async () => {
           if (selectedPageName) {
             try {
@@ -336,9 +379,15 @@ function buildPowerBICaptureHtml(input: {
           }
 
           statusNode.textContent = "Relatorio carregado. Finalizando renderizacao..."
+          const visualsSettled = await waitForVisualStability()
+          if (!visualsSettled) {
+            settlingRender = false
+            return
+          }
           await syncFrameToActivePage()
           markReady("rendered")
-        }, 1800)
+          settlingRender = false
+        }, 2500)
       })
 
       report.on("error", (event) => {
