@@ -498,8 +498,8 @@ export async function exportPowerBIReportPdf(input: {
       pageMarginMm: preset.pageMarginMm,
       screenshotScale: 3.5,
       forceExpandScrollable: true,
-      scrollableSegmentationMode: "overview-and-segments",
-      autoGrowPageHeight: true,
+      scrollableSegmentationMode: "full-page-scroll-steps",
+      autoGrowPageHeight: false,
       maxPageHeightMm: 500,
     })
   }
@@ -522,7 +522,7 @@ export async function exportPowerBIReportPdf(input: {
       deviceScaleFactor: preset.deviceScaleFactor,
       screenshotScale: 3.5,
       forceExpandScrollable: true,
-      scrollableSegmentationMode: "overview-and-segments",
+      scrollableSegmentationMode: "full-page-scroll-steps",
     })
 
     screenshotPayloads.push(screenshotPayload)
@@ -533,7 +533,7 @@ export async function exportPowerBIReportPdf(input: {
     pageWidthMm: preset.pageWidthMm,
     pageHeightMm: preset.pageHeightMm,
     pageMarginMm: preset.pageMarginMm,
-    autoGrowPageHeight: true,
+    autoGrowPageHeight: false,
     maxPageHeightMm: 500,
   })
 }

@@ -83,7 +83,10 @@ type PngRenderOptions = {
   deviceScaleFactor?: number
   screenshotScale?: number
   forceExpandScrollable?: boolean
-  scrollableSegmentationMode?: "segments-only" | "overview-and-segments"
+  scrollableSegmentationMode?:
+    | "segments-only"
+    | "overview-and-segments"
+    | "full-page-scroll-steps"
 }
 
 type ScreenshotToPdfOptions = {
@@ -97,7 +100,10 @@ type ScreenshotToPdfOptions = {
   deviceScaleFactor?: number
   screenshotScale?: number
   forceExpandScrollable?: boolean
-  scrollableSegmentationMode?: "segments-only" | "overview-and-segments"
+  scrollableSegmentationMode?:
+    | "segments-only"
+    | "overview-and-segments"
+    | "full-page-scroll-steps"
   autoGrowPageHeight?: boolean
   maxPageHeightMm?: number
 }
@@ -1442,7 +1448,10 @@ export async function renderHtmlToPng(
     const segmentBuffers: Buffer[] = []
     const segmentMetadata: SegmentMetadata[] = []
 
-    if (scrollableSegmentationMode === "overview-and-segments") {
+    if (
+      scrollableSegmentationMode === "overview-and-segments" ||
+      scrollableSegmentationMode === "full-page-scroll-steps"
+    ) {
       const overviewPng = await captureViewportPng(
         client,
         sessionId,
@@ -1463,7 +1472,8 @@ export async function renderHtmlToPng(
     }
 
     const scrollPositions =
-      scrollableSegmentationMode === "overview-and-segments"
+      scrollableSegmentationMode === "overview-and-segments" ||
+      scrollableSegmentationMode === "full-page-scroll-steps"
         ? positions.filter((scrollTop) => scrollTop > 0)
         : positions
 
@@ -1477,7 +1487,7 @@ export async function renderHtmlToPng(
         captureHeight,
         deviceScaleFactor,
         screenshotScale,
-        clip
+        scrollableSegmentationMode === "full-page-scroll-steps" ? undefined : clip
       )
 
       segmentBuffers.push(png)
@@ -1493,7 +1503,11 @@ export async function renderHtmlToPng(
 
     await restoreSegmentTarget(client, sessionId, originalScrollTop)
 
-    if (segmentBuffers.length === 1 && scrollableSegmentationMode === "overview-and-segments") {
+    if (
+      segmentBuffers.length === 1 &&
+      (scrollableSegmentationMode === "overview-and-segments" ||
+        scrollableSegmentationMode === "full-page-scroll-steps")
+    ) {
       return segmentBuffers[0]
     }
 
