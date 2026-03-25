@@ -449,6 +449,8 @@ export async function exportPowerBIReportPdf(input: {
       pageMarginMm: preset.pageMarginMm,
       screenshotScale: 3.5,
       forceExpandScrollable: false,
+      autoGrowPageHeight: true,
+      maxPageHeightMm: 500,
     })
   }
 
@@ -480,5 +482,7 @@ export async function exportPowerBIReportPdf(input: {
     pageWidthMm: preset.pageWidthMm,
     pageHeightMm: preset.pageHeightMm,
     pageMarginMm: preset.pageMarginMm,
+    autoGrowPageHeight: true,
+    maxPageHeightMm: 500,
   })
 }

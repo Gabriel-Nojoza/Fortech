@@ -96,6 +96,8 @@ type ScreenshotToPdfOptions = {
   deviceScaleFactor?: number
   screenshotScale?: number
   forceExpandScrollable?: boolean
+  autoGrowPageHeight?: boolean
+  maxPageHeightMm?: number
 }
 
 type CdpSendOptions = {
@@ -197,7 +199,12 @@ export async function renderScreenshotPayloadsToPdf(
   screenshotPayloads: Buffer[],
   options?: Pick<
     ScreenshotToPdfOptions,
-    "pdfTimeoutMs" | "pageWidthMm" | "pageHeightMm" | "pageMarginMm"
+    | "pdfTimeoutMs"
+    | "pageWidthMm"
+    | "pageHeightMm"
+    | "pageMarginMm"
+    | "autoGrowPageHeight"
+    | "maxPageHeightMm"
   >
 ) {
   const documents = screenshotPayloads.map((payload) => parseScreenshotDocument(payload))
@@ -217,13 +224,35 @@ export async function renderScreenshotPayloadsToPdf(
   }
 
   const pageWidthMm = options?.pageWidthMm ?? 420
-  const pageHeightMm = options?.pageHeightMm ?? 594
+  let pageHeightMm = options?.pageHeightMm ?? 594
   const pageMarginMm = options?.pageMarginMm ?? 8
 
   const pageWidthPx = millimetersToCssPixels(pageWidthMm)
-  const pageHeightPx = millimetersToCssPixels(pageHeightMm)
   const pageMarginPx = millimetersToCssPixels(pageMarginMm)
   const contentWidthPx = Math.max(1, pageWidthPx - pageMarginPx * 2)
+
+  if (options?.autoGrowPageHeight) {
+    const requiredContentHeightPx = pages.reduce((maxHeight, page) => {
+      const renderedImageHeightPx = Math.max(
+        1,
+        Math.round((page.info.height * contentWidthPx) / page.info.width)
+      )
+
+      return Math.max(maxHeight, renderedImageHeightPx)
+    }, 0)
+
+    const requiredPageHeightPx = requiredContentHeightPx + pageMarginPx * 2
+    const requiredPageHeightMm =
+      (requiredPageHeightPx * MILLIMETERS_PER_INCH) / CSS_PIXELS_PER_INCH
+    const maxPageHeightMm = options?.maxPageHeightMm ?? 500
+
+    pageHeightMm = Math.min(
+      maxPageHeightMm,
+      Math.max(pageHeightMm, Math.ceil(requiredPageHeightMm))
+    )
+  }
+
+  const pageHeightPx = millimetersToCssPixels(pageHeightMm)
   const contentHeightPx = Math.max(1, pageHeightPx - pageMarginPx * 2)
 
   const pagesHtml = pages
