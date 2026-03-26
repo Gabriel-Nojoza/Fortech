@@ -14,6 +14,10 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import type { DispatchLog } from "@/lib/types"
+import {
+  getDispatchLogEffectiveDate,
+  getDispatchLogOutcome,
+} from "@/lib/dispatch-log"
 
 const statusMap: Record<
   string,
@@ -26,17 +30,13 @@ const statusMap: Record<
   failed: { label: "Falhou", variant: "destructive" },
 }
 
-function formatLogAge(value?: string | null, mounted = false) {
-  if (!value) {
-    return "-"
-  }
-
+function formatLogAge(log: DispatchLog, mounted = false) {
   if (!mounted) {
     return "-"
   }
 
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
+  const parsed = getDispatchLogEffectiveDate(log)
+  if (!parsed) {
     return "-"
   }
 
@@ -72,7 +72,13 @@ export function RecentDispatches({ logs }: { logs: DispatchLog[] }) {
             </TableHeader>
             <TableBody>
               {logs.map((log) => {
-                const status = statusMap[log.status] ?? statusMap.pending
+                const outcome = getDispatchLogOutcome(log)
+                const status =
+                  outcome === "failed"
+                    ? statusMap.failed
+                    : outcome === "delivered"
+                      ? statusMap.delivered
+                      : statusMap[log.status] ?? statusMap.pending
                 return (
                   <TableRow key={log.id}>
                     <TableCell className="font-medium">
@@ -86,7 +92,7 @@ export function RecentDispatches({ logs }: { logs: DispatchLog[] }) {
                       <Badge variant={status.variant}>{status.label}</Badge>
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
-                      {formatLogAge(log.started_at, mounted)}
+                      {formatLogAge(log, mounted)}
                     </TableCell>
                   </TableRow>
                 )

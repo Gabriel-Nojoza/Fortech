@@ -60,7 +60,7 @@ export default function DashboardPage() {
               activeContacts: stats?.activeContacts ?? 0,
               whatsappConnected: stats?.whatsappConnected ?? false,
               dispatchesToday: stats?.dispatchesToday ?? 0,
-              successRate: stats?.successRate ?? 100,
+              successRate: stats?.successRate ?? null,
               pbiConfigured: stats?.pbiConfigured ?? false,
               n8nConfigured: stats?.n8nConfigured ?? false,
             }}

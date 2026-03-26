@@ -16,9 +16,17 @@ interface StatsData {
   activeContacts: number
   whatsappConnected?: boolean
   dispatchesToday: number
-  successRate: number
+  successRate: number | null
   pbiConfigured?: boolean
   n8nConfigured?: boolean
+}
+
+function formatMetricValue(value: number | string) {
+  if (typeof value === "number") {
+    return new Intl.NumberFormat("pt-BR").format(value)
+  }
+
+  return value
 }
 
 export function StatsCards({ data }: { data: StatsData }) {
@@ -54,9 +62,12 @@ export function StatsCards({ data }: { data: StatsData }) {
     },
     {
       title: "Taxa de Sucesso",
-      value: `${data.successRate}%`,
+      value: data.successRate === null ? "--" : `${data.successRate}%`,
       icon: CheckCircle,
-      description: "Ultimos 30 dias",
+      description:
+        data.successRate === null
+          ? "Sem envios finalizados nos ultimos 30 dias"
+          : "Ultimos 30 dias",
       status: null,
     },
   ]
@@ -72,7 +83,7 @@ export function StatsCards({ data }: { data: StatsData }) {
             <stat.icon className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stat.value}</div>
+            <div className="text-2xl font-bold">{formatMetricValue(stat.value)}</div>
             <div className="flex items-center justify-between gap-2 pt-1">
               <p className="text-xs text-muted-foreground">
                 {stat.description}
