@@ -137,6 +137,10 @@ const PNG_SIGNATURE = Buffer.from([
 
 const CSS_PIXELS_PER_INCH = 96
 const MILLIMETERS_PER_INCH = 25.4
+const MAX_CAPTURE_WIDTH = 4096
+const MAX_CAPTURE_HEIGHT = 8192
+const MAX_DEVICE_SCALE_FACTOR = 2
+const MAX_SCREENSHOT_SCALE = 1.5
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -148,6 +152,18 @@ function parseEnvNumber(name: string, fallback: number) {
 
   const value = Number(raw)
   return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+function clampCaptureDimension(value: number, max: number) {
+  return Math.max(1, Math.min(Math.round(value), max))
+}
+
+function clampScale(value: number, max: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 1
+  }
+
+  return Math.min(value, max)
 }
 
 function parsePngDimensions(png: Buffer) {
@@ -1291,16 +1307,24 @@ export async function renderHtmlToPng(
 ) {
   const timeoutMs = options?.timeoutMs ?? 60000
   const domReadyTimeoutMs = Math.max(4000, Math.min(timeoutMs, 60000))
-  const captureWidth =
-    options?.captureWidth ?? parseEnvNumber("REPORT_PDF_CAPTURE_WIDTH", 2560)
-  const captureHeight =
-    options?.captureHeight ?? parseEnvNumber("REPORT_PDF_CAPTURE_HEIGHT", 1707)
-  const deviceScaleFactor =
+  const captureWidth = clampCaptureDimension(
+    options?.captureWidth ?? parseEnvNumber("REPORT_PDF_CAPTURE_WIDTH", 2560),
+    MAX_CAPTURE_WIDTH
+  )
+  const captureHeight = clampCaptureDimension(
+    options?.captureHeight ?? parseEnvNumber("REPORT_PDF_CAPTURE_HEIGHT", 1707),
+    MAX_CAPTURE_HEIGHT
+  )
+  const deviceScaleFactor = clampScale(
     options?.deviceScaleFactor ??
-    parseEnvNumber("REPORT_PDF_DEVICE_SCALE_FACTOR", 3)
-  const screenshotScale =
+      parseEnvNumber("REPORT_PDF_DEVICE_SCALE_FACTOR", 2),
+    MAX_DEVICE_SCALE_FACTOR
+  )
+  const screenshotScale = clampScale(
     options?.screenshotScale ??
-    parseEnvNumber("REPORT_PDF_SCREENSHOT_SCALE", 3.5)
+      parseEnvNumber("REPORT_PDF_SCREENSHOT_SCALE", 1),
+    MAX_SCREENSHOT_SCALE
+  )
   const scrollableSegmentationMode =
     options?.scrollableSegmentationMode ?? "segments-only"
 
@@ -1355,19 +1379,14 @@ export async function renderHtmlToPng(
 
       await delay(700)
 
+      // ✅ CORRIGIDO: captureBeyondViewport: false — o viewport já foi redimensionado
+      // para o tamanho exato do conteúdo. Usar true causava área preta abaixo do relatório.
       const screenshot = await client.send(
         "Page.captureScreenshot",
         {
           format: "png",
           fromSurface: true,
-          captureBeyondViewport: true,
-          clip: {
-            x: 0,
-            y: 0,
-            width: fullWidth,
-            height: safeFullHeight,
-            scale: 1,
-          },
+          captureBeyondViewport: false,
         },
         { sessionId }
       )
@@ -1412,19 +1431,13 @@ export async function renderHtmlToPng(
 
       await delay(700)
 
+      // ✅ CORRIGIDO: captureBeyondViewport: false — mesmo motivo acima.
       const screenshot = await client.send(
         "Page.captureScreenshot",
         {
           format: "png",
           fromSurface: true,
-          captureBeyondViewport: true,
-          clip: {
-            x: 0,
-            y: 0,
-            width: fullWidth,
-            height: safeFullHeight,
-            scale: 1,
-          },
+          captureBeyondViewport: false,
         },
         { sessionId }
       )

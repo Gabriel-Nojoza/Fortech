@@ -68,7 +68,6 @@ function buildPowerBICaptureHtml(input: {
       min-height: 100%;
       background: var(--canvas-bg);
       font-family: "Segoe UI", Tahoma, sans-serif;
-      overflow: visible;
     }
 
     body {
@@ -77,18 +76,18 @@ function buildPowerBICaptureHtml(input: {
 
     .canvas {
       width: 100%;
-      min-height: 100%;
+      min-height: 0;
       margin: 0;
-      display: block;
-      overflow: visible;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
     }
 
     .frame {
       position: relative;
       width: 100%;
-      min-height: 8800px;
-      height: auto;
-      overflow: visible;
+      height: 1100px;
+      overflow: hidden;
       border-radius: 0;
       background: var(--frame-bg);
       box-shadow: none;
@@ -96,9 +95,7 @@ function buildPowerBICaptureHtml(input: {
 
     #report-container {
       width: 100%;
-      min-height: 8800px;
-      height: auto;
-      overflow: visible;
+      height: 100%;
     }
 
     .status {
@@ -260,15 +257,13 @@ function buildPowerBICaptureHtml(input: {
           }
 
           const nextHeight = Math.max(
-            10000,
+            920,
             Math.ceil(frameWidth * (pageHeight / pageWidth))
           )
 
           frameNode.style.height = nextHeight + "px"
-          reportContainer.style.height = nextHeight + "px"
-          reportContainer.style.minHeight = nextHeight + "px"
         } catch {
-          // Mantem altura padrao se nao conseguir ler a pagina ativa.
+          // Se nao conseguir ler a pagina ativa, mantemos a altura padrao.
         }
       }
 
@@ -297,7 +292,7 @@ function buildPowerBICaptureHtml(input: {
             statusNode.textContent =
               "Relatorio carregado. Abrindo a pagina selecionada..."
             await targetPage.setActive()
-            await wait(2500)
+            await wait(1500)
           }
 
           return true
@@ -309,9 +304,9 @@ function buildPowerBICaptureHtml(input: {
 
       async function waitForVisualStability() {
         const startedAt = Date.now()
-        const fallbackDelayMs = 15000
-        const quietPeriodMs = 6000
-        const maxWaitMs = 45000
+        const fallbackDelayMs = 9000
+        const quietPeriodMs = 3200
+        const maxWaitMs = 25000
 
         while (Date.now() - startedAt < maxWaitMs) {
           if (finished) {
@@ -322,15 +317,15 @@ function buildPowerBICaptureHtml(input: {
 
           if (lastVisualRenderedAt > 0) {
             if (Date.now() - lastVisualRenderedAt >= quietPeriodMs) {
-              await wait(2500)
+              await wait(1200)
               return true
             }
           } else if (Date.now() - startedAt >= fallbackDelayMs) {
-            await wait(2500)
+            await wait(1200)
             return true
           }
 
-          await wait(700)
+          await wait(500)
         }
 
         return true
@@ -347,7 +342,7 @@ function buildPowerBICaptureHtml(input: {
         }
 
         await syncFrameToActivePage()
-        await wait(3000)
+        await wait(1500)
       })
 
       report.on("visualRendered", () => {
@@ -398,10 +393,10 @@ function buildPowerBICaptureHtml(input: {
           }
 
           await syncFrameToActivePage()
-          await wait(3000)
+          await wait(1500)
           markReady("rendered")
           settlingRender = false
-        }, 8000)
+        }, 3500)
       })
 
       report.on("error", (event) => {
@@ -420,12 +415,12 @@ function buildPowerBICaptureHtml(input: {
         if (!finished) {
           markReady("timeout")
         }
-      }, 120000)
+      }, 60000)
 
       window.addEventListener("resize", () => {
         window.setTimeout(() => {
           void syncFrameToActivePage()
-        }, 200)
+        }, 120)
       })
     })()
   </script>
@@ -438,8 +433,8 @@ export type PowerBiPdfProfile = "desktop" | "mobile"
 function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
   if (profile === "mobile") {
     return {
-      viewportWidth: 2304,
-      viewportHeight: 2600,
+      viewportWidth: 1600,
+      viewportHeight: 2200,
       deviceScaleFactor: 2,
       pageWidthMm: 210,
       pageHeightMm: 297,
@@ -448,12 +443,12 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
   }
 
   return {
-    viewportWidth: 10000,
-    viewportHeight: 10000,
+    viewportWidth: 2560,
+    viewportHeight: 1703,
     deviceScaleFactor: 2,
-    pageWidthMm: 1189,
-    pageHeightMm: 841,
-    pageMarginMm: 8,
+    pageWidthMm: 297,
+    pageHeightMm: 210,
+    pageMarginMm: 6,
   }
 }
 
@@ -503,8 +498,8 @@ export async function exportPowerBIReportPdf(input: {
     })
 
     return renderHtmlScreenshotToPdf(html, {
-      pngTimeoutMs: 120000,
-      pdfTimeoutMs: 120000,
+      pngTimeoutMs: 90000,
+      pdfTimeoutMs: 90000,
       captureWidth: preset.viewportWidth,
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
@@ -512,9 +507,10 @@ export async function exportPowerBIReportPdf(input: {
       pageHeightMm: preset.pageHeightMm,
       pageMarginMm: preset.pageMarginMm,
       screenshotScale: 1,
-      forceExpandScrollable: false,
-      autoGrowPageHeight: true,
-      maxPageHeightMm: 20000,
+      forceExpandScrollable: true,
+      scrollableSegmentationMode: "full-page-scroll-steps",
+      autoGrowPageHeight: false,
+      maxPageHeightMm: 500,
     })
   }
 
@@ -530,23 +526,24 @@ export async function exportPowerBIReportPdf(input: {
     })
 
     const screenshotPayload = await renderHtmlToPng(html, {
-      timeoutMs: 120000,
+      timeoutMs: 90000,
       captureWidth: preset.viewportWidth,
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
       screenshotScale: 1,
-      forceExpandScrollable: false,
+      forceExpandScrollable: true,
+      scrollableSegmentationMode: "full-page-scroll-steps",
     })
 
     screenshotPayloads.push(screenshotPayload)
   }
 
   return renderScreenshotPayloadsToPdf(screenshotPayloads, {
-    pdfTimeoutMs: 120000,
+    pdfTimeoutMs: 90000,
     pageWidthMm: preset.pageWidthMm,
     pageHeightMm: preset.pageHeightMm,
     pageMarginMm: preset.pageMarginMm,
-    autoGrowPageHeight: true,
-    maxPageHeightMm: 20000,
+    autoGrowPageHeight: false,
+    maxPageHeightMm: 500,
   })
 }
