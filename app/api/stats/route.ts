@@ -83,19 +83,6 @@ export async function GET() {
     const dispatchesToday = logsWithDates.filter(
       (log) => log.effectiveDate >= todayStart && log.effectiveDate < tomorrowStart
     ).length
-    const todayCompletedLogs = logsWithDates.filter(
-      (log) =>
-        log.effectiveDate >= todayStart &&
-        log.effectiveDate < tomorrowStart &&
-        log.outcome !== "ongoing"
-    )
-    const deliveredToday = todayCompletedLogs.filter(
-      (log) => log.outcome === "delivered"
-    ).length
-    const failedToday = todayCompletedLogs.filter(
-      (log) => log.outcome === "failed"
-    ).length
-    const inProgressToday = dispatchesToday - todayCompletedLogs.length
 
     const monthLogs = logsWithDates.filter((log) => log.effectiveDate >= thirtyDaysAgo)
     const completedMonthLogs = monthLogs.filter((log) => log.outcome !== "ongoing")
@@ -149,10 +136,6 @@ export async function GET() {
       activeContacts,
       whatsappConnected,
       dispatchesToday,
-      deliveredToday,
-      failedToday,
-      inProgressToday,
-      completedDispatches30d: completedMonthLogs.length,
       successRate,
       pbiConfigured,
       n8nConfigured,

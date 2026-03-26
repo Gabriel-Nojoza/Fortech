@@ -16,10 +16,6 @@ interface StatsData {
   activeContacts: number
   whatsappConnected?: boolean
   dispatchesToday: number
-  deliveredToday: number
-  failedToday: number
-  inProgressToday: number
-  completedDispatches30d: number
   successRate: number | null
   pbiConfigured?: boolean
   n8nConfigured?: boolean
