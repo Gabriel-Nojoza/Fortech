@@ -1110,7 +1110,14 @@ async function prepareScrollableSegments(
 
         const positions = []
         const maxScrollTop = Math.max(0, target.scrollHeight - target.clientHeight)
-        const step = Math.max(120, Math.floor(target.clientHeight * 0.72))
+        const visibleRatio = target.clientHeight / Math.max(target.scrollHeight, 1)
+        const stepFactor =
+          visibleRatio <= 0.22
+            ? 0.32
+            : visibleRatio <= 0.35
+              ? 0.4
+              : 0.48
+        const step = Math.max(90, Math.floor(target.clientHeight * stepFactor))
 
         for (let y = 0; y <= maxScrollTop; y += step) {
           positions.push(Math.min(y, maxScrollTop))
