@@ -484,7 +484,6 @@ export default function UsersPage() {
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="email@exemplo.com"
-                  disabled={!!editUser}
                 />
               </div>
               <div className="flex flex-col gap-2">

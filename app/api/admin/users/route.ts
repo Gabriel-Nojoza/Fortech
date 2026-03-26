@@ -406,7 +406,18 @@ export async function PUT(request: Request) {
     const context = await requireAdminContext()
     const supabase = getAdminClient()
     const body = await request.json()
-    const { id, password, name, role, company_name, powerbi, n8n, selected_pbi_workspace_ids } = body
+    const {
+      id,
+      email,
+      password,
+      name,
+      role,
+      company_name,
+      powerbi,
+      n8n,
+      selected_pbi_workspace_ids,
+    } = body
+    const normalizedEmail = String(email ?? "").trim().toLowerCase()
     const normalizedPassword = String(password ?? "").trim()
     const normalizedName = String(name ?? "").trim()
     const normalizedRole = role === "admin" ? "admin" : "client"
@@ -415,6 +426,10 @@ export async function PUT(request: Request) {
 
     if (!id) {
       return NextResponse.json({ error: "ID obrigatorio" }, { status: 400 })
+    }
+
+    if (!normalizedEmail) {
+      return NextResponse.json({ error: "Email obrigatorio" }, { status: 400 })
     }
 
     const { data: usersData, error: listErr } = await supabase.auth.admin.listUsers()
@@ -508,6 +523,8 @@ export async function PUT(request: Request) {
     }
 
     const updateData: {
+      email?: string
+      email_confirm?: boolean
       password?: string
       app_metadata?: Record<string, string | boolean | string[]>
       user_metadata?: Record<string, string | boolean | string[]>
@@ -527,13 +544,26 @@ export async function PUT(request: Request) {
       },
     }
 
+    if (normalizedEmail !== String(current.email ?? "").trim().toLowerCase()) {
+      updateData.email = normalizedEmail
+      updateData.email_confirm = true
+    }
+
     if (normalizedPassword) {
       updateData.password = normalizedPassword
     }
 
     const { data, error } = await supabase.auth.admin.updateUserById(id, updateData)
 
-    if (error) throw error
+    if (error) {
+      if (error.message.includes("already been registered")) {
+        return NextResponse.json(
+          { error: "Este email ja esta cadastrado" },
+          { status: 400 }
+        )
+      }
+      throw error
+    }
 
     if (normalizedRole !== "client" || !nextWorkspaceAccessConfigured) {
       await syncUserWorkspaceAccess(supabase, {
