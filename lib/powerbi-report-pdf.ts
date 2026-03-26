@@ -68,6 +68,7 @@ function buildPowerBICaptureHtml(input: {
       min-height: 100%;
       background: var(--canvas-bg);
       font-family: "Segoe UI", Tahoma, sans-serif;
+      overflow: visible;
     }
 
     body {
@@ -76,27 +77,28 @@ function buildPowerBICaptureHtml(input: {
 
     .canvas {
       width: 100%;
-      min-height: 0;
+      min-height: 100%;
       margin: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 0;
+      display: block;
+      overflow: visible;
     }
 
     .frame {
-  position: relative;
-  width: 100%;
-  min-height: 4200px;
-  height: auto;
-  overflow: visible;
-  border-radius: 0;
-  background: var(--frame-bg);
-  box-shadow: none;
-}
+      position: relative;
+      width: 100%;
+      min-height: 8800px;
+      height: auto;
+      overflow: visible;
+      border-radius: 0;
+      background: var(--frame-bg);
+      box-shadow: none;
+    }
 
     #report-container {
       width: 100%;
-      height: 100%;
+      min-height: 8800px;
+      height: auto;
+      overflow: visible;
     }
 
     .status {
@@ -258,13 +260,15 @@ function buildPowerBICaptureHtml(input: {
           }
 
           const nextHeight = Math.max(
-            4200,
+            10000,
             Math.ceil(frameWidth * (pageHeight / pageWidth))
           )
 
           frameNode.style.height = nextHeight + "px"
+          reportContainer.style.height = nextHeight + "px"
+          reportContainer.style.minHeight = nextHeight + "px"
         } catch {
-          // Se nao conseguir ler a pagina ativa, mantemos a altura padrao.
+          // Mantem altura padrao se nao conseguir ler a pagina ativa.
         }
       }
 
@@ -293,6 +297,7 @@ function buildPowerBICaptureHtml(input: {
             statusNode.textContent =
               "Relatorio carregado. Abrindo a pagina selecionada..."
             await targetPage.setActive()
+            await wait(2500)
           }
 
           return true
@@ -304,9 +309,9 @@ function buildPowerBICaptureHtml(input: {
 
       async function waitForVisualStability() {
         const startedAt = Date.now()
-        const fallbackDelayMs = 12000
-        const quietPeriodMs = 5000
-        const maxWaitMs = 30000
+        const fallbackDelayMs = 15000
+        const quietPeriodMs = 6000
+        const maxWaitMs = 45000
 
         while (Date.now() - startedAt < maxWaitMs) {
           if (finished) {
@@ -317,15 +322,15 @@ function buildPowerBICaptureHtml(input: {
 
           if (lastVisualRenderedAt > 0) {
             if (Date.now() - lastVisualRenderedAt >= quietPeriodMs) {
-              await wait(1200)
+              await wait(2500)
               return true
             }
           } else if (Date.now() - startedAt >= fallbackDelayMs) {
-            await wait(1200)
+            await wait(2500)
             return true
           }
 
-          await wait(500)
+          await wait(700)
         }
 
         return true
@@ -335,11 +340,14 @@ function buildPowerBICaptureHtml(input: {
         statusNode.textContent = selectedPageName
           ? "Relatorio carregado. Abrindo a pagina selecionada..."
           : "Relatorio carregado. Finalizando renderizacao..."
+
         const pageReady = await ensureSelectedPageIsActive()
         if (!pageReady) {
           return
         }
+
         await syncFrameToActivePage()
+        await wait(3000)
       })
 
       report.on("visualRendered", () => {
@@ -369,12 +377,15 @@ function buildPowerBICaptureHtml(input: {
               ) {
                 const pageReady = await ensureSelectedPageIsActive()
                 if (pageReady) {
+                  settlingRender = false
                   return
                 }
+                settlingRender = false
                 return
               }
             } catch {
               markError("Nao foi possivel confirmar a pagina selecionada.")
+              settlingRender = false
               return
             }
           }
@@ -385,10 +396,12 @@ function buildPowerBICaptureHtml(input: {
             settlingRender = false
             return
           }
+
           await syncFrameToActivePage()
+          await wait(3000)
           markReady("rendered")
           settlingRender = false
-        }, 6000)
+        }, 8000)
       })
 
       report.on("error", (event) => {
@@ -407,12 +420,12 @@ function buildPowerBICaptureHtml(input: {
         if (!finished) {
           markReady("timeout")
         }
-      }, 90000)
+      }, 120000)
 
       window.addEventListener("resize", () => {
         window.setTimeout(() => {
           void syncFrameToActivePage()
-        }, 120)
+        }, 200)
       })
     })()
   </script>
@@ -426,8 +439,8 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
   if (profile === "mobile") {
     return {
       viewportWidth: 2304,
-      viewportHeight: 1536,
-      deviceScaleFactor: 3,
+      viewportHeight: 2600,
+      deviceScaleFactor: 2,
       pageWidthMm: 210,
       pageHeightMm: 297,
       pageMarginMm: 6,
@@ -435,11 +448,11 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
   }
 
   return {
-    viewportWidth: 5000,
-    viewportHeight: 3200,
+    viewportWidth: 10000,
+    viewportHeight: 10000,
     deviceScaleFactor: 2,
-    pageWidthMm: 1189,   // A0 landscape
-    pageHeightMm: 841,   // A0 landscape
+    pageWidthMm: 1189,
+    pageHeightMm: 841,
     pageMarginMm: 8,
   }
 }
@@ -472,6 +485,7 @@ export async function exportPowerBIReportPdf(input: {
   const normalizedPageNames = Array.isArray(input.pageNames)
     ? [...new Set(input.pageNames.map((pageName) => pageName.trim()).filter(Boolean))]
     : []
+
   const selectedPageNames =
     normalizedPageNames.length > 0
       ? normalizedPageNames
@@ -497,10 +511,10 @@ export async function exportPowerBIReportPdf(input: {
       pageWidthMm: preset.pageWidthMm,
       pageHeightMm: preset.pageHeightMm,
       pageMarginMm: preset.pageMarginMm,
-      screenshotScale: 2,
+      screenshotScale: 1,
       forceExpandScrollable: false,
       autoGrowPageHeight: true,
-      maxPageHeightMm: 3500,
+      maxPageHeightMm: 20000,
     })
   }
 
@@ -520,7 +534,7 @@ export async function exportPowerBIReportPdf(input: {
       captureWidth: preset.viewportWidth,
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
-      screenshotScale: 2,
+      screenshotScale: 1,
       forceExpandScrollable: false,
     })
 
@@ -533,6 +547,6 @@ export async function exportPowerBIReportPdf(input: {
     pageHeightMm: preset.pageHeightMm,
     pageMarginMm: preset.pageMarginMm,
     autoGrowPageHeight: true,
-    maxPageHeightMm: 3500,
+    maxPageHeightMm: 20000,
   })
 }
