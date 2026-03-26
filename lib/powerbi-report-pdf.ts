@@ -433,21 +433,21 @@ export type PowerBiPdfProfile = "desktop" | "mobile"
 function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
   if (profile === "mobile") {
     return {
-      viewportWidth: 6800,
-      viewportHeight: 4200,
+      viewportWidth: 7000,
+      viewportHeight: 4800,
       deviceScaleFactor: 1,
-      pageWidthMm: 620,
-      pageHeightMm: 420,
+      pageWidthMm: 700,
+      pageHeightMm: 460,
       pageMarginMm: 1,
     }
   }
 
   return {
-    viewportWidth: 5600,
-    viewportHeight: 3400,
-    deviceScaleFactor: 1.25,
-    pageWidthMm: 500,
-    pageHeightMm: 340,
+    viewportWidth: 6200,
+    viewportHeight: 3800,
+    deviceScaleFactor: 1,
+    pageWidthMm: 560,
+    pageHeightMm: 380,
     pageMarginMm: 1,
   }
 }
