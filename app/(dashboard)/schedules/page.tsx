@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Search,
   ChevronDown,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -298,6 +299,20 @@ export default function SchedulesPage() {
       (contact.whatsapp_group_id ?? "").toLowerCase().includes(search)
     )
   })
+
+  const selectedContacts = useMemo(() => {
+    const contactMap = new Map(contactList.map((contact) => [contact.id, contact] as const))
+
+    return formContactIds.map((contactId) => {
+      const contact = contactMap.get(contactId)
+
+      return {
+        id: contactId,
+        name: contact?.name || "Contato selecionado",
+        type: contact?.type === "group" ? "group" : "individual",
+      }
+    })
+  }, [contactList, formContactIds])
 
   const handleCronValueChange = useCallback((value: string) => {
     setFormCron(value)
@@ -1028,6 +1043,31 @@ export default function SchedulesPage() {
                         className="pl-9"
                       />
                     </div>
+
+                    {selectedContacts.length > 0 ? (
+                      <div className="mb-3 flex flex-wrap gap-2 rounded-md border border-border/60 bg-muted/20 p-2">
+                        {selectedContacts.map((contact) => (
+                          <Badge
+                            key={`selected-${contact.id}`}
+                            variant="secondary"
+                            className="flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs"
+                          >
+                            <span className="truncate">{contact.name}</span>
+                            <span className="text-[10px] uppercase text-muted-foreground">
+                              {contact.type === "group" ? "Grupo" : "Individual"}
+                            </span>
+                            <button
+                              type="button"
+                              className="inline-flex size-4 items-center justify-center rounded-sm hover:bg-background/70"
+                              onClick={() => toggleContact(contact.id)}
+                              aria-label={`Remover ${contact.name}`}
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
 
                     {filteredContacts.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
