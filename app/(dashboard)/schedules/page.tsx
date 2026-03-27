@@ -7,6 +7,7 @@ import {
   Clock,
   Trash2,
   Pencil,
+  Copy,
   Play,
   Loader2,
   RefreshCw,
@@ -141,6 +142,13 @@ type ReportPageOption = {
   order: number
 }
 
+type ScheduleListItem = Schedule & {
+  report_name: string
+  contacts: { id: string; name: string }[]
+}
+
+type ScheduleDialogMode = "create" | "edit" | "duplicate"
+
 const POWERBI_FORMATS: ScheduleExportFormat[] = ["PDF", "PNG", "PPTX"]
 const DEFAULT_SCHEDULE_CRON = "0 8 * * 1-5"
 const DEFAULT_SCHEDULE_MESSAGE = "Segue o relatorio {report_name} em anexo."
@@ -156,6 +164,27 @@ function normalizeScheduleFormat(format: ScheduleExportFormat): ScheduleExportFo
   }
 
   return format
+}
+
+function buildDuplicateScheduleName(name: string, existingNames: string[]) {
+  const baseName = name.trim() || "Nova rotina"
+  const normalizedBaseName =
+    baseName.replace(/\s-\scopia(?:\s\d+)?$/i, "").trim() || baseName
+  const copyBase = `${normalizedBaseName} - copia`
+  const normalizedNames = new Set(
+    existingNames.map((existingName) => existingName.trim().toLowerCase()).filter(Boolean)
+  )
+
+  if (!normalizedNames.has(copyBase.toLowerCase())) {
+    return copyBase
+  }
+
+  let suffix = 2
+  while (normalizedNames.has(`${copyBase} ${suffix}`.toLowerCase())) {
+    suffix += 1
+  }
+
+  return `${copyBase} ${suffix}`
 }
 
 function extractApiErrorMessage(payload: unknown): string | null {
@@ -239,7 +268,7 @@ function mapApiFieldErrors(payload: unknown): Record<string, string> {
 
 export default function SchedulesPage() {
   const { data: schedules, isLoading } = useSWR<
-    (Schedule & { report_name: string; contacts: { id: string; name: string }[] })[]
+    ScheduleListItem[]
   >("/api/schedules", fetcher)
   const { data: reports } = useSWR<Report[]>("/api/reports", fetcher)
   const { data: contacts } = useSWR<Contact[]>("/api/contacts", fetcher)
@@ -266,7 +295,9 @@ export default function SchedulesPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [editSchedule, setEditSchedule] = useState<Schedule | null>(null)
+  const [formMode, setFormMode] = useState<ScheduleDialogMode>("create")
+  const [editSchedule, setEditSchedule] = useState<ScheduleListItem | null>(null)
+  const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [syncingBotContacts, setSyncingBotContacts] = useState(false)
 
@@ -320,7 +351,9 @@ export default function SchedulesPage() {
   }, [])
 
   function resetScheduleForm() {
+    setFormMode("create")
     setEditSchedule(null)
+    setDuplicateSourceId(null)
     setFormName("")
     setFormReportId("")
     setFormPageNames([])
@@ -333,6 +366,7 @@ export default function SchedulesPage() {
     setContactSearch("")
     setReportPages([])
     setReportPagesError("")
+    setLoadingReportPages(false)
   }
 
   function handleDialogOpenChange(open: boolean) {
@@ -352,16 +386,30 @@ export default function SchedulesPage() {
     }
   }
 
-  function openEdit(schedule: Schedule & { contacts: { id: string; name: string }[] }) {
-    setEditSchedule(schedule)
-    setFormName(schedule.name)
+  function populateScheduleForm(
+    schedule: ScheduleListItem,
+    mode: Exclude<ScheduleDialogMode, "create">
+  ) {
+    const duplicating = mode === "duplicate"
+
+    setFormMode(mode)
+    setEditSchedule(duplicating ? null : schedule)
+    setDuplicateSourceId(duplicating ? schedule.id : null)
+    setFormName(
+      duplicating
+        ? buildDuplicateScheduleName(
+            schedule.name,
+            scheduleList.map((item) => item.name)
+          )
+        : schedule.name
+    )
     setFormReportId(schedule.report_id)
     setFormPageNames(resolveSchedulePageNames(schedule))
     setFormCron(schedule.cron_expression)
     setFormFormat(normalizeScheduleFormat(schedule.export_format))
     setFormMessage(schedule.message_template ?? DEFAULT_SCHEDULE_MESSAGE)
     setFormContactIds(schedule.contacts?.map((c) => c.id) ?? [])
-    setFormActive(schedule.is_active)
+    setFormActive(duplicating ? false : schedule.is_active)
     setFormErrors({})
     setContactSearch("")
     setReportPages([])
@@ -371,6 +419,14 @@ export default function SchedulesPage() {
     if (canShowContacts) {
       void syncContactsFromBot(true)
     }
+  }
+
+  function openEdit(schedule: ScheduleListItem) {
+    populateScheduleForm(schedule, "edit")
+  }
+
+  function openDuplicate(schedule: ScheduleListItem) {
+    populateScheduleForm(schedule, "duplicate")
   }
 
   function validateScheduleForm(): boolean {
@@ -400,10 +456,13 @@ export default function SchedulesPage() {
   async function handleSave() {
     if (!validateScheduleForm()) return
 
+    const editingScheduleId = formMode === "edit" ? editSchedule?.id ?? null : null
+    const isEditing = editingScheduleId !== null
+
     setSaving(true)
     try {
       const payload = {
-        ...(editSchedule ? { id: editSchedule.id } : {}),
+        ...(editingScheduleId ? { id: editingScheduleId } : {}),
         name: formName.trim(),
         report_id: formReportId,
         pbi_page_name: formPageNames[0] ?? null,
@@ -416,7 +475,7 @@ export default function SchedulesPage() {
       }
 
       const { response, data } = await fetchApi("/api/schedules", {
-        method: editSchedule ? "PUT" : "POST",
+        method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
@@ -434,11 +493,21 @@ export default function SchedulesPage() {
         throw new Error(
           extractApiErrorMessage(data) ??
             firstFieldError ??
-            (editSchedule ? "Erro ao atualizar rotina" : "Erro ao criar rotina")
+            (isEditing
+              ? "Erro ao atualizar rotina"
+              : formMode === "duplicate"
+                ? "Erro ao duplicar rotina"
+                : "Erro ao criar rotina")
         )
       }
 
-      toast.success(editSchedule ? "Rotina atualizada!" : "Rotina criada!")
+      toast.success(
+        isEditing
+          ? "Rotina atualizada!"
+          : formMode === "duplicate"
+            ? "Rotina duplicada!"
+            : "Rotina criada!"
+      )
       handleDialogOpenChange(false)
       mutate("/api/schedules")
     } catch (error) {
@@ -769,6 +838,7 @@ export default function SchedulesPage() {
                               variant="ghost"
                               size="icon"
                               onClick={() => openEdit(schedule)}
+                              title="Editar rotina"
                             >
                               <Pencil className="size-4" />
                               <span className="sr-only">Editar</span>
@@ -777,7 +847,18 @@ export default function SchedulesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              onClick={() => openDuplicate(schedule)}
+                              title="Duplicar rotina"
+                            >
+                              <Copy className="size-4" />
+                              <span className="sr-only">Duplicar</span>
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               onClick={() => setDeleteId(schedule.id)}
+                              title="Excluir rotina"
                             >
                               <Trash2 className="size-4 text-destructive" />
                               <span className="sr-only">Excluir</span>
@@ -796,13 +877,21 @@ export default function SchedulesPage() {
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
         <DialogContent
-          key={editSchedule?.id ?? "new-schedule"}
+          key={`${formMode}-${editSchedule?.id ?? duplicateSourceId ?? "new-schedule"}`}
           className="max-h-[90vh] overflow-y-auto sm:max-w-lg"
         >
           <DialogHeader>
-            <DialogTitle>{editSchedule ? "Editar Rotina" : "Nova Rotina"}</DialogTitle>
+            <DialogTitle>
+              {formMode === "edit"
+                ? "Editar Rotina"
+                : formMode === "duplicate"
+                  ? "Duplicar Rotina"
+                  : "Nova Rotina"}
+            </DialogTitle>
             <DialogDescription>
-              Configure os horarios, contatos e formato para esta rotina de disparo.
+              {formMode === "duplicate"
+                ? "Crie uma nova rotina a partir da selecionada. Ela inicia inativa para evitar disparos duplicados sem revisao."
+                : "Configure os horarios, contatos e formato para esta rotina de disparo."}
             </DialogDescription>
           </DialogHeader>
 
@@ -983,7 +1072,7 @@ export default function SchedulesPage() {
             </div>
 
             <CronBuilder
-              key={editSchedule?.id ?? "new-schedule-cron"}
+              key={`${formMode}-${editSchedule?.id ?? duplicateSourceId ?? "new-schedule"}-cron`}
               value={formCron}
               onChange={handleCronValueChange}
             />
@@ -1120,7 +1209,13 @@ export default function SchedulesPage() {
                 (!canShowContacts && formContactIds.length === 0)
               }
             >
-              {saving ? "Salvando..." : "Salvar"}
+              {saving
+                ? "Salvando..."
+                : formMode === "edit"
+                  ? "Salvar alteracoes"
+                  : formMode === "duplicate"
+                    ? "Criar copia"
+                    : "Salvar"}
             </Button>
           </div>
         </DialogContent>
