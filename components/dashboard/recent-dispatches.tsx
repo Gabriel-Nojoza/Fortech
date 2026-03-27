@@ -15,20 +15,9 @@ import {
 } from "@/components/ui/table"
 import type { DispatchLog } from "@/lib/types"
 import {
+  getDispatchLogDisplayStatus,
   getDispatchLogEffectiveDate,
-  getDispatchLogOutcome,
 } from "@/lib/dispatch-log"
-
-const statusMap: Record<
-  string,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
-> = {
-  pending: { label: "Pendente", variant: "secondary" },
-  exporting: { label: "Exportando", variant: "outline" },
-  sending: { label: "Enviando", variant: "outline" },
-  delivered: { label: "Entregue", variant: "default" },
-  failed: { label: "Falhou", variant: "destructive" },
-}
 
 function formatLogAge(log: DispatchLog, mounted = false) {
   if (!mounted) {
@@ -70,15 +59,9 @@ export function RecentDispatches({ logs }: { logs: DispatchLog[] }) {
                 <TableHead className="text-right">Quando</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+              <TableBody>
               {logs.map((log) => {
-                const outcome = getDispatchLogOutcome(log)
-                const status =
-                  outcome === "failed"
-                    ? statusMap.failed
-                    : outcome === "delivered"
-                      ? statusMap.delivered
-                      : statusMap[log.status] ?? statusMap.pending
+                const status = getDispatchLogDisplayStatus(log)
                 return (
                   <TableRow key={log.id}>
                     <TableCell className="font-medium">
@@ -89,7 +72,9 @@ export function RecentDispatches({ logs }: { logs: DispatchLog[] }) {
                       <Badge variant="outline">{log.export_format ?? "-"}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={status.variant}>{status.label}</Badge>
+                      <Badge variant={status.variant} className={status.className}>
+                        {status.label}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
                       {formatLogAge(log, mounted)}
