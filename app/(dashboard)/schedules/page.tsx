@@ -976,7 +976,7 @@ export default function SchedulesPage() {
                   {loadingReportPages
                     ? "Buscando paginas disponiveis no Power BI..."
                     : formFormat === "PDF"
-                      ? "Selecione uma ou mais paginas especificas para gerar um unico PDF, ou mantenha a pagina padrao."
+                      ? "Selecione uma ou mais paginas especificas para enviar um PDF separado por pagina, ou mantenha a pagina padrao."
                       : "Para formatos diferentes de PDF, selecione no maximo uma pagina especifica ou mantenha a pagina padrao."}
                 </p>
               ) : null}

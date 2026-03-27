@@ -16,6 +16,8 @@ import {
   getPrimarySchedulePageName,
   resolveSchedulePageNames,
 } from "@/lib/schedule-pages"
+import { sanitizeFileName } from "@/lib/powerbi-report-pdf"
+import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 
 function getDispatchLogTarget(contact: {
   phone?: string | null
@@ -42,6 +44,44 @@ function getRequestOrigin(request: NextRequest) {
     request.headers.get("origin") ||
     new URL(request.url).origin
   )
+}
+
+function getPageAttachmentLabel(pageName: string, index: number) {
+  const withoutPrefix = pageName.replace(/^ReportSection/i, "").trim()
+  const normalizedLabel =
+    withoutPrefix && !/^[0-9a-f-]+$/i.test(withoutPrefix)
+      ? withoutPrefix
+      : `pagina-${index + 1}`
+
+  return sanitizeFileName(normalizedLabel) || `pagina-${index + 1}`
+}
+
+function buildPageAttachmentFileName(
+  reportName: string,
+  pageName: string,
+  index: number
+) {
+  const safeReportName = sanitizeFileName(reportName || "relatorio") || "relatorio"
+  const pageLabel = getPageAttachmentLabel(pageName, index)
+  return `${safeReportName}-${pageLabel}.pdf`
+}
+
+async function readResponseErrorMessage(response: Response) {
+  const raw = await response.text().catch(() => "")
+  const trimmed = raw.trim()
+
+  if (!trimmed) {
+    return `Erro ${response.status}`
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: unknown } | null
+    return typeof parsed?.error === "string" && parsed.error.trim()
+      ? parsed.error.trim()
+      : trimmed
+  } catch {
+    return trimmed
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -228,20 +268,6 @@ export async function POST(request: NextRequest) {
     normalizedN8nSettings.webhookUrl || process.env.N8N_WEBHOOK_URL?.trim() || ""
   const callbackSecret = normalizedN8nSettings.callbackSecret
 
-  if (!webhookUrl) {
-    return NextResponse.json(
-      { error: "URL do webhook N8N nao configurada" },
-      { status: 400 }
-    )
-  }
-
-  if (!callbackSecret) {
-    return NextResponse.json(
-      { error: "Callback secret do N8N nao configurado" },
-      { status: 400 }
-    )
-  }
-
   let dispatchErrorMessage: string | null = null
 
   try {
@@ -253,6 +279,98 @@ export async function POST(request: NextRequest) {
       normalizedContacts,
       (insertedLogs ?? []).map((log) => log.id)
     )
+
+    if (schedule.export_format === "PDF" && selectedPageNames.length > 1) {
+      if (!callbackSecret) {
+        return NextResponse.json(
+          { error: "Callback secret do N8N nao configurado" },
+          { status: 400 }
+        )
+      }
+
+      for (const [contactIndex, contact] of normalizedContacts.entries()) {
+        const currentLog = insertedLogs?.[contactIndex]
+
+        if (currentLog) {
+          await supabase
+            .from("dispatch_logs")
+            .update({ status: "sending" })
+            .eq("company_id", companyId)
+            .eq("id", currentLog.id)
+        }
+
+        for (const [pageIndex, pageName] of selectedPageNames.entries()) {
+          const exportResponse = await fetch(reportExportUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-callback-secret": callbackSecret,
+            },
+            body: JSON.stringify({
+              report_id: report.id,
+              format: "PDF",
+              pbi_page_name: pageName,
+              callback_secret: callbackSecret,
+            }),
+          })
+
+          if (!exportResponse.ok) {
+            throw new Error(await readResponseErrorMessage(exportResponse))
+          }
+
+          const documentBase64 = Buffer.from(await exportResponse.arrayBuffer()).toString(
+            "base64"
+          )
+
+          await sendWhatsAppBotMessage({
+            phone: contact.phone,
+            whatsapp_group_id: contact.whatsapp_group_id,
+            message: pageIndex === 0 ? message : null,
+            document_base64: documentBase64,
+            file_name: buildPageAttachmentFileName(report.name, pageName, pageIndex),
+            mimetype: "application/pdf",
+          })
+        }
+
+        if (currentLog) {
+          await supabase
+            .from("dispatch_logs")
+            .update({
+              status: "delivered",
+              error_message: null,
+              completed_at: new Date().toISOString(),
+            })
+            .eq("company_id", companyId)
+            .eq("id", currentLog.id)
+        }
+      }
+
+      await supabase
+        .from("schedules")
+        .update({ last_run_at: new Date().toISOString() })
+        .eq("company_id", companyId)
+        .eq("id", schedule_id)
+
+      return NextResponse.json({
+        success: true,
+        logs_created: (insertedLogs ?? []).length,
+        attachment_mode: "one_pdf_per_page",
+      })
+    }
+
+    if (!webhookUrl) {
+      return NextResponse.json(
+        { error: "URL do webhook N8N nao configurada" },
+        { status: 400 }
+      )
+    }
+
+    if (!callbackSecret) {
+      return NextResponse.json(
+        { error: "Callback secret do N8N nao configurado" },
+        { status: 400 }
+      )
+    }
 
     const webhookResponse = await fetch(webhookUrl, {
       method: "POST",
