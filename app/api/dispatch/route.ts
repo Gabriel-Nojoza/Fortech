@@ -220,8 +220,12 @@ export async function POST(request: NextRequest) {
 
   const selectedPageNames = resolveSchedulePageNames(schedule)
   const primaryPageName = getPrimarySchedulePageName(selectedPageNames)
+  const normalizedScheduleExportFormat =
+    typeof schedule.export_format === "string" && schedule.export_format.trim().toUpperCase() === "PDF"
+      ? "PDF"
+      : schedule.export_format
 
-  if (selectedPageNames.length > 1 && schedule.export_format !== "PDF") {
+  if (selectedPageNames.length > 1 && normalizedScheduleExportFormat !== "PDF") {
     return NextResponse.json(
       {
         error:
@@ -238,7 +242,7 @@ export async function POST(request: NextRequest) {
     contact_name: contact.name,
     contact_phone: getDispatchLogTarget(contact),
     status: "pending" as const,
-    export_format: schedule.export_format,
+    export_format: normalizedScheduleExportFormat,
   }))
 
   const { data: insertedLogs, error: insertLogsError } = await supabase
@@ -280,7 +284,7 @@ export async function POST(request: NextRequest) {
       (insertedLogs ?? []).map((log) => log.id)
     )
 
-    if (schedule.export_format === "PDF" && selectedPageNames.length > 1) {
+    if (normalizedScheduleExportFormat === "PDF" && selectedPageNames.length > 1) {
       if (!callbackSecret) {
         return NextResponse.json(
           { error: "Callback secret do N8N nao configurado" },
@@ -390,12 +394,12 @@ export async function POST(request: NextRequest) {
         pbi_page_name: primaryPageName,
         pbi_page_names: selectedPageNames.length > 0 ? selectedPageNames : null,
         page_name: primaryPageName,
-        export_format: schedule.export_format,
+        export_format: normalizedScheduleExportFormat,
         report_export_url: reportExportUrl,
         report_export_headers: callbackHeaders,
         report_export_payload: {
           report_id: report.id,
-          format: schedule.export_format,
+          format: normalizedScheduleExportFormat,
           pbi_page_name: primaryPageName,
           pbi_page_names: selectedPageNames.length > 0 ? selectedPageNames : null,
           callback_secret: callbackSecret,
