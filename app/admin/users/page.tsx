@@ -113,6 +113,7 @@ export default function UsersPage() {
   const [formPbiClientSecret, setFormPbiClientSecret] = useState("")
   const [formN8nWebhookUrl, setFormN8nWebhookUrl] = useState("")
   const [formN8nCallbackSecret, setFormN8nCallbackSecret] = useState("")
+  const [emailEditable, setEmailEditable] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -147,6 +148,7 @@ export default function UsersPage() {
     setFormPbiClientSecret("")
     setFormN8nWebhookUrl("")
     setFormN8nCallbackSecret("")
+    setEmailEditable(true)
     setLoadingEditDetails(false)
     setPowerbiPreview(null)
     setPowerbiPreviewError(null)
@@ -168,6 +170,7 @@ export default function UsersPage() {
     setFormPbiClientSecret("")
     setFormN8nWebhookUrl("")
     setFormN8nCallbackSecret("")
+    setEmailEditable(false)
     setPowerbiPreview(null)
     setPowerbiPreviewError(null)
     setWorkspaceOptions([])
@@ -478,13 +481,35 @@ export default function UsersPage() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label>Email *</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Email *</Label>
+                  {editUser ? (
+                    <Button
+                      type="button"
+                      variant={emailEditable ? "secondary" : "outline"}
+                      size="sm"
+                      onClick={() => setEmailEditable((current) => !current)}
+                    >
+                      <Pencil className="mr-2 size-3.5" />
+                      {emailEditable ? "Bloquear email" : "Editar email"}
+                    </Button>
+                  ) : null}
+                </div>
                 <Input
                   type="email"
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="email@exemplo.com"
+                  disabled={editUser ? !emailEditable : false}
+                  className={editUser && !emailEditable ? "bg-muted/40 text-muted-foreground" : ""}
                 />
+                {editUser ? (
+                  <p className="text-xs text-muted-foreground">
+                    {emailEditable
+                      ? "Altere o email e clique em Salvar para gravar."
+                      : "Clique em Editar email para liberar a alteracao."}
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-col gap-2">
                 <Label>{editUser ? "Nova Senha (deixe vazio para manter)" : "Senha *"}</Label>
