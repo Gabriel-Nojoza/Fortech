@@ -16,7 +16,8 @@ import {
   getPrimarySchedulePageName,
   resolveSchedulePageNames,
 } from "@/lib/schedule-pages"
-import { sanitizeFileName } from "@/lib/powerbi-report-pdf"
+import { exportPowerBIReportPdf, sanitizeFileName } from "@/lib/powerbi-report-pdf"
+import { getAccessToken } from "@/lib/powerbi"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 
 function getDispatchLogTarget(contact: {
@@ -66,23 +67,6 @@ function buildPageAttachmentFileName(
   return `${safeReportName}-${pageLabel}.pdf`
 }
 
-async function readResponseErrorMessage(response: Response) {
-  const raw = await response.text().catch(() => "")
-  const trimmed = raw.trim()
-
-  if (!trimmed) {
-    return `Erro ${response.status}`
-  }
-
-  try {
-    const parsed = JSON.parse(trimmed) as { error?: unknown } | null
-    return typeof parsed?.error === "string" && parsed.error.trim()
-      ? parsed.error.trim()
-      : trimmed
-  } catch {
-    return trimmed
-  }
-}
 
 export async function POST(request: NextRequest) {
   const { companyId } = await resolveRequestCompanyContext(request, {
@@ -285,12 +269,15 @@ export async function POST(request: NextRequest) {
     )
 
     if (normalizedScheduleExportFormat === "PDF" && selectedPageNames.length > 1) {
-      if (!callbackSecret) {
-        return NextResponse.json(
-          { error: "Callback secret do N8N nao configurado" },
-          { status: 400 }
-        )
-      }
+      const pbiReport = report as Record<string, unknown>
+      const pbiWorkspaceId = pbiReport.workspaces
+        ? (pbiReport.workspaces as Record<string, string>).pbi_workspace_id ?? ""
+        : ""
+      const pbiReportId =
+        typeof pbiReport.pbi_report_id === "string" ? pbiReport.pbi_report_id : ""
+      const pbiEmbedUrl =
+        typeof pbiReport.embed_url === "string" ? pbiReport.embed_url : null
+      const pbiToken = await getAccessToken(companyId)
 
       for (const [contactIndex, contact] of normalizedContacts.entries()) {
         const currentLog = insertedLogs?.[contactIndex]
@@ -304,27 +291,17 @@ export async function POST(request: NextRequest) {
         }
 
         for (const [pageIndex, pageName] of selectedPageNames.entries()) {
-          const exportResponse = await fetch(reportExportUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-callback-secret": callbackSecret,
-            },
-            body: JSON.stringify({
-              report_id: report.id,
-              format: "PDF",
-              pbi_page_name: pageName,
-              callback_secret: callbackSecret,
-            }),
+          const pdfBuffer = await exportPowerBIReportPdf({
+            token: pbiToken,
+            workspaceId: pbiWorkspaceId,
+            reportId: pbiReportId,
+            reportName: report.name,
+            embedUrl: pbiEmbedUrl,
+            pageNames: [pageName],
+            pageName,
           })
 
-          if (!exportResponse.ok) {
-            throw new Error(await readResponseErrorMessage(exportResponse))
-          }
-
-          const documentBase64 = Buffer.from(await exportResponse.arrayBuffer()).toString(
-            "base64"
-          )
+          const documentBase64 = Buffer.from(pdfBuffer).toString("base64")
 
           await sendWhatsAppBotMessage({
             phone: contact.phone,
