@@ -1,4 +1,6 @@
-import type { SupabaseClient } from "@supabase/supabase-js"
+type WorkspaceAccessSupabase = {
+  from: (table: string) => any
+}
 
 type MetadataCarrier = {
   app_metadata?: Record<string, unknown>
@@ -22,6 +24,17 @@ export type WorkspaceAccessScope = {
 export type WorkspaceAccessOption = {
   id: string
   name: string
+}
+
+type WorkspaceRecord = {
+  id?: unknown
+  pbi_workspace_id?: unknown
+  name?: unknown
+}
+
+type WorkspaceAccessRow = {
+  workspace_id?: unknown
+  workspaces?: unknown
 }
 
 function readBoolean(value: unknown) {
@@ -76,9 +89,9 @@ export function normalizePbiWorkspaceIds(input: unknown) {
 }
 
 export async function getCompanyWorkspaceOptions(
-  supabase: SupabaseClient,
+  supabase: WorkspaceAccessSupabase,
   companyId: string
-) {
+): Promise<WorkspaceAccessOption[]> {
   const { data, error } = await supabase
     .from("workspaces")
     .select("name, pbi_workspace_id")
@@ -87,14 +100,14 @@ export async function getCompanyWorkspaceOptions(
 
   if (error) throw new Error(error.message)
 
-  return (data ?? []).map((workspace) => ({
+  return (data ?? []).map((workspace: { pbi_workspace_id?: unknown; name?: unknown }) => ({
     id: String(workspace.pbi_workspace_id ?? ""),
     name: String(workspace.name ?? ""),
   }))
 }
 
 export async function getUserAssignedPbiWorkspaceIds(
-  supabase: SupabaseClient,
+  supabase: WorkspaceAccessSupabase,
   userId: string,
   companyId: string,
   fallbackUser?: MetadataCarrier
@@ -113,7 +126,7 @@ export async function getUserAssignedPbiWorkspaceIds(
     throw new Error(error.message)
   }
 
-  const pbiWorkspaceIds = (data ?? []).flatMap((row) => {
+  const pbiWorkspaceIds = (data ?? []).flatMap((row: WorkspaceAccessRow) => {
     const workspaceValue = (row as Record<string, unknown>).workspaces
     const workspace =
       Array.isArray(workspaceValue) ? workspaceValue[0] : workspaceValue
@@ -132,7 +145,7 @@ export async function getUserAssignedPbiWorkspaceIds(
 }
 
 export async function getWorkspaceAccessScope(
-  supabase: SupabaseClient,
+  supabase: WorkspaceAccessSupabase,
   context: WorkspaceAccessContext
 ): Promise<WorkspaceAccessScope> {
   if (context.role === "admin" || !context.workspaceAccessConfigured) {
@@ -167,12 +180,30 @@ export async function getWorkspaceAccessScope(
 
       if (workspacesError) throw new Error(workspacesError.message)
 
+      const workspaceIds: string[] = Array.from(
+        new Set(
+          (workspaces ?? []).flatMap((workspace: WorkspaceRecord) =>
+            typeof workspace.id === "string" && workspace.id.trim()
+              ? [workspace.id.trim()]
+              : []
+          )
+        )
+      )
+      const pbiWorkspaceIds: string[] = Array.from(
+        new Set(
+          (workspaces ?? []).flatMap((workspace: WorkspaceRecord) =>
+            typeof workspace.pbi_workspace_id === "string" &&
+            workspace.pbi_workspace_id.trim()
+              ? [workspace.pbi_workspace_id.trim()]
+              : []
+          )
+        )
+      )
+
       return {
         restricted: true,
-        workspaceIds: Array.from(new Set((workspaces ?? []).map((workspace) => workspace.id))),
-        pbiWorkspaceIds: Array.from(
-          new Set((workspaces ?? []).map((workspace) => String(workspace.pbi_workspace_id ?? "")))
-        ).filter(Boolean),
+        workspaceIds,
+        pbiWorkspaceIds,
       }
     }
 
@@ -182,7 +213,7 @@ export async function getWorkspaceAccessScope(
   const workspaceIds: string[] = []
   const pbiWorkspaceIds: string[] = []
 
-  for (const row of data ?? []) {
+  for (const row of (data ?? []) as WorkspaceAccessRow[]) {
     const workspaceId = (row as Record<string, unknown>).workspace_id
     if (typeof workspaceId === "string" && workspaceId.trim()) {
       workspaceIds.push(workspaceId.trim())
@@ -209,7 +240,7 @@ export async function getWorkspaceAccessScope(
 }
 
 export async function syncUserWorkspaceAccess(
-  supabase: SupabaseClient,
+  supabase: WorkspaceAccessSupabase,
   params: {
     userId: string
     companyId: string
@@ -244,7 +275,7 @@ export async function syncUserWorkspaceAccess(
 
   if (workspacesError) throw new Error(workspacesError.message)
 
-  const rows = (workspaces ?? []).map((workspace) => ({
+  const rows = (workspaces ?? []).map((workspace: WorkspaceRecord) => ({
     user_id: params.userId,
     company_id: params.companyId,
     workspace_id: workspace.id,
