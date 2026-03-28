@@ -67,7 +67,7 @@ const dispatchLogStatusConfig: Record<string, DispatchLogBadgeStatus> = {
     className: "border-success/30 bg-success/10 text-success",
   },
   failed: {
-    label: "Nao enviado",
+    label: "Erro",
     variant: "outline",
     className: "border-destructive/30 bg-destructive/10 text-destructive",
   },

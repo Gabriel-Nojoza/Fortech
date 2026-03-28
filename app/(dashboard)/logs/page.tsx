@@ -192,7 +192,7 @@ export default function LogsPage() {
               <SelectItem value="exporting">Em andamento</SelectItem>
               <SelectItem value="sending">Em andamento</SelectItem>
               <SelectItem value="delivered">Enviado</SelectItem>
-              <SelectItem value="failed">Nao enviado</SelectItem>
+              <SelectItem value="failed">Erro</SelectItem>
             </SelectContent>
           </Select>
         </div>
