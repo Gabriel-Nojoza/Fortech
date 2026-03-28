@@ -67,9 +67,14 @@ import {
 } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CronBuilder } from "@/components/schedules/cron-builder"
-import type { Schedule, Report, Contact, ScheduleExportFormat } from "@/lib/types"
+import type {
+  Schedule,
+  Report,
+  Contact,
+  ScheduleExportFormat,
+} from "@/lib/types"
 import { describeCronValue, isValidCronValue } from "@/lib/schedule-cron"
-import { resolveSchedulePageNames } from "@/lib/schedule-pages"
+import { resolveScheduleReportConfigs } from "@/lib/schedule-report-configs"
 
 function stripHtmlTags(value: string) {
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
@@ -147,6 +152,12 @@ type ScheduleListItem = Schedule & {
   contacts: { id: string; name: string }[]
 }
 
+type FormReportSelection = {
+  key: string
+  reportId: string
+  pageNames: string[]
+}
+
 type ScheduleDialogMode = "create" | "edit" | "duplicate"
 
 const POWERBI_FORMATS: ScheduleExportFormat[] = ["PDF", "PNG", "PPTX"]
@@ -185,6 +196,38 @@ function buildDuplicateScheduleName(name: string, existingNames: string[]) {
   }
 
   return `${copyBase} ${suffix}`
+}
+
+function createFormReportSelection(
+  reportId = "",
+  pageNames: string[] = [],
+  key?: string
+): FormReportSelection {
+  return {
+    key:
+      key ??
+      (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    reportId,
+    pageNames,
+  }
+}
+
+function buildScheduleReportSummary(schedule: ScheduleListItem) {
+  const reportNames = Array.isArray(schedule.report_names)
+    ? schedule.report_names.filter((reportName): reportName is string => Boolean(reportName))
+    : []
+
+  if (reportNames.length === 0) {
+    return schedule.report_name
+  }
+
+  if (reportNames.length === 1) {
+    return reportNames[0]
+  }
+
+  return `${reportNames[0]} +${reportNames.length - 1}`
 }
 
 function extractApiErrorMessage(payload: unknown): string | null {
@@ -249,6 +292,8 @@ function mapApiFieldErrors(payload: unknown): Record<string, string> {
       const fieldKey =
         key === "report_id"
           ? "report"
+          : key === "report_configs"
+            ? "reportConfigs"
           : key === "cron_expression"
             ? "cron"
             : key === "contact_ids"
@@ -302,8 +347,9 @@ export default function SchedulesPage() {
   const [syncingBotContacts, setSyncingBotContacts] = useState(false)
 
   const [formName, setFormName] = useState("")
-  const [formReportId, setFormReportId] = useState("")
-  const [formPageNames, setFormPageNames] = useState<string[]>([])
+  const [formReportSelections, setFormReportSelections] = useState<FormReportSelection[]>([
+    createFormReportSelection(),
+  ])
   const [formCron, setFormCron] = useState("0 8 * * 1-5")
   const [formFormat, setFormFormat] = useState<ScheduleExportFormat>("PDF")
   const [formMessage, setFormMessage] = useState(
@@ -314,11 +360,29 @@ export default function SchedulesPage() {
   const [saving, setSaving] = useState(false)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [contactSearch, setContactSearch] = useState("")
-  const [reportPages, setReportPages] = useState<ReportPageOption[]>([])
-  const [loadingReportPages, setLoadingReportPages] = useState(false)
-  const [reportPagesError, setReportPagesError] = useState("")
+  const [reportPagesBySelection, setReportPagesBySelection] = useState<
+    Record<string, ReportPageOption[]>
+  >({})
+  const [loadingReportPagesBySelection, setLoadingReportPagesBySelection] = useState<
+    Record<string, boolean>
+  >({})
+  const [reportPagesErrorsBySelection, setReportPagesErrorsBySelection] = useState<
+    Record<string, string>
+  >({})
 
   const formatOptions = POWERBI_FORMATS
+
+  const normalizedFormReportSelections = useMemo(
+    () =>
+      formReportSelections
+        .map((selection) => ({
+          ...selection,
+          reportId: selection.reportId.trim(),
+          pageNames: [...new Set(selection.pageNames.map((pageName) => pageName.trim()).filter(Boolean))],
+        }))
+        .filter((selection) => selection.reportId),
+    [formReportSelections]
+  )
 
   const filteredContacts = activeContacts.filter((contact) => {
     const search = contactSearch.trim().toLowerCase()
@@ -355,8 +419,7 @@ export default function SchedulesPage() {
     setEditSchedule(null)
     setDuplicateSourceId(null)
     setFormName("")
-    setFormReportId("")
-    setFormPageNames([])
+    setFormReportSelections([createFormReportSelection()])
     setFormCron(DEFAULT_SCHEDULE_CRON)
     setFormFormat("PDF")
     setFormMessage(DEFAULT_SCHEDULE_MESSAGE)
@@ -364,9 +427,9 @@ export default function SchedulesPage() {
     setFormActive(true)
     setFormErrors({})
     setContactSearch("")
-    setReportPages([])
-    setReportPagesError("")
-    setLoadingReportPages(false)
+    setReportPagesBySelection({})
+    setReportPagesErrorsBySelection({})
+    setLoadingReportPagesBySelection({})
   }
 
   function handleDialogOpenChange(open: boolean) {
@@ -391,6 +454,7 @@ export default function SchedulesPage() {
     mode: Exclude<ScheduleDialogMode, "create">
   ) {
     const duplicating = mode === "duplicate"
+    const scheduleReportConfigs = resolveScheduleReportConfigs(schedule)
 
     setFormMode(mode)
     setEditSchedule(duplicating ? null : schedule)
@@ -403,8 +467,17 @@ export default function SchedulesPage() {
           )
         : schedule.name
     )
-    setFormReportId(schedule.report_id)
-    setFormPageNames(resolveSchedulePageNames(schedule))
+    setFormReportSelections(
+      scheduleReportConfigs.length > 0
+        ? scheduleReportConfigs.map((reportConfig, index) =>
+            createFormReportSelection(
+              reportConfig.report_id,
+              reportConfig.pbi_page_names ?? [],
+              `${mode}-${schedule.id}-${index}`
+            )
+          )
+        : [createFormReportSelection()]
+    )
     setFormCron(schedule.cron_expression)
     setFormFormat(normalizeScheduleFormat(schedule.export_format))
     setFormMessage(schedule.message_template ?? DEFAULT_SCHEDULE_MESSAGE)
@@ -412,8 +485,9 @@ export default function SchedulesPage() {
     setFormActive(duplicating ? false : schedule.is_active)
     setFormErrors({})
     setContactSearch("")
-    setReportPages([])
-    setReportPagesError("")
+    setReportPagesBySelection({})
+    setReportPagesErrorsBySelection({})
+    setLoadingReportPagesBySelection({})
     setDialogOpen(true)
 
     if (canShowContacts) {
@@ -431,15 +505,28 @@ export default function SchedulesPage() {
 
   function validateScheduleForm(): boolean {
     const errors: Record<string, string> = {}
+    const selectedReportIds = normalizedFormReportSelections.map((selection) => selection.reportId)
+    const hasDuplicateReports = new Set(selectedReportIds).size !== selectedReportIds.length
+    const hasMultiReportPages = normalizedFormReportSelections.some(
+      (selection) => selection.pageNames.length > 1
+    )
 
     if (!formName.trim()) errors.name = "Nome obrigatorio"
-    if (!formReportId) errors.report = "Selecione um relatorio"
+    if (normalizedFormReportSelections.length === 0) {
+      errors.reportConfigs = "Selecione ao menos 1 relatorio"
+    } else if (hasDuplicateReports) {
+      errors.reportConfigs = "Selecione cada relatorio apenas uma vez"
+    }
     if (!formCron.trim()) errors.cron = "Frequencia obrigatoria"
     if (formCron.trim() && !isValidCronValue(formCron)) {
       errors.cron = "Cada horario deve ter uma expressao CRON valida com 5 campos"
     }
-    if (formPageNames.length > 1 && formFormat !== "PDF") {
-      errors.pageNames = "Selecione varias paginas apenas quando o formato for PDF"
+    if (
+      formFormat !== "PDF" &&
+      (normalizedFormReportSelections.length > 1 || hasMultiReportPages)
+    ) {
+      errors.reportConfigs =
+        "Selecione varios relatorios ou varias paginas apenas quando o formato for PDF"
     }
 
     if (!canShowContacts && formContactIds.length === 0) {
@@ -458,15 +545,29 @@ export default function SchedulesPage() {
 
     const editingScheduleId = formMode === "edit" ? editSchedule?.id ?? null : null
     const isEditing = editingScheduleId !== null
+    const primaryReportSelection = normalizedFormReportSelections[0] ?? null
+
+    if (!primaryReportSelection) {
+      setFormErrors((prev) => ({
+        ...prev,
+        reportConfigs: "Selecione ao menos 1 relatorio",
+      }))
+      return
+    }
 
     setSaving(true)
     try {
       const payload = {
         ...(editingScheduleId ? { id: editingScheduleId } : {}),
         name: formName.trim(),
-        report_id: formReportId,
-        pbi_page_name: formPageNames[0] ?? null,
-        pbi_page_names: formPageNames,
+        report_id: primaryReportSelection.reportId,
+        pbi_page_name: primaryReportSelection.pageNames[0] ?? null,
+        pbi_page_names: primaryReportSelection.pageNames,
+        report_configs: normalizedFormReportSelections.map((selection) => ({
+          report_id: selection.reportId,
+          pbi_page_name: selection.pageNames[0] ?? null,
+          pbi_page_names: selection.pageNames,
+        })),
         cron_expression: formCron,
         export_format: formFormat,
         message_template: formMessage || null,
@@ -578,17 +679,144 @@ export default function SchedulesPage() {
     setFormErrors((prev) => ({ ...prev, contacts: "" }))
   }
 
-  function toggleReportPage(pageName: string) {
-    setFormPageNames((current) => {
-      const next = current.includes(pageName)
-        ? current.filter((value) => value !== pageName)
-        : [...current, pageName]
+  async function loadReportPagesForSelection(selectionKey: string, reportId: string) {
+    const normalizedReportId = reportId.trim()
 
-      return reportPages
-        .filter((page) => next.includes(page.name))
-        .map((page) => page.name)
+    if (!normalizedReportId) {
+      setReportPagesBySelection((prev) => {
+        const next = { ...prev }
+        delete next[selectionKey]
+        return next
+      })
+      setReportPagesErrorsBySelection((prev) => {
+        const next = { ...prev }
+        delete next[selectionKey]
+        return next
+      })
+      setLoadingReportPagesBySelection((prev) => {
+        const next = { ...prev }
+        delete next[selectionKey]
+        return next
+      })
+      return
+    }
+
+    setLoadingReportPagesBySelection((prev) => ({ ...prev, [selectionKey]: true }))
+    setReportPagesErrorsBySelection((prev) => ({ ...prev, [selectionKey]: "" }))
+
+    try {
+      const { response, data } = await fetchApi(`/api/reports/${normalizedReportId}/pages`)
+
+      if (!response.ok) {
+        throw new Error(extractApiErrorMessage(data) ?? "Erro ao carregar paginas do relatorio")
+      }
+
+      const payload = data as { pages?: unknown } | null
+      const pages = Array.isArray(payload?.pages) ? (payload.pages as ReportPageOption[]) : []
+
+      setReportPagesBySelection((prev) => ({ ...prev, [selectionKey]: pages }))
+      setFormReportSelections((current) =>
+        current.map((selection) =>
+          selection.key === selectionKey
+            ? {
+                ...selection,
+                pageNames: pages
+                  .filter((page) => selection.pageNames.includes(page.name))
+                  .map((page) => page.name),
+              }
+            : selection
+        )
+      )
+    } catch (error) {
+      setReportPagesBySelection((prev) => ({ ...prev, [selectionKey]: [] }))
+      setFormReportSelections((current) =>
+        current.map((selection) =>
+          selection.key === selectionKey ? { ...selection, pageNames: [] } : selection
+        )
+      )
+      setReportPagesErrorsBySelection((prev) => ({
+        ...prev,
+        [selectionKey]:
+          error instanceof Error && error.message
+            ? error.message
+            : "Erro ao carregar paginas do relatorio",
+      }))
+    } finally {
+      setLoadingReportPagesBySelection((prev) => ({ ...prev, [selectionKey]: false }))
+    }
+  }
+
+  function handleReportSelectionChange(selectionKey: string, reportId: string) {
+    setFormReportSelections((current) =>
+      current.map((selection) =>
+        selection.key === selectionKey
+          ? {
+              ...selection,
+              reportId,
+              pageNames: [],
+            }
+          : selection
+      )
+    )
+    setFormErrors((prev) => ({ ...prev, report: "", reportConfigs: "", pageNames: "" }))
+
+    if (!reportId) {
+      void loadReportPagesForSelection(selectionKey, "")
+      return
+    }
+
+    void loadReportPagesForSelection(selectionKey, reportId)
+  }
+
+  function addReportSelection() {
+    setFormReportSelections((current) => [...current, createFormReportSelection()])
+    setFormErrors((prev) => ({ ...prev, report: "", reportConfigs: "", pageNames: "" }))
+  }
+
+  function removeReportSelection(selectionKey: string) {
+    setFormReportSelections((current) => {
+      const next = current.filter((selection) => selection.key !== selectionKey)
+      return next.length > 0 ? next : [createFormReportSelection()]
     })
-    setFormErrors((prev) => ({ ...prev, pageNames: "" }))
+    setReportPagesBySelection((prev) => {
+      const next = { ...prev }
+      delete next[selectionKey]
+      return next
+    })
+    setReportPagesErrorsBySelection((prev) => {
+      const next = { ...prev }
+      delete next[selectionKey]
+      return next
+    })
+    setLoadingReportPagesBySelection((prev) => {
+      const next = { ...prev }
+      delete next[selectionKey]
+      return next
+    })
+    setFormErrors((prev) => ({ ...prev, report: "", reportConfigs: "", pageNames: "" }))
+  }
+
+  function toggleReportPage(selectionKey: string, pageName: string) {
+    setFormReportSelections((current) =>
+      current.map((selection) => {
+        if (selection.key !== selectionKey) {
+          return selection
+        }
+
+        const nextPageNames = selection.pageNames.includes(pageName)
+          ? selection.pageNames.filter((value) => value !== pageName)
+          : [...selection.pageNames, pageName]
+        const pages = reportPagesBySelection[selectionKey] ?? []
+
+        return {
+          ...selection,
+          pageNames: pages
+            .filter((page) => nextPageNames.includes(page.name))
+            .map((page) => page.name),
+        }
+      })
+    )
+    setFormErrors((prev) => ({ ...prev, pageNames: "", reportConfigs: "" }))
   }
 
   async function syncContactsFromBot(silent = false) {
@@ -646,74 +874,38 @@ export default function SchedulesPage() {
   }
 
   useEffect(() => {
-    if (!dialogOpen || !formReportId) {
-      setReportPages([])
-      setReportPagesError("")
-      setLoadingReportPages(false)
+    if (!dialogOpen) {
       return
     }
 
-    let ignore = false
+    for (const selection of formReportSelections) {
+      if (!selection.reportId) {
+        continue
+      }
 
-    async function loadReportPages() {
-      setLoadingReportPages(true)
-      setReportPagesError("")
-
-      try {
-        const { response, data } = await fetchApi(`/api/reports/${formReportId}/pages`)
-
-        if (!response.ok) {
-          throw new Error(
-            extractApiErrorMessage(data) ?? "Erro ao carregar paginas do relatorio"
-          )
-        }
-
-        if (ignore) return
-
-        const payload = data as { pages?: unknown } | null
-        const pages = Array.isArray(payload?.pages)
-          ? (payload.pages as ReportPageOption[])
-          : []
-
-        setReportPages(pages)
-        setFormPageNames((current) =>
-          pages.filter((page) => current.includes(page.name)).map((page) => page.name)
-        )
-      } catch (error) {
-        if (ignore) return
-
-        setReportPages([])
-        setFormPageNames([])
-        setReportPagesError(
-          error instanceof Error && error.message
-            ? error.message
-            : "Erro ao carregar paginas do relatorio"
-        )
-      } finally {
-        if (!ignore) {
-          setLoadingReportPages(false)
-        }
+      const reportPages = reportPagesBySelection[selection.key]
+      const isLoading = loadingReportPagesBySelection[selection.key]
+      if (!reportPages && !isLoading) {
+        void loadReportPagesForSelection(selection.key, selection.reportId)
       }
     }
+  }, [dialogOpen, formReportSelections, reportPagesBySelection, loadingReportPagesBySelection])
 
-    void loadReportPages()
+  const selectedPageDisplayNamesBySelection = useMemo(() => {
+    return Object.fromEntries(
+      formReportSelections.map((selection) => {
+        const pages = reportPagesBySelection[selection.key] ?? []
+        const pageNameMap = new Map(
+          pages.map((page) => [page.name, page.displayName || page.name] as const)
+        )
 
-    return () => {
-      ignore = true
-    }
-  }, [dialogOpen, formReportId])
-
-  const selectedPageDisplayNames = useMemo(() => {
-    if (formPageNames.length === 0) {
-      return []
-    }
-
-    const pageNameMap = new Map(
-      reportPages.map((page) => [page.name, page.displayName || page.name] as const)
+        return [
+          selection.key,
+          selection.pageNames.map((pageName) => pageNameMap.get(pageName) ?? pageName),
+        ] as const
+      })
     )
-
-    return formPageNames.map((pageName) => pageNameMap.get(pageName) ?? pageName)
-  }, [formPageNames, reportPages])
+  }, [formReportSelections, reportPagesBySelection])
 
   return (
     <div className="flex flex-1 flex-col">
@@ -765,7 +957,7 @@ export default function SchedulesPage() {
                       <TableRow key={schedule.id}>
                         <TableCell className="font-medium">{schedule.name}</TableCell>
                         <TableCell className="hidden text-muted-foreground sm:table-cell">
-                          {schedule.report_name}
+                          {buildScheduleReportSummary(schedule)}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell">
                           <Badge variant="outline">{formatLabel(schedule.export_format)}</Badge>
@@ -912,42 +1104,213 @@ export default function SchedulesPage() {
               )}
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Label>Relatorio</Label>
-              <Select
-                value={formReportId}
-                onValueChange={(v) => {
-                  setFormReportId(v)
-                  setFormPageNames([])
-                  setReportPages([])
-                  setReportPagesError("")
-                  const option = reportOptions.find((item) => item.id === v)
-                  if (option && formFormat !== option.defaultFormat) {
-                    setFormFormat(option.defaultFormat)
-                  }
-                  setFormErrors((prev) => ({ ...prev, report: "" }))
-                }}
-              >
-                <SelectTrigger className={formErrors.report ? "border-destructive" : ""}>
-                  <SelectValue placeholder="Selecionar relatorio" />
-                </SelectTrigger>
-                <SelectContent>
-                  {reportList.length > 0 ? (
-                    <SelectGroup>
-                      <SelectLabel>Relatorios Power BI</SelectLabel>
-                      {reportList.map((report) => (
-                        <SelectItem key={report.id} value={report.id}>
-                          {report.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ) : null}
-                </SelectContent>
-              </Select>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <Label>Relatorios</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={addReportSelection}
+                >
+                  <Plus className="size-3.5" />+ Relatorio
+                </Button>
+              </div>
 
-              {formErrors.report && (
-                <p className="text-xs text-destructive">{formErrors.report}</p>
-              )}
+              {formReportSelections.map((selection, index) => {
+                const reportPages = reportPagesBySelection[selection.key] ?? []
+                const loadingReportPages = loadingReportPagesBySelection[selection.key] ?? false
+                const reportPagesError = reportPagesErrorsBySelection[selection.key] ?? ""
+                const selectedPageDisplayNames =
+                  selectedPageDisplayNamesBySelection[selection.key] ?? []
+
+                return (
+                  <div
+                    key={selection.key}
+                    className={`space-y-3 rounded-lg border p-3 ${
+                      formErrors.report || formErrors.reportConfigs || formErrors.pageNames
+                        ? "border-destructive"
+                        : ""
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium">Relatorio {index + 1}</p>
+                      {formReportSelections.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 gap-1.5 px-2 text-xs"
+                          onClick={() => removeReportSelection(selection.key)}
+                        >
+                          <X className="size-3.5" />
+                          Remover
+                        </Button>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label>Relatorio</Label>
+                      <Select
+                        value={selection.reportId}
+                        onValueChange={(value) => {
+                          const option = reportOptions.find((item) => item.id === value)
+                          if (option && formFormat !== option.defaultFormat) {
+                            setFormFormat(option.defaultFormat)
+                          }
+                          handleReportSelectionChange(selection.key, value)
+                        }}
+                      >
+                        <SelectTrigger
+                          className={
+                            formErrors.report || formErrors.reportConfigs
+                              ? "border-destructive"
+                              : ""
+                          }
+                        >
+                          <SelectValue placeholder="Selecionar relatorio" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {reportList.length > 0 ? (
+                            <SelectGroup>
+                              <SelectLabel>Relatorios Power BI</SelectLabel>
+                              {reportList.map((report) => (
+                                <SelectItem key={report.id} value={report.id}>
+                                  {report.name}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          ) : null}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label>Paginas do Relatorio</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full justify-between font-normal"
+                            disabled={!selection.reportId || loadingReportPages}
+                          >
+                            <span className="truncate">
+                              {loadingReportPages
+                                ? "Carregando paginas..."
+                                : selection.pageNames.length === 0
+                                  ? "Pagina padrao do relatorio"
+                                  : selection.pageNames.length === 1
+                                    ? selectedPageDisplayNames[0]
+                                    : `${selection.pageNames.length} paginas selecionadas`}
+                            </span>
+                            <ChevronDown className="size-4 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[360px] p-0" align="start">
+                          <div className="border-b px-3 py-3">
+                            <p className="text-sm font-medium">Paginas do relatorio</p>
+                            <p className="text-xs text-muted-foreground">
+                              Selecione uma ou mais paginas. Sem selecao, o envio usa a pagina
+                              padrao.
+                            </p>
+                          </div>
+
+                          <div className="border-b px-3 py-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-full justify-start px-2 text-xs"
+                              onClick={() => {
+                                setFormReportSelections((current) =>
+                                  current.map((currentSelection) =>
+                                    currentSelection.key === selection.key
+                                      ? { ...currentSelection, pageNames: [] }
+                                      : currentSelection
+                                  )
+                                )
+                                setFormErrors((prev) => ({
+                                  ...prev,
+                                  pageNames: "",
+                                  reportConfigs: "",
+                                }))
+                              }}
+                              disabled={selection.pageNames.length === 0}
+                            >
+                              Usar pagina padrao do relatorio
+                            </Button>
+                          </div>
+
+                          <ScrollArea className="max-h-64">
+                            <div className="space-y-1 p-2">
+                              {reportPages.length === 0 ? (
+                                <div className="px-2 py-4 text-xs text-muted-foreground">
+                                  Nenhuma pagina disponivel para este relatorio.
+                                </div>
+                              ) : (
+                                reportPages.map((page) => (
+                                  <label
+                                    key={`${selection.key}-${page.name}`}
+                                    className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 hover:bg-accent"
+                                  >
+                                    <Checkbox
+                                      checked={selection.pageNames.includes(page.name)}
+                                      onCheckedChange={() =>
+                                        toggleReportPage(selection.key, page.name)
+                                      }
+                                    />
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm">{page.displayName}</p>
+                                      {page.displayName !== page.name ? (
+                                        <p className="truncate text-xs text-muted-foreground">
+                                          {page.name}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </label>
+                                ))
+                              )}
+                            </div>
+                          </ScrollArea>
+                        </PopoverContent>
+                      </Popover>
+
+                      {selectedPageDisplayNames.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {selectedPageDisplayNames.map((pageDisplayName, pageIndex) => (
+                            <Badge
+                              key={`${selection.pageNames[pageIndex]}-${selection.key}-${pageIndex}`}
+                              variant="secondary"
+                            >
+                              {pageDisplayName}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {reportPagesError ? (
+                        <p className="text-xs text-destructive">{reportPagesError}</p>
+                      ) : selection.reportId ? (
+                        <p className="text-xs text-muted-foreground">
+                          {loadingReportPages
+                            ? "Buscando paginas disponiveis no Power BI..."
+                            : formFormat === "PDF"
+                              ? "Selecione uma ou mais paginas especificas para enviar cada relatorio separadamente."
+                              : "Para formatos diferentes de PDF, selecione no maximo uma pagina especifica ou mantenha a pagina padrao."}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                )
+              })}
+
+              {formErrors.report || formErrors.reportConfigs || formErrors.pageNames ? (
+                <p className="text-xs text-destructive">
+                  {formErrors.reportConfigs || formErrors.report || formErrors.pageNames}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-col gap-2">
@@ -967,108 +1330,6 @@ export default function SchedulesPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label>Paginas do Relatorio</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full justify-between font-normal"
-                    disabled={!formReportId || loadingReportPages}
-                  >
-                    <span className="truncate">
-                      {loadingReportPages
-                        ? "Carregando paginas..."
-                        : formPageNames.length === 0
-                          ? "Pagina padrao do relatorio"
-                          : formPageNames.length === 1
-                            ? selectedPageDisplayNames[0]
-                            : `${formPageNames.length} paginas selecionadas`}
-                    </span>
-                    <ChevronDown className="size-4 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[360px] p-0" align="start">
-                  <div className="border-b px-3 py-3">
-                    <p className="text-sm font-medium">Paginas do relatorio</p>
-                    <p className="text-xs text-muted-foreground">
-                      Selecione uma ou mais paginas. Sem selecao, o envio usa a pagina padrao.
-                    </p>
-                  </div>
-
-                  <div className="border-b px-3 py-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-full justify-start px-2 text-xs"
-                      onClick={() => {
-                        setFormPageNames([])
-                        setFormErrors((prev) => ({ ...prev, pageNames: "" }))
-                      }}
-                      disabled={formPageNames.length === 0}
-                    >
-                      Usar pagina padrao do relatorio
-                    </Button>
-                  </div>
-
-                  <ScrollArea className="max-h-64">
-                    <div className="space-y-1 p-2">
-                      {reportPages.length === 0 ? (
-                        <div className="px-2 py-4 text-xs text-muted-foreground">
-                          Nenhuma pagina disponivel para este relatorio.
-                        </div>
-                      ) : (
-                        reportPages.map((page) => (
-                          <label
-                            key={page.name}
-                            className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 hover:bg-accent"
-                          >
-                            <Checkbox
-                              checked={formPageNames.includes(page.name)}
-                              onCheckedChange={() => toggleReportPage(page.name)}
-                            />
-                            <div className="min-w-0">
-                              <p className="truncate text-sm">{page.displayName}</p>
-                              {page.displayName !== page.name ? (
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {page.name}
-                                </p>
-                              ) : null}
-                            </div>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  </ScrollArea>
-                </PopoverContent>
-              </Popover>
-              {selectedPageDisplayNames.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  {selectedPageDisplayNames.map((pageDisplayName, index) => (
-                    <Badge key={`${formPageNames[index]}-${index}`} variant="secondary">
-                      {pageDisplayName}
-                    </Badge>
-                  ))}
-                </div>
-              ) : null}
-              {formErrors.pageNames && (
-                <p className="text-xs text-destructive">{formErrors.pageNames}</p>
-              )}
-              {reportPagesError ? (
-                <p className="text-xs text-destructive">{reportPagesError}</p>
-              ) : formReportId ? (
-                <p className="text-xs text-muted-foreground">
-                  {loadingReportPages
-                    ? "Buscando paginas disponiveis no Power BI..."
-                    : formFormat === "PDF"
-                      ? "Selecione uma ou mais paginas especificas para enviar um PDF separado por pagina, ou mantenha a pagina padrao."
-                      : "Para formatos diferentes de PDF, selecione no maximo uma pagina especifica ou mantenha a pagina padrao."}
-                </p>
-              ) : null}
             </div>
 
             <CronBuilder
@@ -1204,7 +1465,7 @@ export default function SchedulesPage() {
               disabled={
                 saving ||
                 !formName ||
-                !formReportId ||
+                normalizedFormReportSelections.length === 0 ||
                 !formCron ||
                 (!canShowContacts && formContactIds.length === 0)
               }

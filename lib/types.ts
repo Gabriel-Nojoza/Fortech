@@ -41,10 +41,19 @@ export type ScheduleExportFormat =
   | "csv"
   | "pdf"
 
+export interface ScheduleReportConfig {
+  report_id: string
+  pbi_page_name?: string | null
+  pbi_page_names?: string[] | null
+  report_name?: string
+  report_source?: "powerbi" | "created" | "unknown"
+}
+
 export interface Schedule {
   id: string
   name: string
   report_id: string
+  report_configs?: ScheduleReportConfig[] | null
   pbi_page_name?: string | null
   pbi_page_names?: string[] | null
   cron_expression: string
@@ -56,6 +65,7 @@ export interface Schedule {
   created_at: string
   updated_at?: string | null
   report_name?: string
+  report_names?: string[]
   report_source?: "powerbi" | "created" | "unknown"
   contacts?: Contact[]
 }

@@ -13,9 +13,10 @@ import {
   normalizeN8nSettings,
 } from "@/lib/n8n-webhook"
 import {
-  getPrimarySchedulePageName,
-  resolveSchedulePageNames,
-} from "@/lib/schedule-pages"
+  getPrimaryScheduleReportConfig,
+  getScheduleReportIds,
+  resolveScheduleReportConfigs,
+} from "@/lib/schedule-report-configs"
 import { exportPowerBIReportPdf, sanitizeFileName } from "@/lib/powerbi-report-pdf"
 import { getAccessToken } from "@/lib/powerbi"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
@@ -67,6 +68,21 @@ function buildPageAttachmentFileName(
   return `${safeReportName}-${pageLabel}.pdf`
 }
 
+function buildReportAttachmentFileName(reportName: string) {
+  return `${sanitizeFileName(reportName || "relatorio") || "relatorio"}.pdf`
+}
+
+function applyMessageTemplate(template: string | null | undefined, reportName: string) {
+  const source = template?.trim() || "Segue o relatorio {report_name} em anexo."
+  return source.replace(/\{(\w+)\}/g, (_, key: string) => {
+    if (key === "report_name" || key === "name") {
+      return reportName
+    }
+
+    return ""
+  })
+}
+
 
 export async function POST(request: NextRequest) {
   const { companyId } = await resolveRequestCompanyContext(request, {
@@ -91,12 +107,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
   }
 
-  const { data: report } = await supabase
+  const scheduleReportConfigs = resolveScheduleReportConfigs(schedule)
+  const primaryScheduleReportConfig = getPrimaryScheduleReportConfig(scheduleReportConfigs)
+
+  if (!primaryScheduleReportConfig) {
+    return NextResponse.json(
+      { error: "Rotina sem relatorio configurado" },
+      { status: 400 }
+    )
+  }
+
+  const scheduleReportIds = getScheduleReportIds(scheduleReportConfigs)
+  const { data: reports } = await supabase
     .from("reports")
     .select("*, workspaces!inner(pbi_workspace_id)")
     .eq("company_id", companyId)
-    .eq("id", schedule.report_id)
-    .maybeSingle()
+    .in("id", scheduleReportIds)
+
+  const reportMap = new Map(
+    (reports ?? []).map((report) => [report.id, report] as const)
+  )
+  const primaryReport = reportMap.get(primaryScheduleReportConfig.report_id) ?? null
 
   const { data: scContacts } = await supabase
     .from("schedule_contacts")
@@ -119,7 +150,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Nenhum contato ativo vinculado" }, { status: 400 })
   }
 
-  if (!report) {
+  if (!primaryReport && scheduleReportConfigs.length === 1) {
     let automation:
       | { id: string; name: string; export_format?: string | null }
       | null = null
@@ -128,7 +159,7 @@ export async function POST(request: NextRequest) {
       .from("automations")
       .select("id, name, export_format")
       .eq("company_id", companyId)
-      .eq("id", schedule.report_id)
+      .eq("id", primaryScheduleReportConfig.report_id)
       .maybeSingle()
 
     if (automationError) {
@@ -139,7 +170,7 @@ export async function POST(request: NextRequest) {
       const storedAutomation = await getStoredAutomationById(
         supabase,
         companyId,
-        schedule.report_id
+        primaryScheduleReportConfig.report_id
       )
 
       automation = storedAutomation
@@ -197,37 +228,89 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       logs_created: normalizedContacts.length,
-      report_name: automation.name,
-      source: "created",
-    })
+        report_name: automation.name,
+        source: "created",
+      })
   }
 
-  const selectedPageNames = resolveSchedulePageNames(schedule)
-  const primaryPageName = getPrimarySchedulePageName(selectedPageNames)
+  const powerBiTargets = scheduleReportConfigs.flatMap((reportConfig) => {
+    const report = reportMap.get(reportConfig.report_id)
+    if (!report) {
+      return []
+    }
+
+    return [
+      {
+        config: reportConfig,
+        report,
+      },
+    ]
+  })
+
+  if (powerBiTargets.length !== scheduleReportConfigs.length) {
+    return NextResponse.json(
+      {
+        error:
+          scheduleReportConfigs.length > 1
+            ? "Todos os relatorios da rotina precisam existir no Power BI para o envio conjunto."
+            : "Relatorio nao encontrado",
+      },
+      { status: 404 }
+    )
+  }
+
+  const primarySelectedPageNames = primaryScheduleReportConfig.pbi_page_names ?? []
+  const primaryPageName = primaryScheduleReportConfig.pbi_page_name
   const normalizedScheduleExportFormat =
     typeof schedule.export_format === "string" && schedule.export_format.trim().toUpperCase() === "PDF"
       ? "PDF"
       : schedule.export_format
+  const hasMultipleReports = powerBiTargets.length > 1
+  const hasMultiplePagesInAnyReport = powerBiTargets.some(
+    ({ config }) => config.pbi_page_names.length > 1
+  )
 
-  if (selectedPageNames.length > 1 && normalizedScheduleExportFormat !== "PDF") {
+  if (
+    normalizedScheduleExportFormat !== "PDF" &&
+    (hasMultipleReports || hasMultiplePagesInAnyReport)
+  ) {
     return NextResponse.json(
       {
         error:
-          "Selecione varias paginas apenas quando o formato de exportacao for PDF.",
+          "Selecione varios relatorios ou varias paginas apenas quando o formato de exportacao for PDF.",
       },
       { status: 400 }
     )
   }
 
-  const logs = normalizedContacts.map((contact) => ({
-    company_id: companyId,
-    schedule_id: schedule.id,
-    report_name: report.name,
-    contact_name: contact.name,
-    contact_phone: getDispatchLogTarget(contact),
-    status: "pending" as const,
-    export_format: normalizedScheduleExportFormat,
-  }))
+  const directPdfTargets =
+    normalizedScheduleExportFormat === "PDF" &&
+    (hasMultipleReports || hasMultiplePagesInAnyReport)
+      ? powerBiTargets
+      : []
+
+  const logs =
+    directPdfTargets.length > 0
+      ? normalizedContacts.flatMap((contact) =>
+          directPdfTargets.map(({ report }) => ({
+            company_id: companyId,
+            schedule_id: schedule.id,
+            report_name: report.name,
+            contact_name: contact.name,
+            contact_phone: getDispatchLogTarget(contact),
+            status: "pending" as const,
+            export_format: normalizedScheduleExportFormat,
+          }))
+        )
+      : normalizedContacts.map((contact) => ({
+          company_id: companyId,
+          schedule_id: schedule.id,
+          report_name: primaryReport?.name ?? "Desconhecido",
+          contact_name: contact.name,
+          contact_phone: getDispatchLogTarget(contact),
+          status: "pending" as const,
+          export_format: normalizedScheduleExportFormat,
+        }))
 
   const { data: insertedLogs, error: insertLogsError } = await supabase
     .from("dispatch_logs")
@@ -241,8 +324,10 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const message =
-    schedule.message_template ?? `Segue o relatorio ${report.name} em anexo.`
+  const message = applyMessageTemplate(
+    schedule.message_template,
+    primaryReport?.name ?? "relatorio"
+  )
 
   const { data: n8nSettings } = await supabase
     .from("company_settings")
@@ -268,61 +353,92 @@ export async function POST(request: NextRequest) {
       (insertedLogs ?? []).map((log) => log.id)
     )
 
-    if (normalizedScheduleExportFormat === "PDF" && selectedPageNames.length > 1) {
-      const pbiReport = report as Record<string, unknown>
-      const pbiWorkspaceId = pbiReport.workspaces
-        ? (pbiReport.workspaces as Record<string, string>).pbi_workspace_id ?? ""
-        : ""
-      const pbiReportId =
-        typeof pbiReport.pbi_report_id === "string" ? pbiReport.pbi_report_id : ""
-      const pbiEmbedUrl =
-        typeof pbiReport.embed_url === "string" ? pbiReport.embed_url : null
+    if (directPdfTargets.length > 0) {
       const pbiToken = await getAccessToken(companyId)
 
       for (const [contactIndex, contact] of normalizedContacts.entries()) {
-        const currentLog = insertedLogs?.[contactIndex]
+        for (const [reportIndex, target] of directPdfTargets.entries()) {
+          const currentLog =
+            insertedLogs?.[contactIndex * directPdfTargets.length + reportIndex]
+          const pbiReport = target.report as Record<string, unknown>
+          const pbiWorkspaceId = pbiReport.workspaces
+            ? (pbiReport.workspaces as Record<string, string>).pbi_workspace_id ?? ""
+            : ""
+          const pbiReportId =
+            typeof pbiReport.pbi_report_id === "string" ? pbiReport.pbi_report_id : ""
+          const pbiEmbedUrl =
+            typeof pbiReport.embed_url === "string" ? pbiReport.embed_url : null
+          const selectedPageNames = target.config.pbi_page_names ?? []
+          const reportMessage = applyMessageTemplate(
+            schedule.message_template,
+            target.report.name
+          )
 
-        if (currentLog) {
-          await supabase
-            .from("dispatch_logs")
-            .update({ status: "sending" })
-            .eq("company_id", companyId)
-            .eq("id", currentLog.id)
-        }
+          if (currentLog) {
+            await supabase
+              .from("dispatch_logs")
+              .update({ status: "sending" })
+              .eq("company_id", companyId)
+              .eq("id", currentLog.id)
+          }
 
-        for (const [pageIndex, pageName] of selectedPageNames.entries()) {
-          const pdfBuffer = await exportPowerBIReportPdf({
-            token: pbiToken,
-            workspaceId: pbiWorkspaceId,
-            reportId: pbiReportId,
-            reportName: report.name,
-            embedUrl: pbiEmbedUrl,
-            pageNames: [pageName],
-            pageName,
-          })
+          if (selectedPageNames.length > 1) {
+            for (const [pageIndex, pageName] of selectedPageNames.entries()) {
+              const pdfBuffer = await exportPowerBIReportPdf({
+                token: pbiToken,
+                workspaceId: pbiWorkspaceId,
+                reportId: pbiReportId,
+                reportName: target.report.name,
+                embedUrl: pbiEmbedUrl,
+                pageNames: [pageName],
+                pageName,
+              })
 
-          const documentBase64 = Buffer.from(pdfBuffer).toString("base64")
-
-          await sendWhatsAppBotMessage({
-            phone: contact.phone,
-            whatsapp_group_id: contact.whatsapp_group_id,
-            message: pageIndex === 0 ? message : null,
-            document_base64: documentBase64,
-            file_name: buildPageAttachmentFileName(report.name, pageName, pageIndex),
-            mimetype: "application/pdf",
-          })
-        }
-
-        if (currentLog) {
-          await supabase
-            .from("dispatch_logs")
-            .update({
-              status: "delivered",
-              error_message: null,
-              completed_at: new Date().toISOString(),
+              await sendWhatsAppBotMessage({
+                phone: contact.phone,
+                whatsapp_group_id: contact.whatsapp_group_id,
+                message: pageIndex === 0 ? reportMessage : null,
+                document_base64: Buffer.from(pdfBuffer).toString("base64"),
+                file_name: buildPageAttachmentFileName(
+                  target.report.name,
+                  pageName,
+                  pageIndex
+                ),
+                mimetype: "application/pdf",
+              })
+            }
+          } else {
+            const pdfBuffer = await exportPowerBIReportPdf({
+              token: pbiToken,
+              workspaceId: pbiWorkspaceId,
+              reportId: pbiReportId,
+              reportName: target.report.name,
+              embedUrl: pbiEmbedUrl,
+              pageNames: selectedPageNames.length > 0 ? selectedPageNames : null,
+              pageName: target.config.pbi_page_name,
             })
-            .eq("company_id", companyId)
-            .eq("id", currentLog.id)
+
+            await sendWhatsAppBotMessage({
+              phone: contact.phone,
+              whatsapp_group_id: contact.whatsapp_group_id,
+              message: reportMessage,
+              document_base64: Buffer.from(pdfBuffer).toString("base64"),
+              file_name: buildReportAttachmentFileName(target.report.name),
+              mimetype: "application/pdf",
+            })
+          }
+
+          if (currentLog) {
+            await supabase
+              .from("dispatch_logs")
+              .update({
+                status: "delivered",
+                error_message: null,
+                completed_at: new Date().toISOString(),
+              })
+              .eq("company_id", companyId)
+              .eq("id", currentLog.id)
+          }
         }
       }
 
@@ -335,7 +451,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         logs_created: (insertedLogs ?? []).length,
-        attachment_mode: "one_pdf_per_page",
+        attachment_mode: hasMultipleReports ? "multiple_reports" : "one_pdf_per_page",
       })
     }
 
@@ -361,24 +477,26 @@ export async function POST(request: NextRequest) {
         schedule_name: schedule.name,
         cron_expression: schedule.cron_expression,
         is_active: schedule.is_active,
-        report_name: report.name,
-        app_report_id: report.id,
-        report_id: report.pbi_report_id,
-        workspace_id: (report as Record<string, unknown>).workspaces
-          ? ((report as Record<string, unknown>).workspaces as Record<string, string>)
-              .pbi_workspace_id
+        report_name: primaryReport?.name,
+        app_report_id: primaryReport?.id,
+        report_id: primaryReport?.pbi_report_id,
+        workspace_id: (primaryReport as Record<string, unknown> | null)?.workspaces
+          ? (((primaryReport as Record<string, unknown>).workspaces as Record<string, string>)
+               .pbi_workspace_id
+            ?? "")
           : "",
         pbi_page_name: primaryPageName,
-        pbi_page_names: selectedPageNames.length > 0 ? selectedPageNames : null,
+        pbi_page_names: primarySelectedPageNames.length > 0 ? primarySelectedPageNames : null,
         page_name: primaryPageName,
         export_format: normalizedScheduleExportFormat,
         report_export_url: reportExportUrl,
         report_export_headers: callbackHeaders,
         report_export_payload: {
-          report_id: report.id,
+          report_id: primaryReport?.id,
           format: normalizedScheduleExportFormat,
           pbi_page_name: primaryPageName,
-          pbi_page_names: selectedPageNames.length > 0 ? selectedPageNames : null,
+          pbi_page_names:
+            primarySelectedPageNames.length > 0 ? primarySelectedPageNames : null,
           callback_secret: callbackSecret,
         },
         contacts: normalizedContacts.map((contact) => ({

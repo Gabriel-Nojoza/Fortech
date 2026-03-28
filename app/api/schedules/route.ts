@@ -7,10 +7,12 @@ import {
   loadStoredAutomations,
 } from "@/lib/automation-storage"
 import {
-  getPrimarySchedulePageName,
-  normalizeSchedulePageNames,
-  resolveSchedulePageNames,
-} from "@/lib/schedule-pages"
+  getPrimaryScheduleReportConfig,
+  getScheduleReportIds,
+  normalizeScheduleReportConfigs,
+  resolveScheduleReportConfigs,
+} from "@/lib/schedule-report-configs"
+import { normalizeSchedulePageNames } from "@/lib/schedule-pages"
 
 function isMissingSchedulesUpdatedAtColumn(message?: string | null) {
   return (
@@ -24,6 +26,14 @@ function isMissingSchedulePageNamesColumn(message?: string | null) {
   return (
     typeof message === "string" &&
     message.includes("pbi_page_names") &&
+    message.includes("schedules")
+  )
+}
+
+function isMissingScheduleReportConfigsColumn(message?: string | null) {
+  return (
+    typeof message === "string" &&
+    message.includes("report_configs") &&
     message.includes("schedules")
   )
 }
@@ -46,9 +56,49 @@ const pageNamesSchema = z.preprocess(
   z.array(z.string().min(1)).optional()
 )
 
-const scheduleSchema = z.object({
+const reportConfigsSchema = z.preprocess(
+  (value) => {
+    if (value === undefined) {
+      return undefined
+    }
+
+    return normalizeScheduleReportConfigs(value)
+  },
+  z
+    .array(
+      z.object({
+        report_id: z.string().uuid(),
+        pbi_page_name: nullableTrimmedString,
+        pbi_page_names: pageNamesSchema,
+      })
+    )
+    .optional()
+)
+
+function validateScheduleReports(
+  value: {
+    report_configs?: unknown
+    report_id?: unknown
+    pbi_page_name?: unknown
+    pbi_page_names?: unknown
+  },
+  ctx: z.RefinementCtx
+) {
+  const reportConfigs = resolveScheduleReportConfigs(value)
+
+  if (reportConfigs.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Selecione ao menos 1 relatorio.",
+      path: ["report_configs"],
+    })
+  }
+}
+
+const baseScheduleSchema = z.object({
   name: z.string().min(1),
-  report_id: z.string().uuid(),
+  report_id: z.string().uuid().optional(),
+  report_configs: reportConfigsSchema,
   pbi_page_name: nullableTrimmedString,
   pbi_page_names: pageNamesSchema,
   cron_expression: z.string().min(1),
@@ -60,9 +110,14 @@ const scheduleSchema = z.object({
   contact_ids: z.array(z.string().trim().min(1)).optional(),
 })
 
-const scheduleUpdateSchema = scheduleSchema.partial().extend({
-  id: z.string().uuid(),
-})
+const scheduleSchema = baseScheduleSchema.superRefine(validateScheduleReports)
+
+const scheduleUpdateSchema = baseScheduleSchema
+  .partial()
+  .extend({
+    id: z.string().uuid(),
+  })
+  .superRefine(validateScheduleReports)
 
 export async function GET() {
   const { companyId } = await getRequestContext()
@@ -79,7 +134,11 @@ export async function GET() {
   }
 
   const reportIds = Array.from(
-    new Set((schedules ?? []).map((schedule) => schedule.report_id).filter(Boolean))
+    new Set(
+      (schedules ?? []).flatMap((schedule) =>
+        getScheduleReportIds(resolveScheduleReportConfigs(schedule))
+      )
+    )
   )
 
   let reportMap = new Map<string, string>()
@@ -140,17 +199,36 @@ export async function GET() {
         contacts = data ?? []
       }
 
+      const reportConfigs = resolveScheduleReportConfigs(schedule).map((reportConfig) => {
+        const reportName =
+          reportMap.get(reportConfig.report_id) ??
+          automationMap.get(reportConfig.report_id) ??
+          "Desconhecido"
+        const reportSource = reportMap.has(reportConfig.report_id)
+          ? "powerbi"
+          : automationMap.has(reportConfig.report_id)
+            ? "created"
+            : "unknown"
+
+        return {
+          ...reportConfig,
+          report_name: reportName,
+          report_source: reportSource,
+        }
+      })
+
+      const reportNames = reportConfigs.map((reportConfig) => reportConfig.report_name)
+      const primaryReportName = reportNames[0] ?? "Desconhecido"
+
       return {
         ...schedule,
+        report_configs: reportConfigs,
+        report_names: reportNames,
         report_name:
-          reportMap.get(schedule.report_id) ??
-          automationMap.get(schedule.report_id) ??
-          "Desconhecido",
-        report_source: reportMap.has(schedule.report_id)
-          ? "powerbi"
-          : automationMap.has(schedule.report_id)
-            ? "created"
-            : "unknown",
+          reportNames.length > 1
+            ? `${primaryReportName} +${reportNames.length - 1}`
+            : primaryReportName,
+        report_source: reportConfigs[0]?.report_source ?? "unknown",
         contacts,
       }
     })
@@ -172,16 +250,32 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { contact_ids, ...scheduleData } = parsed.data
+  const { contact_ids, report_configs: _reportConfigs, ...scheduleData } = parsed.data
   const normalizedContactIds = [...new Set((contact_ids ?? []).map((id) => id.trim()).filter(Boolean))]
-  const pageNames = resolveSchedulePageNames(parsed.data)
+  const reportConfigs = resolveScheduleReportConfigs(parsed.data)
+  const primaryReportConfig = getPrimaryScheduleReportConfig(reportConfigs)
 
-  if (pageNames.length > 1 && scheduleData.export_format !== "PDF") {
+  if (!primaryReportConfig) {
     return NextResponse.json(
       {
         error: {
-          pbi_page_names: [
-            "Selecione varias paginas apenas quando o formato de exportacao for PDF.",
+          report_configs: ["Selecione ao menos 1 relatorio."],
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (
+    scheduleData.export_format !== "PDF" &&
+    (reportConfigs.length > 1 ||
+      reportConfigs.some((reportConfig) => reportConfig.pbi_page_names.length > 1))
+  ) {
+    return NextResponse.json(
+      {
+        error: {
+          report_configs: [
+            "Selecione varios relatorios ou varias paginas apenas quando o formato de exportacao for PDF.",
           ],
         },
       },
@@ -193,14 +287,29 @@ export async function POST(request: NextRequest) {
     .from("schedules")
     .insert({
       ...scheduleData,
+      report_id: primaryReportConfig.report_id,
       company_id: companyId,
-      pbi_page_name: getPrimarySchedulePageName(pageNames),
-      pbi_page_names: pageNames.length > 0 ? pageNames : null,
+      pbi_page_name: primaryReportConfig.pbi_page_name,
+      pbi_page_names:
+        primaryReportConfig.pbi_page_names.length > 0
+          ? primaryReportConfig.pbi_page_names
+          : null,
+      report_configs: reportConfigs,
     })
     .select()
     .single()
 
   if (error) {
+    if (isMissingScheduleReportConfigsColumn(error.message)) {
+      return NextResponse.json(
+        {
+          error:
+            "O banco ainda nao suporta varios relatorios por rotina. Execute a migration 20260328_schedule_report_configs.sql no Supabase.",
+        },
+        { status: 500 }
+      )
+    }
+
     if (isMissingSchedulePageNamesColumn(error.message)) {
       return NextResponse.json(
         {
@@ -250,18 +359,30 @@ export async function PUT(request: NextRequest) {
     contact_ids === undefined
       ? undefined
       : [...new Set(contact_ids.map((contactId) => contactId.trim()).filter(Boolean))]
-  const isUpdatingPageSelection =
+  const isUpdatingReportSelection =
+    Object.prototype.hasOwnProperty.call(parsed.data, "report_configs") ||
+    Object.prototype.hasOwnProperty.call(parsed.data, "report_id") ||
     Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_name") ||
     Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_names")
 
   const { data: existingSchedule, error: existingScheduleError } = await supabase
     .from("schedules")
-    .select("id, export_format, pbi_page_name, pbi_page_names")
+    .select("id, export_format, report_id, report_configs, pbi_page_name, pbi_page_names")
     .eq("company_id", companyId)
     .eq("id", id)
     .maybeSingle()
 
   if (existingScheduleError) {
+    if (isMissingScheduleReportConfigsColumn(existingScheduleError.message)) {
+      return NextResponse.json(
+        {
+          error:
+            "O banco ainda nao suporta varios relatorios por rotina. Execute a migration 20260328_schedule_report_configs.sql no Supabase.",
+        },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json({ error: existingScheduleError.message }, { status: 500 })
   }
 
@@ -269,17 +390,45 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
   }
 
-  const pageNames = isUpdatingPageSelection
-    ? resolveSchedulePageNames(parsed.data)
-    : resolveSchedulePageNames(existingSchedule)
+  const reportConfigs = isUpdatingReportSelection
+    ? resolveScheduleReportConfigs({
+        report_configs: parsed.data.report_configs ?? existingSchedule.report_configs,
+        report_id: parsed.data.report_id ?? existingSchedule.report_id,
+        pbi_page_name:
+          Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_name")
+            ? parsed.data.pbi_page_name
+            : existingSchedule.pbi_page_name,
+        pbi_page_names:
+          Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_names")
+            ? parsed.data.pbi_page_names
+            : existingSchedule.pbi_page_names,
+      })
+    : resolveScheduleReportConfigs(existingSchedule)
   const effectiveExportFormat = parsed.data.export_format ?? existingSchedule.export_format
 
-  if (effectiveExportFormat !== "PDF" && pageNames.length > 1) {
+  if (
+    reportConfigs.length === 0
+  ) {
     return NextResponse.json(
       {
         error: {
-          pbi_page_names: [
-            "Selecione varias paginas apenas quando o formato de exportacao for PDF.",
+          report_configs: ["Selecione ao menos 1 relatorio."],
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (
+    effectiveExportFormat !== "PDF" &&
+    (reportConfigs.length > 1 ||
+      reportConfigs.some((reportConfig) => reportConfig.pbi_page_names.length > 1))
+  ) {
+    return NextResponse.json(
+      {
+        error: {
+          report_configs: [
+            "Selecione varios relatorios ou varias paginas apenas quando o formato de exportacao for PDF.",
           ],
         },
       },
@@ -291,9 +440,16 @@ export async function PUT(request: NextRequest) {
     Object.entries(updates).filter(([, value]) => value !== undefined)
   )
 
-  if (isUpdatingPageSelection) {
-    scheduleUpdates.pbi_page_name = getPrimarySchedulePageName(pageNames)
-    scheduleUpdates.pbi_page_names = pageNames.length > 0 ? pageNames : null
+  if (isUpdatingReportSelection) {
+    const primaryReportConfig = getPrimaryScheduleReportConfig(reportConfigs)
+
+    scheduleUpdates.report_id = primaryReportConfig?.report_id ?? null
+    scheduleUpdates.pbi_page_name = primaryReportConfig?.pbi_page_name ?? null
+    scheduleUpdates.pbi_page_names =
+      primaryReportConfig && primaryReportConfig.pbi_page_names.length > 0
+        ? primaryReportConfig.pbi_page_names
+        : null
+    scheduleUpdates.report_configs = reportConfigs
   }
 
   const updateSchedule = async (payload: Record<string, unknown>) =>
@@ -315,6 +471,16 @@ export async function PUT(request: NextRequest) {
   }
 
   if (result.error) {
+    if (isMissingScheduleReportConfigsColumn(result.error.message)) {
+      return NextResponse.json(
+        {
+          error:
+            "O banco ainda nao suporta varios relatorios por rotina. Execute a migration 20260328_schedule_report_configs.sql no Supabase.",
+        },
+        { status: 500 }
+      )
+    }
+
     if (isMissingSchedulePageNamesColumn(result.error.message)) {
       return NextResponse.json(
         {
