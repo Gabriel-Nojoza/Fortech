@@ -17,6 +17,10 @@ interface StatsData {
   whatsappConnected?: boolean
   dispatchesToday: number
   successRate: number | null
+  completed30d?: number
+  delivered30d?: number
+  failed30d?: number
+  ongoing30d?: number
   pbiConfigured?: boolean
   n8nConfigured?: boolean
 }
@@ -30,6 +34,11 @@ function formatMetricValue(value: number | string) {
 }
 
 export function StatsCards({ data }: { data: StatsData }) {
+  const completed30d = data.completed30d ?? 0
+  const delivered30d = data.delivered30d ?? 0
+  const failed30d = data.failed30d ?? 0
+  const ongoing30d = data.ongoing30d ?? 0
+
   const stats = [
     {
       title: "Relatorios",
@@ -66,8 +75,14 @@ export function StatsCards({ data }: { data: StatsData }) {
       icon: CheckCircle,
       description:
         data.successRate === null
-          ? "Sem envios finalizados nos ultimos 30 dias"
-          : "Ultimos 30 dias",
+          ? ongoing30d > 0
+            ? `${formatMetricValue(ongoing30d)} envio(s) ainda em andamento`
+            : "Sem envios finalizados nos ultimos 30 dias"
+          : `${formatMetricValue(delivered30d)} enviados, ${formatMetricValue(failed30d)} com erro e ${formatMetricValue(ongoing30d)} em andamento`,
+      footnote:
+        data.successRate === null
+          ? "Base: enviados finalizados"
+          : `${formatMetricValue(completed30d)} finalizado(s) entram no calculo`,
       status: null,
     },
   ]
@@ -106,6 +121,11 @@ export function StatsCards({ data }: { data: StatsData }) {
                 </Badge>
               )}
             </div>
+            {"footnote" in stat && stat.footnote ? (
+              <p className="pt-2 text-[11px] text-muted-foreground/80">
+                {stat.footnote}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       ))}

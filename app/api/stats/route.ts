@@ -3,6 +3,7 @@ import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext, isAuthContextError } from "@/lib/tenant"
 import { readWhatsAppBotRuntimeState } from "@/lib/whatsapp-bot"
 import {
+  countDispatchLogOutcomes,
   getDispatchLogEffectiveDate,
   getDispatchLogOutcome,
 } from "@/lib/dispatch-log"
@@ -85,10 +86,11 @@ export async function GET() {
     ).length
 
     const monthLogs = logsWithDates.filter((log) => log.effectiveDate >= thirtyDaysAgo)
+    const monthOutcomeCounts = countDispatchLogOutcomes(monthLogs)
+    const deliveredCount = monthOutcomeCounts.delivered
+    const failedCount = monthOutcomeCounts.failed
+    const ongoingCount = monthOutcomeCounts.ongoing
     const completedMonthLogs = monthLogs.filter((log) => log.outcome !== "ongoing")
-    const deliveredCount = completedMonthLogs.filter(
-      (log) => log.outcome === "delivered"
-    ).length
     const successRate =
       completedMonthLogs.length > 0
         ? Math.round((deliveredCount / completedMonthLogs.length) * 100)
@@ -137,9 +139,18 @@ export async function GET() {
       whatsappConnected,
       dispatchesToday,
       successRate,
+      completed30d: completedMonthLogs.length,
+      delivered30d: deliveredCount,
+      failed30d: failedCount,
+      ongoing30d: ongoingCount,
       pbiConfigured,
       n8nConfigured,
       chartData,
+      statusBreakdown30d: [
+        { key: "delivered", label: "Enviados", value: deliveredCount },
+        { key: "failed", label: "Erro", value: failedCount },
+        { key: "ongoing", label: "Em andamento", value: ongoingCount },
+      ],
     })
   } catch (error) {
     if (isAuthContextError(error)) {

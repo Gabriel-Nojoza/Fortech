@@ -6,6 +6,11 @@ type DispatchLogLike = {
   completed_at?: unknown
 }
 
+export type DispatchLogOutcome = "delivered" | "failed" | "ongoing"
+type DispatchLogOutcomeLike = DispatchLogLike & {
+  outcome?: unknown
+}
+
 export type DispatchLogBadgeStatus = {
   label: string
   variant: "default" | "secondary" | "destructive" | "outline"
@@ -43,6 +48,26 @@ export function getDispatchLogOutcome(log: DispatchLogLike) {
   }
 
   return "ongoing" as const
+}
+
+export function countDispatchLogOutcomes(logs: DispatchLogOutcomeLike[]) {
+  return logs.reduce(
+    (counts, log) => {
+      const outcome =
+        log.outcome === "delivered" ||
+        log.outcome === "failed" ||
+        log.outcome === "ongoing"
+          ? log.outcome
+          : getDispatchLogOutcome(log)
+      counts[outcome] += 1
+      return counts
+    },
+    {
+      delivered: 0,
+      failed: 0,
+      ongoing: 0,
+    } as Record<DispatchLogOutcome, number>
+  )
 }
 
 const dispatchLogStatusConfig: Record<string, DispatchLogBadgeStatus> = {

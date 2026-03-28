@@ -8,7 +8,10 @@ import {
   clearTabSessionMarker,
   hasSupabaseAuthCookies,
   hasTabSessionMarker,
+  markTabSessionActive,
 } from "@/lib/supabase/tab-session"
+
+const TAB_REVALIDATE_INTERVAL_MS = 5 * 60 * 1000
 
 export function TabSessionGuard({
   children,
@@ -17,6 +20,8 @@ export function TabSessionGuard({
 }) {
   const router = useRouter()
   const hasCheckedRef = useRef(false)
+  const isValidatingRef = useRef(false)
+  const hiddenAtRef = useRef<number | null>(null)
   const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
@@ -27,37 +32,9 @@ export function TabSessionGuard({
     hasCheckedRef.current = true
     let isMounted = true
 
-    const verifyTabSession = async () => {
-      if (!hasSupabaseAuthCookies()) {
-        clearTabSessionMarker()
-
-        if (isMounted) {
-          setIsReady(true)
-        }
-
-        return
-      }
-
-      if (hasTabSessionMarker()) {
-        if (isMounted) {
-          setIsReady(true)
-        }
-
-        return
-      }
-
-      const supabase = createClient()
-
-      try {
-        await supabase.auth.signOut()
-      } catch {
-        // The local cookie cleanup below is enough to force a fresh login.
-      }
-
-      clearSupabaseAuthCookies()
-      clearTabSessionMarker()
-
-      if (!isMounted) {
+    const redirectToLogin = () => {
+      if (typeof window !== "undefined") {
+        window.location.replace("/auth/login")
         return
       }
 
@@ -65,10 +42,110 @@ export function TabSessionGuard({
       router.refresh()
     }
 
-    void verifyTabSession()
+    const verifyTabSession = async ({
+      forceValidate = false,
+      refreshOnSuccess = false,
+    }: {
+      forceValidate?: boolean
+      refreshOnSuccess?: boolean
+    } = {}) => {
+      if (isValidatingRef.current) {
+        return
+      }
+
+      isValidatingRef.current = true
+
+      try {
+        if (!hasSupabaseAuthCookies()) {
+          clearTabSessionMarker()
+
+          if (isMounted) {
+            setIsReady(true)
+          }
+
+          return
+        }
+
+        const shouldValidateWithSupabase = forceValidate || !hasTabSessionMarker()
+
+        if (!shouldValidateWithSupabase) {
+          if (isMounted) {
+            setIsReady(true)
+          }
+
+          return
+        }
+
+        const supabase = createClient()
+        const { data, error } = await supabase.auth.getUser()
+
+        if (error || !data.user) {
+          throw error ?? new Error("Sessao invalida")
+        }
+
+        markTabSessionActive()
+
+        if (!isMounted) {
+          return
+        }
+
+        setIsReady(true)
+
+        if (refreshOnSuccess && typeof window !== "undefined") {
+          window.location.reload()
+        }
+      } catch {
+        const supabase = createClient()
+
+        try {
+          await supabase.auth.signOut()
+        } catch {
+          // The local cookie cleanup below is enough to force a fresh login.
+        }
+
+        clearSupabaseAuthCookies()
+        clearTabSessionMarker()
+
+        if (!isMounted) {
+          return
+        }
+
+        redirectToLogin()
+      } finally {
+        isValidatingRef.current = false
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now()
+        return
+      }
+
+      const hiddenForLong =
+        hiddenAtRef.current !== null &&
+        Date.now() - hiddenAtRef.current >= TAB_REVALIDATE_INTERVAL_MS
+
+      hiddenAtRef.current = null
+      void verifyTabSession({
+        forceValidate: true,
+        refreshOnSuccess: hiddenForLong,
+      })
+    }
+
+    const handleWindowFocus = () => {
+      void verifyTabSession({ forceValidate: true })
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("focus", handleWindowFocus)
+
+    void verifyTabSession({ forceValidate: true })
 
     return () => {
       isMounted = false
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      window.removeEventListener("focus", handleWindowFocus)
     }
   }, [router])
 

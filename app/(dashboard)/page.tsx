@@ -4,6 +4,7 @@ import useSWR from "swr"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { StatsCards } from "@/components/dashboard/stats-cards"
 import { DispatchChart } from "@/components/dashboard/dispatch-chart"
+import { DispatchStatusPie } from "@/components/dashboard/dispatch-status-pie"
 import { RecentDispatches } from "@/components/dashboard/recent-dispatches"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -61,6 +62,10 @@ export default function DashboardPage() {
               whatsappConnected: stats?.whatsappConnected ?? false,
               dispatchesToday: stats?.dispatchesToday ?? 0,
               successRate: stats?.successRate ?? null,
+              completed30d: stats?.completed30d ?? 0,
+              delivered30d: stats?.delivered30d ?? 0,
+              failed30d: stats?.failed30d ?? 0,
+              ongoing30d: stats?.ongoing30d ?? 0,
               pbiConfigured: stats?.pbiConfigured ?? false,
               n8nConfigured: stats?.n8nConfigured ?? false,
             }}
@@ -68,9 +73,15 @@ export default function DashboardPage() {
         )}
 
         {statsLoading ? (
-          <Skeleton className="h-[380px] rounded-xl" />
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_440px] 2xl:grid-cols-[minmax(0,1.7fr)_500px]">
+            <Skeleton className="h-[380px] rounded-xl" />
+            <Skeleton className="h-[380px] rounded-xl" />
+          </div>
         ) : (
-          <DispatchChart data={stats?.chartData ?? []} />
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_440px] 2xl:grid-cols-[minmax(0,1.7fr)_500px]">
+            <DispatchChart data={stats?.chartData ?? []} />
+            <DispatchStatusPie data={stats?.statusBreakdown30d ?? []} />
+          </div>
         )}
 
         {logsLoading ? (
