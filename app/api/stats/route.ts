@@ -3,6 +3,13 @@ import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext, isAuthContextError } from "@/lib/tenant"
 import { readWhatsAppBotRuntimeState } from "@/lib/whatsapp-bot"
 import {
+  getWorkspaceAccessScope,
+} from "@/lib/workspace-access"
+import {
+  isMissingWhatsAppBotInstancesTableError,
+  listCompanyWhatsAppBotInstances,
+} from "@/lib/whatsapp-bot-instances"
+import {
   countDispatchLogOutcomes,
   getDispatchLogEffectiveDate,
   getDispatchLogOutcome,
@@ -18,10 +25,10 @@ type DispatchLogStatsRecord = {
 
 export async function GET() {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
-    const botState = await readWhatsAppBotRuntimeState()
-    const whatsappConnected = botState?.status === "connected"
+    const workspaceScope = await getWorkspaceAccessScope(supabase, context)
 
     const now = new Date()
     const todayStart = new Date(now)
@@ -35,11 +42,26 @@ export async function GET() {
     const thirtyDaysAgo = new Date(todayStart)
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29)
 
-    const [reportsRes, contactsRes, dispatchLogsRes, settingsRes] = await Promise.all([
-        supabase
-          .from("reports")
-          .select("id", { count: "exact", head: true })
-          .eq("company_id", companyId),
+    const reportsQuery =
+      workspaceScope.restricted && workspaceScope.workspaceIds.length === 0
+        ? Promise.resolve({ count: 0, error: null } as const)
+        : (() => {
+            let query = supabase
+              .from("reports")
+              .select("id", { count: "exact", head: true })
+              .eq("company_id", companyId)
+              .eq("is_active", true)
+
+            if (workspaceScope.restricted) {
+              query = query.in("workspace_id", workspaceScope.workspaceIds)
+            }
+
+            return query
+          })()
+
+    const [reportsRes, contactsRes, dispatchLogsRes, settingsRes, botInstancesRes] =
+      await Promise.all([
+        reportsQuery,
         supabase
           .from("contacts")
           .select("id", { count: "exact", head: true })
@@ -54,6 +76,13 @@ export async function GET() {
           .select("key, value")
           .eq("company_id", companyId)
           .in("key", ["powerbi", "n8n"]),
+        listCompanyWhatsAppBotInstances(supabase, companyId).catch((error) => {
+          if (isMissingWhatsAppBotInstancesTableError(error)) {
+            return null
+          }
+
+          throw error
+        }),
       ])
 
     const queryError =
@@ -63,8 +92,18 @@ export async function GET() {
       throw new Error(queryError.message)
     }
 
+    const botInstances = Array.isArray(botInstancesRes) ? botInstancesRes : null
+    const botState = botInstances ? null : await readWhatsAppBotRuntimeState()
+    const connectedWhatsAppInstances = botInstances
+      ? botInstances.filter((instance) => instance.status === "connected").length
+      : botState?.status === "connected"
+        ? 1
+        : 0
+    const totalWhatsAppInstances = botInstances?.length ?? (botState ? 1 : 0)
+    const whatsappConnected = connectedWhatsAppInstances > 0
+
     const totalReports = reportsRes.count ?? 0
-    const activeContacts = whatsappConnected ? contactsRes.count ?? 0 : 0
+    const activeContacts = contactsRes.count ?? 0
 
     const dispatchLogs = (dispatchLogsRes.data ?? []) as DispatchLogStatsRecord[]
     const logsWithDates = dispatchLogs.flatMap((log) => {
@@ -137,6 +176,8 @@ export async function GET() {
       totalReports,
       activeContacts,
       whatsappConnected,
+      connectedWhatsAppInstances,
+      totalWhatsAppInstances,
       dispatchesToday,
       successRate,
       completed30d: completedMonthLogs.length,

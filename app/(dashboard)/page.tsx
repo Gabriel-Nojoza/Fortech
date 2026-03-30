@@ -60,6 +60,8 @@ export default function DashboardPage() {
               totalReports: stats?.totalReports ?? 0,
               activeContacts: stats?.activeContacts ?? 0,
               whatsappConnected: stats?.whatsappConnected ?? false,
+              connectedWhatsAppInstances: stats?.connectedWhatsAppInstances ?? 0,
+              totalWhatsAppInstances: stats?.totalWhatsAppInstances ?? 0,
               dispatchesToday: stats?.dispatchesToday ?? 0,
               successRate: stats?.successRate ?? null,
               completed30d: stats?.completed30d ?? 0,

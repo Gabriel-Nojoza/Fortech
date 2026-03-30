@@ -15,6 +15,8 @@ interface StatsData {
   totalReports: number
   activeContacts: number
   whatsappConnected?: boolean
+  connectedWhatsAppInstances?: number
+  totalWhatsAppInstances?: number
   dispatchesToday: number
   successRate: number | null
   completed30d?: number
@@ -38,24 +40,32 @@ export function StatsCards({ data }: { data: StatsData }) {
   const delivered30d = data.delivered30d ?? 0
   const failed30d = data.failed30d ?? 0
   const ongoing30d = data.ongoing30d ?? 0
+  const connectedWhatsAppInstances = data.connectedWhatsAppInstances ?? 0
+  const totalWhatsAppInstances = data.totalWhatsAppInstances ?? 0
 
   const stats = [
     {
       title: "Relatorios",
       value: data.totalReports,
       icon: FileBarChart2,
-      description: "Sincronizados do Power BI",
+      description:
+        data.totalReports === 1
+          ? "1 relatorio ativo visivel"
+          : `${formatMetricValue(data.totalReports)} relatorios ativos visiveis`,
       status: data.pbiConfigured
         ? { label: "Conectado", ok: true }
         : { label: "Desconectado", ok: false },
     },
     {
       title: "Contatos Ativos",
-      value: data.whatsappConnected ? data.activeContacts : "--",
+      value: data.activeContacts,
       icon: Users,
-      description: data.whatsappConnected
-        ? "WhatsApp conectado"
-        : "Faca login no WhatsApp",
+      description:
+        totalWhatsAppInstances > 0
+          ? connectedWhatsAppInstances > 0
+            ? `${formatMetricValue(connectedWhatsAppInstances)} WhatsApp(s) conectado(s)`
+            : `Nenhum dos ${formatMetricValue(totalWhatsAppInstances)} WhatsApp(s) esta conectado`
+          : "Nenhum WhatsApp configurado",
       status: data.whatsappConnected
         ? { label: "Conectado", ok: true }
         : { label: "Aguardando QR", ok: false },
