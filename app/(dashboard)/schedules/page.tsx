@@ -81,6 +81,18 @@ function stripHtmlTags(value: string) {
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
 }
 
+function normalizeSearchText(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+}
+
+function normalizeDigits(value: string | null | undefined) {
+  return (value ?? "").replace(/\D/g, "")
+}
+
 async function readApiPayload(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
 
@@ -438,13 +450,18 @@ export default function SchedulesPage() {
   )
 
   const filteredContacts = activeContacts.filter((contact) => {
-    const search = contactSearch.trim().toLowerCase()
-    if (!search) return true
+    const normalizedSearch = normalizeSearchText(contactSearch)
+    const numericSearch = normalizeDigits(contactSearch)
+
+    if (!normalizedSearch) return true
 
     return (
-      contact.name.toLowerCase().includes(search) ||
-      (contact.phone ?? "").toLowerCase().includes(search) ||
-      (contact.whatsapp_group_id ?? "").toLowerCase().includes(search)
+      normalizeSearchText(contact.name).includes(normalizedSearch) ||
+      normalizeSearchText(contact.phone).includes(normalizedSearch) ||
+      normalizeSearchText(contact.whatsapp_group_id).includes(normalizedSearch) ||
+      (numericSearch.length > 0 &&
+        (normalizeDigits(contact.phone).includes(numericSearch) ||
+          normalizeDigits(contact.whatsapp_group_id).includes(numericSearch)))
     )
   })
 
