@@ -6,9 +6,13 @@ import { createClient } from "@/lib/supabase/client"
 import {
   clearSupabaseAuthCookies,
   clearTabSessionMarker,
+  getOrCreateTabSessionId,
   hasSupabaseAuthCookies,
+  hasOtherActiveTabs,
   hasTabSessionMarker,
   markTabSessionActive,
+  releaseTabSession,
+  touchTabSession,
 } from "@/lib/supabase/tab-session"
 
 const TAB_REVALIDATE_INTERVAL_MS = 5 * 60 * 1000
@@ -31,6 +35,7 @@ export function TabSessionGuard({
 
     hasCheckedRef.current = true
     let isMounted = true
+    const tabId = getOrCreateTabSessionId()
 
     const redirectToLogin = () => {
       if (typeof window !== "undefined") {
@@ -58,6 +63,9 @@ export function TabSessionGuard({
       try {
         if (!hasSupabaseAuthCookies()) {
           clearTabSessionMarker()
+          if (tabId) {
+            releaseTabSession(tabId)
+          }
 
           if (isMounted) {
             setIsReady(true)
@@ -66,7 +74,15 @@ export function TabSessionGuard({
           return
         }
 
+        if (tabId) {
+          touchTabSession(tabId)
+        }
+
         const shouldValidateWithSupabase = forceValidate || !hasTabSessionMarker()
+
+        if (!hasTabSessionMarker() && tabId && !hasOtherActiveTabs(tabId)) {
+          throw new Error("Sessao encerrada ao fechar a ultima aba")
+        }
 
         if (!shouldValidateWithSupabase) {
           if (isMounted) {
@@ -119,6 +135,9 @@ export function TabSessionGuard({
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         hiddenAtRef.current = Date.now()
+        if (tabId) {
+          touchTabSession(tabId)
+        }
         return
       }
 
@@ -137,15 +156,30 @@ export function TabSessionGuard({
       void verifyTabSession({ forceValidate: true })
     }
 
+    const heartbeatInterval = window.setInterval(() => {
+      if (tabId) {
+        touchTabSession(tabId)
+      }
+    }, 10_000)
+
+    const handlePageHide = () => {
+      if (tabId) {
+        releaseTabSession(tabId)
+      }
+    }
+
     document.addEventListener("visibilitychange", handleVisibilityChange)
     window.addEventListener("focus", handleWindowFocus)
+    window.addEventListener("pagehide", handlePageHide)
 
     void verifyTabSession({ forceValidate: true })
 
     return () => {
       isMounted = false
+      window.clearInterval(heartbeatInterval)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
       window.removeEventListener("focus", handleWindowFocus)
+      window.removeEventListener("pagehide", handlePageHide)
     }
   }, [router])
 
