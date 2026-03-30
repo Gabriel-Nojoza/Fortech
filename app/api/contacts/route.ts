@@ -23,6 +23,8 @@ const contactSchema = z.object({
 })
 
 const CONTACTS_BATCH_SIZE = 1000
+const CONTACTS_SELECT_FIELDS =
+  "id,name,phone,type,whatsapp_group_id,bot_instance_id,is_active,created_at,updated_at"
 type ContactRecord = {
   id?: string
   name?: string | null
@@ -45,7 +47,7 @@ async function fetchAllContactsForCompany(params: {
   while (true) {
     let query = params.supabase
       .from("contacts")
-      .select("*")
+      .select(CONTACTS_SELECT_FIELDS)
       .eq("company_id", params.companyId)
       .order("created_at", { ascending: false })
       .range(from, from + CONTACTS_BATCH_SIZE - 1)

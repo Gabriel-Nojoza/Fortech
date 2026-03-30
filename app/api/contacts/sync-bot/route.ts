@@ -24,6 +24,8 @@ type ExistingContact = {
 }
 
 const CONTACTS_BATCH_SIZE = 1000
+const EXISTING_CONTACTS_SELECT_FIELDS =
+  "id,name,phone,type,whatsapp_group_id,is_active"
 
 function normalizePhone(phone: string | null | undefined) {
   const normalized = typeof phone === "string" ? phone.replace(/\D/g, "") : ""
@@ -54,7 +56,7 @@ async function fetchAllExistingContacts(params: {
   while (true) {
     const { data, error } = await params.supabase
       .from("contacts")
-      .select("*")
+      .select(EXISTING_CONTACTS_SELECT_FIELDS)
       .eq("company_id", params.companyId)
       .eq("bot_instance_id", params.botInstanceId)
       .range(from, from + CONTACTS_BATCH_SIZE - 1)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import useSWR, { mutate } from "swr"
 import {
   Plus,
@@ -78,6 +78,13 @@ const fetcher = async (url: string) => {
   return data
 }
 
+const CONTACTS_SWR_OPTIONS = {
+  revalidateOnFocus: false,
+  revalidateIfStale: false,
+  keepPreviousData: true,
+  dedupingInterval: 10_000,
+} as const
+
 function normalizeSearchText(value: string | null | undefined) {
   return (value ?? "")
     .normalize("NFD")
@@ -93,6 +100,7 @@ function normalizeDigits(value: string | null | undefined) {
 }
 
 export default function ContactsPage() {
+  const CONTACTS_PAGE_SIZE = 200
   const instancesKey = "/api/bot/instances"
   const { data: botInstances, isLoading: isLoadingBotInstances } = useSWR<
     WhatsAppBotInstance[]
@@ -102,6 +110,7 @@ export default function ContactsPage() {
   const [selectedBotInstanceId, setSelectedBotInstanceId] = useState("")
   const [search, setSearch] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
+  const [visibleLimit, setVisibleLimit] = useState(CONTACTS_PAGE_SIZE)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [instanceDialogOpen, setInstanceDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -140,11 +149,21 @@ export default function ContactsPage() {
   const botQrKey = resolvedBotInstanceId
     ? `/api/bot/qr?instance_id=${resolvedBotInstanceId}`
     : null
-  const { data: contacts, isLoading } = useSWR<Contact[]>(contactsKey, fetcher)
+  const { data: contacts, isLoading } = useSWR<Contact[]>(
+    contactsKey,
+    fetcher,
+    CONTACTS_SWR_OPTIONS
+  )
   const { data: botQrConfig, isLoading: isLoadingBotQr } = useSWR<WhatsAppBotInstance>(
     botQrKey,
     fetcher,
-    { refreshInterval: 5000 }
+    {
+      revalidateOnFocus: false,
+      keepPreviousData: true,
+      dedupingInterval: 5_000,
+      refreshWhenHidden: false,
+      refreshInterval: (latestData) => (latestData?.status === "connected" ? 0 : 5_000),
+    }
   )
 
   useEffect(() => {
@@ -159,46 +178,43 @@ export default function ContactsPage() {
     setManualBotQrUrl(botQrConfig?.manual_qr_code_url ?? "")
   }, [botQrConfig?.manual_qr_code_url])
 
-  if (!mounted) {
-    return (
-      <div className="flex flex-1 flex-col p-6">
-        <Skeleton className="h-10 w-56" />
-        <div className="mt-6 space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 rounded-xl" />
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  const normalizedSearch = normalizeSearchText(search)
-  const numericSearch = normalizeDigits(search)
-
-  const filtered = (contacts ?? []).filter((contact) => {
-    const searchTokens = normalizedSearch.split(" ").filter(Boolean)
-    const searchableText = [
-      normalizeSearchText(contact.name),
-      normalizeSearchText(contact.phone),
-      normalizeSearchText(contact.whatsapp_group_id),
-    ]
-      .filter(Boolean)
-      .join(" ")
-
-    const matchesSearch =
-      normalizedSearch.length === 0 ||
-      searchableText.includes(normalizedSearch) ||
-      searchTokens.every((token) => searchableText.includes(token)) ||
-      (numericSearch.length > 0 &&
-        (normalizeDigits(contact.phone).includes(numericSearch) ||
-          normalizeDigits(contact.whatsapp_group_id).includes(numericSearch)))
-
-    const matchesType = typeFilter === "all" || contact.type === typeFilter
-    return matchesSearch && matchesType
-  })
-
   const canViewContacts = Boolean(resolvedBotInstanceId) && botQrConfig?.status === "connected"
-  const visibleContacts = canViewContacts ? filtered.filter((contact) => contact.is_active) : []
+  const deferredSearch = useDeferredValue(search)
+  const normalizedSearch = normalizeSearchText(deferredSearch)
+  const numericSearch = normalizeDigits(deferredSearch)
+  const visibleContacts = useMemo(() => {
+    if (!canViewContacts) {
+      return []
+    }
+
+    return (contacts ?? []).filter((contact) => {
+      if (!contact.is_active) {
+        return false
+      }
+
+      const searchTokens = normalizedSearch.split(" ").filter(Boolean)
+      const searchableText = [
+        normalizeSearchText(contact.name),
+        normalizeSearchText(contact.phone),
+        normalizeSearchText(contact.whatsapp_group_id),
+      ]
+        .filter(Boolean)
+        .join(" ")
+
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        searchableText.includes(normalizedSearch) ||
+        searchTokens.every((token) => searchableText.includes(token)) ||
+        (numericSearch.length > 0 &&
+          (normalizeDigits(contact.phone).includes(numericSearch) ||
+            normalizeDigits(contact.whatsapp_group_id).includes(numericSearch)))
+
+      const matchesType = typeFilter === "all" || contact.type === typeFilter
+      return matchesSearch && matchesType
+    })
+  }, [canViewContacts, contacts, normalizedSearch, numericSearch, typeFilter])
+  const renderedContacts = visibleContacts.slice(0, visibleLimit)
+  const hasMoreVisibleContacts = visibleContacts.length > visibleLimit
 
   const savedManualBotQrUrl = (botQrConfig?.manual_qr_code_url ?? "").trim()
   const currentManualBotQrUrl = manualBotQrUrl.trim()
@@ -214,6 +230,23 @@ export default function ContactsPage() {
   const botConnectedAt = botQrConfig?.connected_at
     ? formatDateTimePtBr(botQrConfig.connected_at)
     : null
+
+  useEffect(() => {
+    setVisibleLimit(CONTACTS_PAGE_SIZE)
+  }, [resolvedBotInstanceId, deferredSearch, typeFilter])
+
+  if (!mounted) {
+    return (
+      <div className="flex flex-1 flex-col p-6">
+        <Skeleton className="h-10 w-56" />
+        <div className="mt-6 space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   const botStatusLabel =
     botQrConfig?.status === "connected"
@@ -544,12 +577,15 @@ export default function ContactsPage() {
         throw new Error(data?.error || "Erro ao sincronizar contatos")
       }
 
-      if (contactsKey) {
-        await mutate(contactsKey)
-      }
-
       const inserted = typeof data?.inserted === "number" ? data.inserted : 0
       const updated = typeof data?.updated === "number" ? data.updated : 0
+
+      if (contactsKey) {
+        setVisibleLimit(CONTACTS_PAGE_SIZE)
+        setTimeout(() => {
+          void mutate(contactsKey)
+        }, 0)
+      }
 
       if (inserted === 0 && updated === 0) {
         toast.success("Contatos desse WhatsApp ja estao atualizados.")
@@ -854,7 +890,7 @@ export default function ContactsPage() {
                   </TableHeader>
 
                   <TableBody>
-                    {visibleContacts.map((contact) => (
+                    {renderedContacts.map((contact) => (
                       <TableRow key={contact.id}>
                         <TableCell className="font-medium">{contact.name}</TableCell>
 
@@ -904,6 +940,19 @@ export default function ContactsPage() {
                     ))}
                   </TableBody>
                 </Table>
+
+                {hasMoreVisibleContacts ? (
+                  <div className="border-t p-4 text-center">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setVisibleLimit((currentLimit) => currentLimit + CONTACTS_PAGE_SIZE)
+                      }
+                    >
+                      Carregar mais contatos
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             )}
           </CardContent>
