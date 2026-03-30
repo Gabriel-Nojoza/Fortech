@@ -22,63 +22,6 @@ const contactSchema = z.object({
   is_active: z.boolean().default(true),
 })
 
-const CONTACTS_BATCH_SIZE = 1000
-const CONTACTS_SELECT_FIELDS =
-  "id,name,phone,type,whatsapp_group_id,bot_instance_id,is_active,created_at,updated_at"
-type ContactRecord = {
-  id?: string
-  name?: string | null
-  phone?: string | null
-  type?: string | null
-  whatsapp_group_id?: string | null
-  bot_instance_id?: string | null
-  is_active?: boolean | null
-}
-
-async function fetchAllContactsForCompany(params: {
-  supabase: ReturnType<typeof createClient>
-  companyId: string
-  type?: string | null
-  botInstanceId?: string | null
-}) {
-  const results: ContactRecord[] = []
-  let from = 0
-
-  while (true) {
-    let query = params.supabase
-      .from("contacts")
-      .select(CONTACTS_SELECT_FIELDS)
-      .eq("company_id", params.companyId)
-      .order("created_at", { ascending: false })
-      .range(from, from + CONTACTS_BATCH_SIZE - 1)
-
-    if (params.type && params.type !== "all") {
-      query = query.eq("type", params.type)
-    }
-
-    if (params.botInstanceId) {
-      query = query.eq("bot_instance_id", params.botInstanceId)
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      throw error
-    }
-
-    const batch = (data ?? []) as ContactRecord[]
-    results.push(...batch)
-
-    if (batch.length < CONTACTS_BATCH_SIZE) {
-      break
-    }
-
-    from += CONTACTS_BATCH_SIZE
-  }
-
-  return results
-}
-
 export async function GET(request: NextRequest) {
   const { companyId } = await getRequestContext()
   const supabase = createClient()
@@ -86,16 +29,23 @@ export async function GET(request: NextRequest) {
   const type = searchParams.get("type")
   const botInstanceId = searchParams.get("bot_instance_id")
 
-  try {
-    const data = await fetchAllContactsForCompany({
-      supabase,
-      companyId,
-      type,
-      botInstanceId,
-    })
+  let query = supabase
+    .from("contacts")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
 
-    return NextResponse.json((data ?? []).map((contact) => normalizeContactForResponse(contact)))
-  } catch (error) {
+  if (type && type !== "all") {
+    query = query.eq("type", type)
+  }
+
+   if (botInstanceId) {
+    query = query.eq("bot_instance_id", botInstanceId)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
     if (isMissingBotInstanceIdColumnError(error, "contacts")) {
       return NextResponse.json(
         {
@@ -106,11 +56,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao carregar contatos" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  return NextResponse.json((data ?? []).map((contact) => normalizeContactForResponse(contact)))
 }
 
 export async function POST(request: NextRequest) {

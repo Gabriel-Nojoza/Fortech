@@ -81,20 +81,6 @@ function stripHtmlTags(value: string) {
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
 }
 
-function normalizeSearchText(value: string | null | undefined) {
-  return (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .toLowerCase()
-    .trim()
-}
-
-function normalizeDigits(value: string | null | undefined) {
-  return (value ?? "").replace(/\D/g, "")
-}
-
 async function readApiPayload(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
 
@@ -452,30 +438,14 @@ export default function SchedulesPage() {
   )
 
   const filteredContacts = activeContacts.filter((contact) => {
-    const normalizedSearch = normalizeSearchText(contactSearch)
-    const numericSearch = normalizeDigits(contactSearch)
+    const search = contactSearch.trim().toLowerCase()
+    if (!search) return true
 
-    if (!normalizedSearch) return true
-
-    const searchTokens = normalizedSearch.split(" ").filter(Boolean)
-    const searchableText = [
-      normalizeSearchText(contact.name),
-      normalizeSearchText(contact.phone),
-      normalizeSearchText(contact.whatsapp_group_id),
-    ]
-      .filter(Boolean)
-      .join(" ")
-
-    const matchesText =
-      searchableText.includes(normalizedSearch) ||
-      searchTokens.every((token) => searchableText.includes(token))
-
-    const matchesDigits =
-      numericSearch.length > 0 &&
-      (normalizeDigits(contact.phone).includes(numericSearch) ||
-        normalizeDigits(contact.whatsapp_group_id).includes(numericSearch))
-
-    return matchesText || matchesDigits
+    return (
+      contact.name.toLowerCase().includes(search) ||
+      (contact.phone ?? "").toLowerCase().includes(search) ||
+      (contact.whatsapp_group_id ?? "").toLowerCase().includes(search)
+    )
   })
 
   const botInstanceNameById = useMemo(

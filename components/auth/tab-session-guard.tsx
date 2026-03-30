@@ -4,15 +4,11 @@ import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import {
-  clearFreshLoginRequirement,
   clearSupabaseAuthCookies,
-  registerProtectedTab,
   clearTabSessionMarker,
   hasSupabaseAuthCookies,
   hasTabSessionMarker,
   markTabSessionActive,
-  shouldRequireFreshLoginAfterClose,
-  unregisterProtectedTab,
 } from "@/lib/supabase/tab-session"
 
 const TAB_REVALIDATE_INTERVAL_MS = 5 * 60 * 1000
@@ -61,7 +57,6 @@ export function TabSessionGuard({
 
       try {
         if (!hasSupabaseAuthCookies()) {
-          clearFreshLoginRequirement()
           clearTabSessionMarker()
 
           if (isMounted) {
@@ -69,10 +64,6 @@ export function TabSessionGuard({
           }
 
           return
-        }
-
-        if (!hasTabSessionMarker() && shouldRequireFreshLoginAfterClose()) {
-          throw new Error("Sessao encerrada ao fechar a ultima janela")
         }
 
         const shouldValidateWithSupabase = forceValidate || !hasTabSessionMarker()
@@ -98,7 +89,6 @@ export function TabSessionGuard({
           return
         }
 
-        registerProtectedTab()
         setIsReady(true)
 
         if (refreshOnSuccess && typeof window !== "undefined") {
@@ -114,9 +104,7 @@ export function TabSessionGuard({
         }
 
         clearSupabaseAuthCookies()
-        clearFreshLoginRequirement()
         clearTabSessionMarker()
-        unregisterProtectedTab()
 
         if (!isMounted) {
           return
@@ -149,13 +137,8 @@ export function TabSessionGuard({
       void verifyTabSession({ forceValidate: true })
     }
 
-    const handlePageHide = () => {
-      unregisterProtectedTab()
-    }
-
     document.addEventListener("visibilitychange", handleVisibilityChange)
     window.addEventListener("focus", handleWindowFocus)
-    window.addEventListener("pagehide", handlePageHide)
 
     void verifyTabSession({ forceValidate: true })
 
@@ -163,8 +146,6 @@ export function TabSessionGuard({
       isMounted = false
       document.removeEventListener("visibilitychange", handleVisibilityChange)
       window.removeEventListener("focus", handleWindowFocus)
-      window.removeEventListener("pagehide", handlePageHide)
-      unregisterProtectedTab()
     }
   }, [router])
 

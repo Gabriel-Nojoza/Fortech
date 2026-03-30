@@ -23,10 +23,6 @@ type ExistingContact = {
   is_active: boolean
 }
 
-const CONTACTS_BATCH_SIZE = 1000
-const EXISTING_CONTACTS_SELECT_FIELDS =
-  "id,name,phone,type,whatsapp_group_id,is_active"
-
 function normalizePhone(phone: string | null | undefined) {
   const normalized = typeof phone === "string" ? phone.replace(/\D/g, "") : ""
   return normalized || null
@@ -43,39 +39,6 @@ function chunkArray<T>(items: T[], size: number) {
     chunks.push(items.slice(index, index + size))
   }
   return chunks
-}
-
-async function fetchAllExistingContacts(params: {
-  supabase: ReturnType<typeof createClient>
-  companyId: string
-  botInstanceId: string
-}) {
-  const results: ExistingContact[] = []
-  let from = 0
-
-  while (true) {
-    const { data, error } = await params.supabase
-      .from("contacts")
-      .select(EXISTING_CONTACTS_SELECT_FIELDS)
-      .eq("company_id", params.companyId)
-      .eq("bot_instance_id", params.botInstanceId)
-      .range(from, from + CONTACTS_BATCH_SIZE - 1)
-
-    if (error) {
-      throw error
-    }
-
-    const batch = (data ?? []) as ExistingContact[]
-    results.push(...batch)
-
-    if (batch.length < CONTACTS_BATCH_SIZE) {
-      break
-    }
-
-    from += CONTACTS_BATCH_SIZE
-  }
-
-  return results
 }
 
 export async function POST(request: Request) {
@@ -133,15 +96,13 @@ export async function POST(request: Request) {
       return true
     })
 
-    let existingContacts: ExistingContact[]
+    const { data: existingContacts, error } = await supabase
+      .from("contacts")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("bot_instance_id", botInstance.id)
 
-    try {
-      existingContacts = await fetchAllExistingContacts({
-        supabase,
-        companyId,
-        botInstanceId: botInstance.id,
-      })
-    } catch (error) {
+    if (error) {
       if (isMissingBotInstanceIdColumnError(error, "contacts")) {
         return NextResponse.json(
           {
@@ -152,10 +113,7 @@ export async function POST(request: Request) {
         )
       }
 
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Falha ao carregar contatos existentes" },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     const existing = (existingContacts ?? []).map((contact) =>
