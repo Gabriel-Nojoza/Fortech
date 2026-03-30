@@ -198,7 +198,7 @@ export default function ContactsPage() {
   })
 
   const canViewContacts = Boolean(resolvedBotInstanceId) && botQrConfig?.status === "connected"
-  const visibleContacts = canViewContacts ? filtered : []
+  const visibleContacts = canViewContacts ? filtered.filter((contact) => contact.is_active) : []
 
   const savedManualBotQrUrl = (botQrConfig?.manual_qr_code_url ?? "").trim()
   const currentManualBotQrUrl = manualBotQrUrl.trim()

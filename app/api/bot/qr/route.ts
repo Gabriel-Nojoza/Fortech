@@ -22,6 +22,26 @@ function getMissingMigrationResponse() {
   )
 }
 
+async function deactivateContactsForInstance(params: {
+  supabase: ReturnType<typeof createClient>
+  companyId: string
+  instanceId: string
+}) {
+  const { error } = await params.supabase
+    .from("contacts")
+    .update({
+      is_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("company_id", params.companyId)
+    .eq("bot_instance_id", params.instanceId)
+    .eq("is_active", true)
+
+  if (error) {
+    throw error
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { companyId } = await getRequestContext()
@@ -125,6 +145,14 @@ export async function POST(request: NextRequest) {
         { error: "WhatsApp nao encontrado para esta empresa" },
         { status: 404 }
       )
+    }
+
+    if (action === "switch_phone") {
+      await deactivateContactsForInstance({
+        supabase,
+        companyId,
+        instanceId: instance.id,
+      })
     }
 
     const runtimeState = await controlWhatsAppBot(action, instance.id)
