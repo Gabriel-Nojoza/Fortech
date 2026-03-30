@@ -121,7 +121,9 @@ export function buildContactWritePayload(
 
   if (input.type === "group") {
     const groupId = normalizeString(input.whatsapp_group_id)
-    payload.phone = supportsWhatsappGroupId ? null : groupId
+    // Keep the group JID in `phone` too because some databases still enforce
+    // NOT NULL on this column even when `whatsapp_group_id` exists.
+    payload.phone = groupId
     if (supportsWhatsappGroupId) {
       payload.whatsapp_group_id = groupId
     }
