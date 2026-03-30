@@ -82,6 +82,8 @@ function normalizeSearchText(value: string | null | undefined) {
   return (value ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
     .toLowerCase()
     .trim()
 }
@@ -174,11 +176,19 @@ export default function ContactsPage() {
   const numericSearch = normalizeDigits(search)
 
   const filtered = (contacts ?? []).filter((contact) => {
+    const searchTokens = normalizedSearch.split(" ").filter(Boolean)
+    const searchableText = [
+      normalizeSearchText(contact.name),
+      normalizeSearchText(contact.phone),
+      normalizeSearchText(contact.whatsapp_group_id),
+    ]
+      .filter(Boolean)
+      .join(" ")
+
     const matchesSearch =
       normalizedSearch.length === 0 ||
-      normalizeSearchText(contact.name).includes(normalizedSearch) ||
-      normalizeSearchText(contact.phone).includes(normalizedSearch) ||
-      normalizeSearchText(contact.whatsapp_group_id).includes(normalizedSearch) ||
+      searchableText.includes(normalizedSearch) ||
+      searchTokens.every((token) => searchableText.includes(token)) ||
       (numericSearch.length > 0 &&
         (normalizeDigits(contact.phone).includes(numericSearch) ||
           normalizeDigits(contact.whatsapp_group_id).includes(numericSearch)))

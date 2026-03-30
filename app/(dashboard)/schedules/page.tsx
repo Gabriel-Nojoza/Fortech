@@ -85,6 +85,8 @@ function normalizeSearchText(value: string | null | undefined) {
   return (value ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
     .toLowerCase()
     .trim()
 }
@@ -455,14 +457,25 @@ export default function SchedulesPage() {
 
     if (!normalizedSearch) return true
 
-    return (
-      normalizeSearchText(contact.name).includes(normalizedSearch) ||
-      normalizeSearchText(contact.phone).includes(normalizedSearch) ||
-      normalizeSearchText(contact.whatsapp_group_id).includes(normalizedSearch) ||
-      (numericSearch.length > 0 &&
-        (normalizeDigits(contact.phone).includes(numericSearch) ||
-          normalizeDigits(contact.whatsapp_group_id).includes(numericSearch)))
-    )
+    const searchTokens = normalizedSearch.split(" ").filter(Boolean)
+    const searchableText = [
+      normalizeSearchText(contact.name),
+      normalizeSearchText(contact.phone),
+      normalizeSearchText(contact.whatsapp_group_id),
+    ]
+      .filter(Boolean)
+      .join(" ")
+
+    const matchesText =
+      searchableText.includes(normalizedSearch) ||
+      searchTokens.every((token) => searchableText.includes(token))
+
+    const matchesDigits =
+      numericSearch.length > 0 &&
+      (normalizeDigits(contact.phone).includes(numericSearch) ||
+        normalizeDigits(contact.whatsapp_group_id).includes(numericSearch))
+
+    return matchesText || matchesDigits
   })
 
   const botInstanceNameById = useMemo(
