@@ -10,6 +10,7 @@ export type WhatsAppBotRuntimeStatus =
   | "error"
 
 export type WhatsAppBotRuntimeState = {
+  instance_id?: string | null
   status: WhatsAppBotRuntimeStatus
   qr_code_data_url: string
   updated_at: string | null
@@ -21,6 +22,7 @@ export type WhatsAppBotRuntimeState = {
 }
 
 const DEFAULT_WHATSAPP_BOT_RUNTIME_STATE: WhatsAppBotRuntimeState = {
+  instance_id: null,
   status: "offline",
   qr_code_data_url: "",
   updated_at: null,
@@ -40,6 +42,7 @@ export type WhatsAppBotDirectoryEntry = {
 }
 
 export type WhatsAppBotSendPayload = {
+  instance_id?: string | null
   jid?: string | null
   phone?: string | null
   whatsapp_group_id?: string | null
@@ -54,6 +57,7 @@ export type WhatsAppBotSendPayload = {
 
 export type WhatsAppBotSendResult = {
   ok: boolean
+  instance_id?: string | null
   jid: string
   phone: string | null
   whatsapp_group_id: string | null
@@ -62,26 +66,35 @@ export type WhatsAppBotSendResult = {
   mimetype: string | null
 }
 
-export const WHATSAPP_BOT_RUNTIME_STATE_PATH = path.join(
-  process.cwd(),
-  "services",
-  "whatsapp-bot",
-  "runtime",
-  "qr-state.json"
-)
+const WHATSAPP_BOT_RUNTIME_DIR = path.join(process.cwd(), "services", "whatsapp-bot", "runtime")
 
-export async function readWhatsAppBotRuntimeState(): Promise<WhatsAppBotRuntimeState | null> {
-  const serviceState = await readWhatsAppBotRuntimeStateFromService()
+export const WHATSAPP_BOT_RUNTIME_STATE_PATH = path.join(WHATSAPP_BOT_RUNTIME_DIR, "qr-state.json")
+
+function buildRuntimeStatePath(instanceId?: string | null) {
+  const normalizedInstanceId = normalizeInstanceId(instanceId)
+  if (!normalizedInstanceId || normalizedInstanceId === "default") {
+    return WHATSAPP_BOT_RUNTIME_STATE_PATH
+  }
+
+  return path.join(WHATSAPP_BOT_RUNTIME_DIR, "instances", `${normalizedInstanceId}.json`)
+}
+
+export async function readWhatsAppBotRuntimeState(
+  instanceId?: string | null
+): Promise<WhatsAppBotRuntimeState | null> {
+  const serviceState = await readWhatsAppBotRuntimeStateFromService(instanceId)
   if (serviceState) {
     return serviceState
   }
 
-  return readWhatsAppBotRuntimeStateFromFile()
+  return readWhatsAppBotRuntimeStateFromFile(instanceId)
 }
 
-async function readWhatsAppBotRuntimeStateFromService(): Promise<WhatsAppBotRuntimeState | null> {
+async function readWhatsAppBotRuntimeStateFromService(
+  instanceId?: string | null
+): Promise<WhatsAppBotRuntimeState | null> {
   try {
-    const response = await fetch(`${getWhatsAppBotServiceBaseUrl()}/status`, {
+    const response = await fetch(withInstanceId(`${getWhatsAppBotServiceBaseUrl()}/status`, instanceId), {
       cache: "no-store",
     })
     const raw = await response.text()
@@ -94,12 +107,13 @@ async function readWhatsAppBotRuntimeStateFromService(): Promise<WhatsAppBotRunt
 
       return {
         ...DEFAULT_WHATSAPP_BOT_RUNTIME_STATE,
+        instance_id: normalizeInstanceId(instanceId),
         status: "error",
         last_error: data?.error || `Nao foi possivel consultar o bot (${response.status})`,
       }
     }
 
-    return normalizeWhatsAppBotRuntimeState(data)
+    return normalizeWhatsAppBotRuntimeState(data, instanceId)
   } catch (error) {
     if (!process.env.WHATSAPP_BOT_SERVICE_URL?.trim()) {
       return null
@@ -107,6 +121,7 @@ async function readWhatsAppBotRuntimeStateFromService(): Promise<WhatsAppBotRunt
 
     return {
       ...DEFAULT_WHATSAPP_BOT_RUNTIME_STATE,
+      instance_id: normalizeInstanceId(instanceId),
       status: "error",
       last_error:
         error instanceof Error ? error.message : "Erro ao consultar estado do bot",
@@ -118,10 +133,15 @@ export function getWhatsAppBotServiceBaseUrl() {
   return (process.env.WHATSAPP_BOT_SERVICE_URL || "http://127.0.0.1:3010").trim()
 }
 
-async function readWhatsAppBotRuntimeStateFromFile(): Promise<WhatsAppBotRuntimeState | null> {
+async function readWhatsAppBotRuntimeStateFromFile(
+  instanceId?: string | null
+): Promise<WhatsAppBotRuntimeState | null> {
   try {
-    const raw = await fs.readFile(WHATSAPP_BOT_RUNTIME_STATE_PATH, "utf-8")
-    return normalizeWhatsAppBotRuntimeState(JSON.parse(raw) as Partial<WhatsAppBotRuntimeState>)
+    const raw = await fs.readFile(buildRuntimeStatePath(instanceId), "utf-8")
+    return normalizeWhatsAppBotRuntimeState(
+      JSON.parse(raw) as Partial<WhatsAppBotRuntimeState>,
+      instanceId
+    )
   } catch (error) {
     if (
       error &&
@@ -134,6 +154,7 @@ async function readWhatsAppBotRuntimeStateFromFile(): Promise<WhatsAppBotRuntime
 
     return {
       ...DEFAULT_WHATSAPP_BOT_RUNTIME_STATE,
+      instance_id: normalizeInstanceId(instanceId),
       status: "error",
       last_error: error instanceof Error ? error.message : "Erro ao ler estado do bot",
     }
@@ -141,14 +162,28 @@ async function readWhatsAppBotRuntimeStateFromFile(): Promise<WhatsAppBotRuntime
 }
 
 export async function controlWhatsAppBot(
-  action: "disconnect" | "restart" | "switch_phone"
+  action: "disconnect" | "restart" | "switch_phone",
+  instanceId?: string | null
 ): Promise<WhatsAppBotRuntimeState> {
-  const response = await fetch(`${getWhatsAppBotServiceBaseUrl()}/control`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action }),
-    cache: "no-store",
-  })
+  let response: Response
+
+  try {
+    response = await fetch(`${getWhatsAppBotServiceBaseUrl()}/control`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        instance_id: normalizeInstanceId(instanceId),
+      }),
+      cache: "no-store",
+    })
+  } catch (error) {
+    throw new Error(
+      error instanceof Error && error.message
+        ? `Nao foi possivel conectar ao servico do bot em ${getWhatsAppBotServiceBaseUrl()}. Inicie o bot local com 'pnpm dev:all' ou 'pnpm bot:whatsapp'. Detalhe: ${error.message}`
+        : `Nao foi possivel conectar ao servico do bot em ${getWhatsAppBotServiceBaseUrl()}. Inicie o bot local com 'pnpm dev:all' ou 'pnpm bot:whatsapp'.`
+    )
+  }
 
   const data = (await response.json().catch(() => null)) as
     | (Partial<WhatsAppBotRuntimeState> & { error?: string })
@@ -158,23 +193,18 @@ export async function controlWhatsAppBot(
     throw new Error(data?.error || "Nao foi possivel controlar o bot")
   }
 
-  return {
-    status: isValidStatus(data?.status) ? data.status : "offline",
-    qr_code_data_url:
-      typeof data?.qr_code_data_url === "string" ? data.qr_code_data_url : "",
-    updated_at: typeof data?.updated_at === "string" ? data.updated_at : null,
-    connected_at: typeof data?.connected_at === "string" ? data.connected_at : null,
-    last_error: typeof data?.last_error === "string" ? data.last_error : null,
-    phone_number: typeof data?.phone_number === "string" ? data.phone_number : null,
-    display_name: typeof data?.display_name === "string" ? data.display_name : null,
-    jid: typeof data?.jid === "string" ? data.jid : null,
-  }
+  return normalizeWhatsAppBotRuntimeState(data, instanceId)
 }
 
-export async function fetchWhatsAppBotDirectory(): Promise<WhatsAppBotDirectoryEntry[]> {
-  const response = await fetch(`${getWhatsAppBotServiceBaseUrl()}/directory`, {
-    cache: "no-store",
-  })
+export async function fetchWhatsAppBotDirectory(
+  instanceId?: string | null
+): Promise<WhatsAppBotDirectoryEntry[]> {
+  const response = await fetch(
+    withInstanceId(`${getWhatsAppBotServiceBaseUrl()}/directory`, instanceId),
+    {
+      cache: "no-store",
+    }
+  )
 
   const raw = await response.text()
   const data = (() => {
@@ -204,9 +234,7 @@ export async function fetchWhatsAppBotDirectory(): Promise<WhatsAppBotDirectoryE
     ? data.items.flatMap((item) => {
         const jid = typeof item?.jid === "string" ? item.jid.trim() : ""
         const type =
-          item?.type === "group" || item?.type === "individual"
-            ? item.type
-            : null
+          item?.type === "group" || item?.type === "individual" ? item.type : null
         const name = typeof item?.name === "string" ? item.name.trim() : ""
 
         if (!jid || !type || !name) {
@@ -232,10 +260,14 @@ export async function fetchWhatsAppBotDirectory(): Promise<WhatsAppBotDirectoryE
 export async function sendWhatsAppBotMessage(
   payload: WhatsAppBotSendPayload
 ): Promise<WhatsAppBotSendResult> {
+  const normalizedInstanceId = normalizeInstanceId(payload.instance_id)
   const response = await fetch(`${getWhatsAppBotServiceBaseUrl()}/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...payload,
+      instance_id: normalizedInstanceId,
+    }),
     cache: "no-store",
   })
 
@@ -262,6 +294,7 @@ export async function sendWhatsAppBotMessage(
 
   return {
     ok: data?.ok === true,
+    instance_id: normalizedInstanceId,
     jid: typeof data?.jid === "string" ? data.jid : "",
     phone: typeof data?.phone === "string" ? data.phone : null,
     whatsapp_group_id:
@@ -284,9 +317,11 @@ function isValidStatus(value: unknown): value is WhatsAppBotRuntimeStatus {
 }
 
 function normalizeWhatsAppBotRuntimeState(
-  parsed: Partial<WhatsAppBotRuntimeState> | null | undefined
+  parsed: Partial<WhatsAppBotRuntimeState> | null | undefined,
+  instanceId?: string | null
 ): WhatsAppBotRuntimeState {
   return {
+    instance_id: normalizeInstanceId(parsed?.instance_id ?? instanceId),
     status: isValidStatus(parsed?.status) ? parsed.status : "offline",
     qr_code_data_url:
       typeof parsed?.qr_code_data_url === "string" ? parsed.qr_code_data_url : "",
@@ -307,4 +342,19 @@ function parseWhatsAppBotRuntimeStateResponse(
   } catch {
     return null
   }
+}
+
+function normalizeInstanceId(instanceId?: string | null) {
+  return typeof instanceId === "string" && instanceId.trim() ? instanceId.trim() : null
+}
+
+function withInstanceId(url: string, instanceId?: string | null) {
+  const normalizedInstanceId = normalizeInstanceId(instanceId)
+  if (!normalizedInstanceId) {
+    return url
+  }
+
+  const nextUrl = new URL(url)
+  nextUrl.searchParams.set("instance_id", normalizedInstanceId)
+  return nextUrl.toString()
 }

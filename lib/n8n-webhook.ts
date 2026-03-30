@@ -30,12 +30,17 @@ export function buildN8nCallbackHeaders(callbackSecret: string) {
   }
 }
 
-export function buildN8nEndpointUrls(appUrl: string) {
+export function buildN8nEndpointUrls(appUrl: string, botInstanceId?: string | null) {
   const normalizedAppUrl = appUrl.trim().replace(/\/+$/, "")
+  const botSendUrl = new URL(`${normalizedAppUrl}/api/bot/send`)
+
+  if (typeof botInstanceId === "string" && botInstanceId.trim()) {
+    botSendUrl.searchParams.set("instance_id", botInstanceId.trim())
+  }
 
   return {
     callbackUrl: `${normalizedAppUrl}/api/webhook/n8n-callback`,
-    botSendUrl: `${normalizedAppUrl}/api/bot/send`,
+    botSendUrl: botSendUrl.toString(),
   }
 }
 

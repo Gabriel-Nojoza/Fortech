@@ -13,6 +13,11 @@ import {
   resolveScheduleReportConfigs,
 } from "@/lib/schedule-report-configs"
 import { normalizeSchedulePageNames } from "@/lib/schedule-pages"
+import {
+  getCompanyWhatsAppBotInstance,
+  isMissingBotInstanceIdColumnError,
+  isMissingWhatsAppBotInstancesTableError,
+} from "@/lib/whatsapp-bot-instances"
 
 function isMissingSchedulesUpdatedAtColumn(message?: string | null) {
   return (
@@ -98,6 +103,7 @@ function validateScheduleReports(
 const baseScheduleSchema = z.object({
   name: z.string().min(1),
   report_id: z.string().uuid().optional(),
+  bot_instance_id: z.string().uuid().nullable().optional(),
   report_configs: reportConfigsSchema,
   pbi_page_name: nullableTrimmedString,
   pbi_page_names: pageNamesSchema,
@@ -283,11 +289,71 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  const selectedBotInstance = await getCompanyWhatsAppBotInstance(
+    supabase,
+    companyId,
+    parsed.data.bot_instance_id
+  ).catch((error) => {
+    if (isMissingWhatsAppBotInstancesTableError(error)) {
+      throw new Error(
+        "O banco ainda nao suporta varios WhatsApps por empresa. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase."
+      )
+    }
+
+    throw error
+  })
+
+  if (!selectedBotInstance) {
+    return NextResponse.json(
+      {
+        error: {
+          bot_instance_id: ["Selecione um WhatsApp valido para esta rotina."],
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (normalizedContactIds.length > 0) {
+    const { data: linkedContacts, error: contactsError } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("bot_instance_id", selectedBotInstance.id)
+      .in("id", normalizedContactIds)
+
+    if (contactsError) {
+      if (isMissingBotInstanceIdColumnError(contactsError, "contacts")) {
+        return NextResponse.json(
+          {
+            error:
+              "O banco ainda nao suporta contatos por numero de WhatsApp. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase.",
+          },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({ error: contactsError.message }, { status: 500 })
+    }
+
+    if ((linkedContacts ?? []).length !== normalizedContactIds.length) {
+      return NextResponse.json(
+        {
+          error: {
+            contacts: ["Selecione apenas contatos do WhatsApp escolhido."],
+          },
+        },
+        { status: 400 }
+      )
+    }
+  }
+
   const { data: schedule, error } = await supabase
     .from("schedules")
     .insert({
       ...scheduleData,
       report_id: primaryReportConfig.report_id,
+      bot_instance_id: selectedBotInstance.id,
       company_id: companyId,
       pbi_page_name: primaryReportConfig.pbi_page_name,
       pbi_page_names:
@@ -300,6 +366,16 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) {
+    if (isMissingBotInstanceIdColumnError(error, "schedules")) {
+      return NextResponse.json(
+        {
+          error:
+            "O banco ainda nao suporta rotinas por numero de WhatsApp. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase.",
+        },
+        { status: 500 }
+      )
+    }
+
     if (isMissingScheduleReportConfigsColumn(error.message)) {
       return NextResponse.json(
         {
@@ -367,12 +443,22 @@ export async function PUT(request: NextRequest) {
 
   const { data: existingSchedule, error: existingScheduleError } = await supabase
     .from("schedules")
-    .select("id, export_format, report_id, report_configs, pbi_page_name, pbi_page_names")
+    .select("id, export_format, report_id, report_configs, pbi_page_name, pbi_page_names, bot_instance_id")
     .eq("company_id", companyId)
     .eq("id", id)
     .maybeSingle()
 
   if (existingScheduleError) {
+    if (isMissingBotInstanceIdColumnError(existingScheduleError, "schedules")) {
+      return NextResponse.json(
+        {
+          error:
+            "O banco ainda nao suporta rotinas por numero de WhatsApp. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase.",
+        },
+        { status: 500 }
+      )
+    }
+
     if (isMissingScheduleReportConfigsColumn(existingScheduleError.message)) {
       return NextResponse.json(
         {
@@ -405,6 +491,19 @@ export async function PUT(request: NextRequest) {
       })
     : resolveScheduleReportConfigs(existingSchedule)
   const effectiveExportFormat = parsed.data.export_format ?? existingSchedule.export_format
+  const selectedBotInstance = await getCompanyWhatsAppBotInstance(
+    supabase,
+    companyId,
+    parsed.data.bot_instance_id ?? existingSchedule.bot_instance_id
+  ).catch((error) => {
+    if (isMissingWhatsAppBotInstancesTableError(error)) {
+      throw new Error(
+        "O banco ainda nao suporta varios WhatsApps por empresa. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase."
+      )
+    }
+
+    throw error
+  })
 
   if (
     reportConfigs.length === 0
@@ -436,9 +535,56 @@ export async function PUT(request: NextRequest) {
     )
   }
 
+  if (!selectedBotInstance) {
+    return NextResponse.json(
+      {
+        error: {
+          bot_instance_id: ["Selecione um WhatsApp valido para esta rotina."],
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (normalizedContactIds !== undefined && normalizedContactIds.length > 0) {
+    const { data: linkedContacts, error: contactsError } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("bot_instance_id", selectedBotInstance.id)
+      .in("id", normalizedContactIds)
+
+    if (contactsError) {
+      if (isMissingBotInstanceIdColumnError(contactsError, "contacts")) {
+        return NextResponse.json(
+          {
+            error:
+              "O banco ainda nao suporta contatos por numero de WhatsApp. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase.",
+          },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({ error: contactsError.message }, { status: 500 })
+    }
+
+    if ((linkedContacts ?? []).length !== normalizedContactIds.length) {
+      return NextResponse.json(
+        {
+          error: {
+            contacts: ["Selecione apenas contatos do WhatsApp escolhido."],
+          },
+        },
+        { status: 400 }
+      )
+    }
+  }
+
   const scheduleUpdates = Object.fromEntries(
     Object.entries(updates).filter(([, value]) => value !== undefined)
   )
+
+  scheduleUpdates.bot_instance_id = selectedBotInstance.id
 
   if (isUpdatingReportSelection) {
     const primaryReportConfig = getPrimaryScheduleReportConfig(reportConfigs)
@@ -471,6 +617,16 @@ export async function PUT(request: NextRequest) {
   }
 
   if (result.error) {
+    if (isMissingBotInstanceIdColumnError(result.error, "schedules")) {
+      return NextResponse.json(
+        {
+          error:
+            "O banco ainda nao suporta rotinas por numero de WhatsApp. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase.",
+        },
+        { status: 500 }
+      )
+    }
+
     if (isMissingScheduleReportConfigsColumn(result.error.message)) {
       return NextResponse.json(
         {

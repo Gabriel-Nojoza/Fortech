@@ -8,6 +8,11 @@ import {
   getEffectiveWhatsAppGroupId,
   normalizeContactForResponse,
 } from "@/lib/contact-compat"
+import {
+  getCompanyWhatsAppBotInstance,
+  isMissingBotInstanceIdColumnError,
+  isMissingWhatsAppBotInstancesTableError,
+} from "@/lib/whatsapp-bot-instances"
 
 type ExistingContact = {
   id: string
@@ -36,11 +41,39 @@ function chunkArray<T>(items: T[], size: number) {
   return chunks
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const { companyId } = await getRequestContext()
     const supabase = createClient()
-    const directory = await fetchWhatsAppBotDirectory()
+    const body = await request.json().catch(() => null)
+    const botInstanceId =
+      body && typeof body === "object" && "bot_instance_id" in body
+        ? typeof (body as { bot_instance_id?: unknown }).bot_instance_id === "string"
+          ? (body as { bot_instance_id: string }).bot_instance_id.trim()
+          : null
+        : null
+    const botInstance = await getCompanyWhatsAppBotInstance(
+      supabase,
+      companyId,
+      botInstanceId
+    ).catch((error) => {
+      if (isMissingWhatsAppBotInstancesTableError(error)) {
+        throw new Error(
+          "O banco ainda nao suporta varios WhatsApps por empresa. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase."
+        )
+      }
+
+      throw error
+    })
+
+    if (!botInstance) {
+      return NextResponse.json(
+        { error: "WhatsApp selecionado nao encontrado para esta empresa" },
+        { status: 404 }
+      )
+    }
+
+    const directory = await fetchWhatsAppBotDirectory(botInstance.id)
     const supportsWhatsappGroupId = await contactsSupportWhatsappGroupId(supabase)
 
     const seenDirectoryKeys = new Set<string>()
@@ -67,8 +100,19 @@ export async function POST() {
       .from("contacts")
       .select("*")
       .eq("company_id", companyId)
+      .eq("bot_instance_id", botInstance.id)
 
     if (error) {
+      if (isMissingBotInstanceIdColumnError(error, "contacts")) {
+        return NextResponse.json(
+          {
+            error:
+              "O banco ainda nao suporta contatos por numero de WhatsApp. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase.",
+          },
+          { status: 500 }
+        )
+      }
+
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -105,6 +149,7 @@ export async function POST() {
             buildContactWritePayload(
               {
                 company_id: companyId,
+                bot_instance_id: botInstance.id,
                 name: item.name,
                 phone: null,
                 type: "group",
@@ -131,6 +176,7 @@ export async function POST() {
                 phone: null,
                 type: "group",
                 whatsapp_group_id: groupId,
+                bot_instance_id: botInstance.id,
                 is_active: true,
                 updated_at: new Date().toISOString(),
               },
@@ -153,6 +199,7 @@ export async function POST() {
           buildContactWritePayload(
             {
               company_id: companyId,
+              bot_instance_id: botInstance.id,
               name: item.name,
               phone: formatPhoneForStorage(normalizedPhone),
               type: "individual",
@@ -180,6 +227,7 @@ export async function POST() {
               phone: formatPhoneForStorage(normalizedPhone),
               type: "individual",
               whatsapp_group_id: null,
+              bot_instance_id: botInstance.id,
               is_active: true,
               updated_at: new Date().toISOString(),
             },
@@ -223,6 +271,16 @@ export async function POST() {
         .eq("id", update.id)
 
       if (updateError) {
+        if (isMissingBotInstanceIdColumnError(updateError, "contacts")) {
+          return NextResponse.json(
+            {
+              error:
+                "O banco ainda nao suporta contatos por numero de WhatsApp. Execute a migration 20260328_whatsapp_bot_instances.sql no Supabase.",
+            },
+            { status: 500 }
+          )
+        }
+
         failedItems.push({ key: `update:${update.id}`, error: updateError.message })
       }
     }

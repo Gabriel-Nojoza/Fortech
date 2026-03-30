@@ -19,4 +19,5 @@ tsconfig.tsbuildinfo
 services/whatsapp-bot/.env
 services/whatsapp-bot/.env.*
 services/whatsapp-bot/auth/
+services/whatsapp-bot/auth-instances/
 services/whatsapp-bot/runtime/

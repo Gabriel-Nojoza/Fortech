@@ -72,6 +72,7 @@ import type {
   Report,
   Contact,
   ScheduleExportFormat,
+  WhatsAppBotInstance,
 } from "@/lib/types"
 import { describeCronValue, isValidCronValue } from "@/lib/schedule-cron"
 import { resolveScheduleReportConfigs } from "@/lib/schedule-report-configs"
@@ -316,17 +317,11 @@ export default function SchedulesPage() {
     ScheduleListItem[]
   >("/api/schedules", fetcher)
   const { data: reports } = useSWR<Report[]>("/api/reports", fetcher)
-  const { data: contacts } = useSWR<Contact[]>("/api/contacts", fetcher)
-  const { data: botQrConfig } = useSWR<BotQrStatus>("/api/bot/qr", fetcher)
+  const { data: botInstances } = useSWR<WhatsAppBotInstance[]>("/api/bot/instances", fetcher)
 
   const scheduleList = Array.isArray(schedules) ? schedules : []
   const reportList = Array.isArray(reports) ? reports : []
-  const contactList = Array.isArray(contacts) ? contacts : []
-
-  const canShowContacts = botQrConfig?.status === "connected"
-  const activeContacts = canShowContacts
-    ? contactList.filter((contact) => contact.is_active)
-    : []
+  const instanceList = Array.isArray(botInstances) ? botInstances : []
 
   const reportOptions = useMemo<ScheduleReportOption[]>(
     () =>
@@ -345,6 +340,30 @@ export default function SchedulesPage() {
   const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [syncingBotContacts, setSyncingBotContacts] = useState(false)
+  const [selectedBotInstanceId, setSelectedBotInstanceId] = useState("")
+  const [formBotInstanceId, setFormBotInstanceId] = useState("")
+
+  const activeBotInstanceId = dialogOpen
+    ? formBotInstanceId || selectedBotInstanceId
+    : selectedBotInstanceId
+  const contactsKey = activeBotInstanceId
+    ? `/api/contacts?bot_instance_id=${activeBotInstanceId}`
+    : null
+  const botQrKey = activeBotInstanceId
+    ? `/api/bot/qr?instance_id=${activeBotInstanceId}`
+    : null
+  const { data: contacts, isLoading: isLoadingContacts } = useSWR<Contact[]>(
+    contactsKey,
+    fetcher
+  )
+  const { data: botQrConfig, isLoading: isLoadingBotQr } = useSWR<BotQrStatus>(
+    botQrKey,
+    fetcher
+  )
+  const contactList = Array.isArray(contacts) ? contacts : []
+  const canShowContacts = Boolean(activeBotInstanceId)
+  const canSyncContacts = Boolean(activeBotInstanceId) && botQrConfig?.status === "connected"
+  const activeContacts = canShowContacts ? contactList.filter((contact) => contact.is_active) : []
 
   const [formName, setFormName] = useState("")
   const [formReportSelections, setFormReportSelections] = useState<FormReportSelection[]>([
@@ -372,6 +391,40 @@ export default function SchedulesPage() {
 
   const formatOptions = POWERBI_FORMATS
 
+  useEffect(() => {
+    if (!selectedBotInstanceId && instanceList.length > 0) {
+      setSelectedBotInstanceId(
+        instanceList.find((instance) => instance.is_default)?.id ?? instanceList[0].id
+      )
+    }
+  }, [instanceList, selectedBotInstanceId])
+
+  useEffect(() => {
+    if (!dialogOpen || formBotInstanceId || instanceList.length === 0) {
+      return
+    }
+
+    setFormBotInstanceId(
+      instanceList.find((instance) => instance.is_default)?.id ?? instanceList[0].id
+    )
+  }, [dialogOpen, formBotInstanceId, instanceList])
+
+  useEffect(() => {
+    if (!dialogOpen || !formBotInstanceId) {
+      return
+    }
+
+    setContactSearch("")
+
+    if (contactsKey) {
+      void mutate(contactsKey)
+    }
+
+    if (botQrKey) {
+      void mutate(botQrKey)
+    }
+  }, [botQrKey, contactsKey, dialogOpen, formBotInstanceId])
+
   const normalizedFormReportSelections = useMemo(
     () =>
       formReportSelections
@@ -394,6 +447,11 @@ export default function SchedulesPage() {
       (contact.whatsapp_group_id ?? "").toLowerCase().includes(search)
     )
   })
+
+  const botInstanceNameById = useMemo(
+    () => Object.fromEntries(instanceList.map((instance) => [instance.id, instance.name])),
+    [instanceList]
+  )
 
   const selectedContacts = useMemo(() => {
     const contactMap = new Map(contactList.map((contact) => [contact.id, contact] as const))
@@ -419,6 +477,9 @@ export default function SchedulesPage() {
     setEditSchedule(null)
     setDuplicateSourceId(null)
     setFormName("")
+    setFormBotInstanceId(
+      instanceList.find((instance) => instance.is_default)?.id ?? instanceList[0]?.id ?? ""
+    )
     setFormReportSelections([createFormReportSelection()])
     setFormCron(DEFAULT_SCHEDULE_CRON)
     setFormFormat("PDF")
@@ -444,7 +505,7 @@ export default function SchedulesPage() {
     resetScheduleForm()
     setDialogOpen(true)
 
-    if (canShowContacts) {
+    if (selectedBotInstanceId && canSyncContacts) {
       void syncContactsFromBot(true)
     }
   }
@@ -466,6 +527,12 @@ export default function SchedulesPage() {
             scheduleList.map((item) => item.name)
           )
         : schedule.name
+    )
+    setFormBotInstanceId(
+      schedule.bot_instance_id ??
+        instanceList.find((instance) => instance.is_default)?.id ??
+        instanceList[0]?.id ??
+        ""
     )
     setFormReportSelections(
       scheduleReportConfigs.length > 0
@@ -490,7 +557,7 @@ export default function SchedulesPage() {
     setLoadingReportPagesBySelection({})
     setDialogOpen(true)
 
-    if (canShowContacts) {
+    if ((schedule.bot_instance_id ?? selectedBotInstanceId) && canSyncContacts) {
       void syncContactsFromBot(true)
     }
   }
@@ -512,6 +579,9 @@ export default function SchedulesPage() {
     )
 
     if (!formName.trim()) errors.name = "Nome obrigatorio"
+    if (!formBotInstanceId) {
+      errors.bot_instance_id = "Selecione qual WhatsApp vai enviar essa rotina"
+    }
     if (normalizedFormReportSelections.length === 0) {
       errors.reportConfigs = "Selecione ao menos 1 relatorio"
     } else if (hasDuplicateReports) {
@@ -529,9 +599,8 @@ export default function SchedulesPage() {
         "Selecione varios relatorios ou varias paginas apenas quando o formato for PDF"
     }
 
-    if (!canShowContacts && formContactIds.length === 0) {
-      errors.contacts =
-        "Conecte o WhatsApp pela leitura do QR Code para liberar os contatos"
+    if (!formBotInstanceId) {
+      errors.contacts = "Selecione primeiro o WhatsApp de envio"
     } else if (formContactIds.length === 0) {
       errors.contacts = "Selecione ao menos 1 contato"
     }
@@ -560,6 +629,7 @@ export default function SchedulesPage() {
       const payload = {
         ...(editingScheduleId ? { id: editingScheduleId } : {}),
         name: formName.trim(),
+        bot_instance_id: formBotInstanceId || null,
         report_id: primaryReportSelection.reportId,
         pbi_page_name: primaryReportSelection.pageNames[0] ?? null,
         pbi_page_names: primaryReportSelection.pageNames,
@@ -820,7 +890,14 @@ export default function SchedulesPage() {
   }
 
   async function syncContactsFromBot(silent = false) {
-    if (!canShowContacts) {
+    if (!formBotInstanceId) {
+      if (!silent) {
+        toast.error("Selecione o WhatsApp que sera usado na rotina antes de sincronizar.")
+      }
+      return
+    }
+
+    if (!canSyncContacts) {
       if (!silent) {
         toast.error(
           "Conecte o WhatsApp pela leitura do QR Code antes de sincronizar contatos."
@@ -834,6 +911,8 @@ export default function SchedulesPage() {
     try {
       const { response, data } = await fetchApi("/api/contacts/sync-bot", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot_instance_id: formBotInstanceId }),
       })
 
       if (!response.ok) {
@@ -842,7 +921,9 @@ export default function SchedulesPage() {
         )
       }
 
-      await mutate("/api/contacts")
+      if (contactsKey) {
+        await mutate(contactsKey)
+      }
 
       if (!silent) {
         const inserted =
@@ -1104,6 +1185,50 @@ export default function SchedulesPage() {
               )}
             </div>
 
+            <div className="flex flex-col gap-2">
+              <Label>WhatsApp de Envio</Label>
+              <Select
+                value={formBotInstanceId}
+                onValueChange={(value) => {
+                  setFormBotInstanceId(value)
+                  setFormContactIds([])
+                  setContactSearch("")
+                  setFormErrors((prev) => ({
+                    ...prev,
+                    bot_instance_id: "",
+                    contacts: "",
+                  }))
+                }}
+              >
+                <SelectTrigger className={formErrors.bot_instance_id ? "border-destructive" : ""}>
+                  <SelectValue placeholder="Selecionar numero de WhatsApp" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectLabel>WhatsApps conectados</SelectLabel>
+                    {instanceList.map((instance) => (
+                      <SelectItem key={instance.id} value={instance.id}>
+                        {instance.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+
+              {formErrors.bot_instance_id ? (
+                <p className="text-xs text-destructive">{formErrors.bot_instance_id}</p>
+              ) : formBotInstanceId ? (
+                <p className="text-xs text-muted-foreground">
+                  Os contatos, grupos e o envio desta rotina vao usar o WhatsApp{" "}
+                  {botInstanceNameById[formBotInstanceId] || "selecionado"}.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Escolha qual numero vai sincronizar os contatos e enviar essa rotina.
+                </p>
+              )}
+            </div>
+
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between gap-3">
                 <Label>Relatorios</Label>
@@ -1357,7 +1482,7 @@ export default function SchedulesPage() {
                   size="sm"
                   className="h-8 gap-1.5 text-xs"
                   onClick={() => void syncContactsFromBot(false)}
-                  disabled={syncingBotContacts || !canShowContacts}
+                  disabled={syncingBotContacts || !canSyncContacts}
                 >
                   {syncingBotContacts ? (
                     <Loader2 className="size-3.5 animate-spin" />
@@ -1375,8 +1500,13 @@ export default function SchedulesPage() {
               >
                 {!canShowContacts ? (
                   <p className="text-sm text-muted-foreground">
-                    Os contatos so aparecem depois que o WhatsApp for conectado pela
-                    leitura do QR Code.
+                    {formBotInstanceId
+                      ? "Selecione este WhatsApp para ver os contatos ja salvos. Para atualizar a lista, conecte o numero e use 'Sincronizar do bot'."
+                      : "Selecione primeiro qual WhatsApp vai enviar essa rotina."}
+                  </p>
+                ) : (isLoadingContacts || isLoadingBotQr) && activeContacts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Carregando contatos do WhatsApp selecionado...
                   </p>
                 ) : syncingBotContacts && activeContacts.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
@@ -1421,7 +1551,9 @@ export default function SchedulesPage() {
 
                     {filteredContacts.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
-                        Nenhum contato ou grupo encontrado para essa pesquisa.
+                        {activeContacts.length === 0
+                          ? "Nenhum contato salvo para esse WhatsApp ainda. Conecte o numero e clique em 'Sincronizar do bot' para importar os contatos e grupos."
+                          : "Nenhum contato ou grupo encontrado para essa pesquisa."}
                       </p>
                     ) : (
                       <div className="flex flex-col gap-2">
@@ -1465,6 +1597,7 @@ export default function SchedulesPage() {
               disabled={
                 saving ||
                 !formName ||
+                !formBotInstanceId ||
                 normalizedFormReportSelections.length === 0 ||
                 !formCron ||
                 (!canShowContacts && formContactIds.length === 0)

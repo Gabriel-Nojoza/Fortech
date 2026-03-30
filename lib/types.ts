@@ -28,9 +28,28 @@ export interface Contact {
   phone: string | null
   type: "individual" | "group"
   whatsapp_group_id: string | null
+  bot_instance_id?: string | null
   is_active: boolean
   created_at: string
   updated_at: string
+}
+
+export interface WhatsAppBotInstance {
+  id: string
+  name: string
+  manual_qr_code_url?: string | null
+  qr_code_url: string
+  runtime_qr_code_url: string
+  source: "runtime" | "manual" | "none"
+  status: "starting" | "awaiting_qr" | "connected" | "reconnecting" | "offline" | "error"
+  updated_at: string | null
+  connected_at: string | null
+  last_error: string | null
+  phone_number: string | null
+  display_name: string | null
+  jid: string | null
+  is_default?: boolean | null
+  created_at?: string | null
 }
 
 export type ScheduleExportFormat =
@@ -53,6 +72,7 @@ export interface Schedule {
   id: string
   name: string
   report_id: string
+  bot_instance_id?: string | null
   report_configs?: ScheduleReportConfig[] | null
   pbi_page_name?: string | null
   pbi_page_names?: string[] | null

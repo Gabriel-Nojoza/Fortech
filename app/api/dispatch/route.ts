@@ -135,12 +135,18 @@ export async function POST(request: NextRequest) {
     .eq("schedule_id", schedule_id)
 
   const contactIds = (scContacts ?? []).map((sc) => sc.contact_id)
-  const { data: contacts } = await supabase
+  let contactsQuery = supabase
     .from("contacts")
     .select("*")
     .eq("company_id", companyId)
     .in("id", contactIds)
     .eq("is_active", true)
+
+  if (typeof schedule.bot_instance_id === "string" && schedule.bot_instance_id.trim()) {
+    contactsQuery = contactsQuery.eq("bot_instance_id", schedule.bot_instance_id.trim())
+  }
+
+  const { data: contacts } = await contactsQuery
 
   const normalizedContacts = (contacts ?? []).map((contact) =>
     normalizeContactForResponse(contact as Record<string, unknown>)
@@ -208,6 +214,7 @@ export async function POST(request: NextRequest) {
         message: schedule.message_template ?? `Segue o relatorio ${automation.name}.`,
         contact_ids: contactIds,
         schedule_id: schedule.id,
+        bot_instance_id: schedule.bot_instance_id ?? null,
       }),
     })
 
@@ -290,7 +297,7 @@ export async function POST(request: NextRequest) {
       : []
 
   const logs =
-    directPdfTargets.length > 0
+      directPdfTargets.length > 0
       ? normalizedContacts.flatMap((contact) =>
           directPdfTargets.map(({ report }) => ({
             company_id: companyId,
@@ -345,13 +352,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const appUrl = getRequestOrigin(request)
-    const { callbackUrl, botSendUrl } = buildN8nEndpointUrls(appUrl)
+    const { callbackUrl, botSendUrl } = buildN8nEndpointUrls(appUrl, schedule.bot_instance_id)
     const reportExportUrl = `${appUrl.trim().replace(/\/+$/, "")}/api/reports/export`
     const callbackHeaders = buildN8nCallbackHeaders(callbackSecret)
-    const dispatchTargets = buildDispatchTargets(
-      normalizedContacts,
-      (insertedLogs ?? []).map((log) => log.id)
-    )
+      const dispatchTargets = buildDispatchTargets(
+        normalizedContacts,
+        (insertedLogs ?? []).map((log) => log.id)
+      )
 
     if (directPdfTargets.length > 0) {
       const pbiToken = await getAccessToken(companyId)
@@ -395,6 +402,7 @@ export async function POST(request: NextRequest) {
               })
 
               await sendWhatsAppBotMessage({
+                instance_id: schedule.bot_instance_id ?? null,
                 phone: contact.phone,
                 whatsapp_group_id: contact.whatsapp_group_id,
                 message: pageIndex === 0 ? reportMessage : null,
@@ -419,6 +427,7 @@ export async function POST(request: NextRequest) {
             })
 
             await sendWhatsAppBotMessage({
+              instance_id: schedule.bot_instance_id ?? null,
               phone: contact.phone,
               whatsapp_group_id: contact.whatsapp_group_id,
               message: reportMessage,
@@ -505,6 +514,7 @@ export async function POST(request: NextRequest) {
           type: contact.type,
           whatsapp_group_id: contact.whatsapp_group_id,
         })),
+        bot_instance_id: schedule.bot_instance_id ?? null,
         message,
         dispatch_log_ids: (insertedLogs ?? []).map((log) => log.id),
         dispatch_targets: dispatchTargets,

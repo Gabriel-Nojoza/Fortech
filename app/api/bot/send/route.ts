@@ -14,6 +14,7 @@ function normalizeSendPayload(body: unknown): WhatsAppBotSendPayload {
   const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {}
 
   return {
+    instance_id: toOptionalString(record.instance_id),
     jid: toOptionalString(record.jid),
     phone: toOptionalString(record.phone),
     whatsapp_group_id: toOptionalString(record.whatsapp_group_id),
@@ -50,6 +51,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const payload = normalizeSendPayload(body)
+    const queryInstanceId = toOptionalString(new URL(request.url).searchParams.get("instance_id"))
+    if (!payload.instance_id && queryInstanceId) {
+      payload.instance_id = queryInstanceId
+    }
     const metadata = normalizeDispatchMetadata(body)
     dispatchLogId = metadata.dispatchLogId
     n8nExecutionId = metadata.n8nExecutionId

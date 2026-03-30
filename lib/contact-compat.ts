@@ -6,11 +6,13 @@ type ContactLike = {
   phone?: string | null
   type?: string | null
   whatsapp_group_id?: string | null
+  bot_instance_id?: string | null
   is_active?: boolean | null
 }
 
 type ContactWriteInput = {
   company_id?: string
+  bot_instance_id?: string | null
   name: string
   phone?: string | null
   type: "individual" | "group"
@@ -107,6 +109,10 @@ export function buildContactWritePayload(
 
   if (input.company_id) {
     payload.company_id = input.company_id
+  }
+
+  if (input.bot_instance_id !== undefined) {
+    payload.bot_instance_id = normalizeString(input.bot_instance_id)
   }
 
   if (input.updated_at) {

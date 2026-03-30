@@ -13,6 +13,7 @@ import {
   QrCode,
   RotateCcw,
   PlugZap,
+  Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -47,6 +48,8 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
+  SelectLabel,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -62,7 +65,7 @@ import {
 } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import type { Contact } from "@/lib/types"
+import type { Contact, WhatsAppBotInstance } from "@/lib/types"
 
 const fetcher = async (url: string) => {
   const response = await fetch(url)
@@ -73,27 +76,6 @@ const fetcher = async (url: string) => {
   }
 
   return data
-}
-
-type BotQrConfig = {
-  qr_code_url: string
-  updated_at: string | null
-  manual_qr_code_url: string
-  runtime_qr_code_url: string
-  manual_updated_at: string | null
-  connected_at: string | null
-  status:
-    | "starting"
-    | "awaiting_qr"
-    | "connected"
-    | "reconnecting"
-    | "offline"
-    | "error"
-  last_error: string | null
-  phone_number: string | null
-  display_name: string | null
-  jid: string | null
-  source: "runtime" | "manual" | "none"
 }
 
 function normalizeSearchText(value: string | null | undefined) {
@@ -109,21 +91,24 @@ function normalizeDigits(value: string | null | undefined) {
 }
 
 export default function ContactsPage() {
-  const { data: contacts, isLoading } = useSWR<Contact[]>("/api/contacts", fetcher)
-  const { data: botQrConfig, isLoading: isLoadingBotQr } = useSWR<BotQrConfig>(
-    "/api/bot/qr",
-    fetcher,
-    { refreshInterval: 5000 }
-  )
+  const instancesKey = "/api/bot/instances"
+  const { data: botInstances, isLoading: isLoadingBotInstances } = useSWR<
+    WhatsAppBotInstance[]
+  >(instancesKey, fetcher)
 
   const [mounted, setMounted] = useState(false)
+  const [selectedBotInstanceId, setSelectedBotInstanceId] = useState("")
   const [search, setSearch] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [instanceDialogOpen, setInstanceDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [editContact, setEditContact] = useState<Contact | null>(null)
+  const [instanceName, setInstanceName] = useState("")
+  const [creatingInstance, setCreatingInstance] = useState(false)
   const [manualBotQrUrl, setManualBotQrUrl] = useState("")
   const [savingBotQr, setSavingBotQr] = useState(false)
+  const [syncingContacts, setSyncingContacts] = useState(false)
   const [botActionLoading, setBotActionLoading] = useState<
     "disconnect" | "restart" | "switch_phone" | null
   >(null)
@@ -139,6 +124,34 @@ export default function ContactsPage() {
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  const instanceList = Array.isArray(botInstances) ? botInstances : []
+  const selectedBotInstance =
+    instanceList.find((instance) => instance.id === selectedBotInstanceId) ??
+    instanceList.find((instance) => instance.is_default) ??
+    instanceList[0] ??
+    null
+  const resolvedBotInstanceId = selectedBotInstance?.id ?? ""
+  const contactsKey = resolvedBotInstanceId
+    ? `/api/contacts?bot_instance_id=${resolvedBotInstanceId}`
+    : null
+  const botQrKey = resolvedBotInstanceId
+    ? `/api/bot/qr?instance_id=${resolvedBotInstanceId}`
+    : null
+  const { data: contacts, isLoading } = useSWR<Contact[]>(contactsKey, fetcher)
+  const { data: botQrConfig, isLoading: isLoadingBotQr } = useSWR<WhatsAppBotInstance>(
+    botQrKey,
+    fetcher,
+    { refreshInterval: 5000 }
+  )
+
+  useEffect(() => {
+    if (!selectedBotInstanceId && instanceList.length > 0) {
+      setSelectedBotInstanceId(
+        instanceList.find((instance) => instance.is_default)?.id ?? instanceList[0].id
+      )
+    }
+  }, [instanceList, selectedBotInstanceId])
 
   useEffect(() => {
     setManualBotQrUrl(botQrConfig?.manual_qr_code_url ?? "")
@@ -174,7 +187,8 @@ export default function ContactsPage() {
     return matchesSearch && matchesType
   })
 
-  const visibleContacts = filtered
+  const canViewContacts = Boolean(resolvedBotInstanceId) && botQrConfig?.status === "connected"
+  const visibleContacts = canViewContacts ? filtered : []
 
   const savedManualBotQrUrl = (botQrConfig?.manual_qr_code_url ?? "").trim()
   const currentManualBotQrUrl = manualBotQrUrl.trim()
@@ -224,8 +238,15 @@ export default function ContactsPage() {
 
   const connectedPhoneLabel = botQrConfig?.phone_number || "-"
   const connectedNameLabel = botQrConfig?.display_name || "-"
+  const canManageSelectedInstance = Boolean(resolvedBotInstanceId)
+  const canSyncContacts = botQrConfig?.status === "connected"
 
   function openCreate() {
+    if (!resolvedBotInstanceId) {
+      toast.error("Adicione um WhatsApp antes de criar contatos.")
+      return
+    }
+
     setEditContact(null)
     setFormName("")
     setFormPhone("")
@@ -272,6 +293,11 @@ export default function ContactsPage() {
   async function handleSave() {
     if (!validateForm()) return
 
+    if (!resolvedBotInstanceId) {
+      toast.error("Selecione um WhatsApp antes de salvar o contato.")
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -281,6 +307,7 @@ export default function ContactsPage() {
         phone: formPhone || null,
         type: formType,
         whatsapp_group_id: formGroupId || null,
+        bot_instance_id: resolvedBotInstanceId,
         is_active: formActive,
       }
 
@@ -296,7 +323,9 @@ export default function ContactsPage() {
 
       toast.success(editContact ? "Contato atualizado!" : "Contato criado!")
       setDialogOpen(false)
-      mutate("/api/contacts")
+      if (contactsKey) {
+        mutate(contactsKey)
+      }
     } catch {
       toast.error("Erro ao salvar contato")
     } finally {
@@ -315,7 +344,9 @@ export default function ContactsPage() {
       }
 
       toast.success("Contato excluido!")
-      mutate("/api/contacts")
+      if (contactsKey) {
+        mutate(contactsKey)
+      }
     } catch {
       toast.error("Erro ao excluir contato")
     } finally {
@@ -323,11 +354,76 @@ export default function ContactsPage() {
     }
   }
 
+  async function handleCreateInstance() {
+    if (!instanceName.trim()) {
+      toast.error("Informe um nome para o WhatsApp.")
+      return
+    }
+
+    setCreatingInstance(true)
+
+    try {
+      const response = await fetch("/api/bot/instances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: instanceName.trim() }),
+      })
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string; id?: string }
+        | null
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Erro ao adicionar WhatsApp")
+      }
+
+      await mutate(instancesKey)
+      if (typeof data?.id === "string" && data.id) {
+        setSelectedBotInstanceId(data.id)
+
+        const controlResponse = await fetch("/api/bot/qr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "restart",
+            instance_id: data.id,
+          }),
+        })
+
+        const controlData = (await controlResponse.json().catch(() => null)) as
+          | { error?: string }
+          | null
+
+        if (!controlResponse.ok) {
+          throw new Error(
+            controlData?.error ||
+              "WhatsApp criado, mas nao foi possivel iniciar a geracao do QR."
+          )
+        }
+
+        await mutate(`/api/bot/qr?instance_id=${data.id}`)
+        await mutate(instancesKey)
+      }
+
+      setInstanceName("")
+      setInstanceDialogOpen(false)
+      toast.success("WhatsApp adicionado. Gerando QR para conectar o aparelho.")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao adicionar WhatsApp")
+    } finally {
+      setCreatingInstance(false)
+    }
+  }
+
   async function handleSaveBotQr() {
+    if (!resolvedBotInstanceId) {
+      toast.error("Selecione um WhatsApp antes de salvar o QR.")
+      return
+    }
+
     setSavingBotQr(true)
 
     try {
-      const res = await fetch("/api/bot/qr", {
+      const res = await fetch(`/api/bot/qr?instance_id=${resolvedBotInstanceId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -360,7 +456,10 @@ export default function ContactsPage() {
         throw new Error(data?.error || "Erro ao salvar QR Code")
       }
 
-      await mutate("/api/bot/qr", data, false)
+      if (botQrKey) {
+        await mutate(botQrKey, data, false)
+      }
+      await mutate(instancesKey)
       toast.success("QR Code do bot atualizado!")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao salvar QR Code")
@@ -370,13 +469,18 @@ export default function ContactsPage() {
   }
 
   async function handleBotControl(action: "disconnect" | "restart" | "switch_phone") {
+    if (!resolvedBotInstanceId) {
+      toast.error("Selecione um WhatsApp antes de controlar o bot.")
+      return
+    }
+
     setBotActionLoading(action)
 
     try {
       const res = await fetch("/api/bot/qr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, instance_id: resolvedBotInstanceId }),
       })
 
       const data = (await res.json().catch(() => null)) as { error?: string } | null
@@ -385,7 +489,10 @@ export default function ContactsPage() {
         throw new Error(data?.error || "Erro ao controlar bot")
       }
 
-      await mutate("/api/bot/qr")
+      if (botQrKey) {
+        await mutate(botQrKey)
+      }
+      await mutate(instancesKey)
       toast.success(
         action === "switch_phone"
           ? "Sessao anterior removida. Aguarde o novo QR para conectar outro celular."
@@ -400,9 +507,63 @@ export default function ContactsPage() {
     }
   }
 
+  async function handleSyncContactsFromBot() {
+    if (!resolvedBotInstanceId) {
+      toast.error("Selecione um WhatsApp antes de sincronizar os contatos.")
+      return
+    }
+
+    if (!canSyncContacts) {
+      toast.error("Conecte este WhatsApp antes de sincronizar os contatos.")
+      return
+    }
+
+    setSyncingContacts(true)
+
+    try {
+      const response = await fetch("/api/contacts/sync-bot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot_instance_id: resolvedBotInstanceId }),
+      })
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string; inserted?: number; updated?: number }
+        | null
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Erro ao sincronizar contatos")
+      }
+
+      if (contactsKey) {
+        await mutate(contactsKey)
+      }
+
+      const inserted = typeof data?.inserted === "number" ? data.inserted : 0
+      const updated = typeof data?.updated === "number" ? data.updated : 0
+
+      if (inserted === 0 && updated === 0) {
+        toast.success("Contatos desse WhatsApp ja estao atualizados.")
+      } else {
+        toast.success(`${inserted} contato(s) novo(s) e ${updated} atualizado(s).`)
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao sincronizar contatos")
+    } finally {
+      setSyncingContacts(false)
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader title="Contatos" description="Gerencie contatos e grupos WhatsApp">
+        <Button
+          variant="outline"
+          onClick={() => setInstanceDialogOpen(true)}
+          size="sm"
+        >
+          <Plus className="mr-1 size-4" />
+          Adicionar WhatsApp
+        </Button>
         <Button onClick={openCreate} size="sm">
           <Plus className="mr-1 size-4" />
           Novo Contato
@@ -411,6 +572,22 @@ export default function ContactsPage() {
 
       <div className="flex flex-1 flex-col gap-4 p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Select value={resolvedBotInstanceId} onValueChange={setSelectedBotInstanceId}>
+            <SelectTrigger className="w-full sm:w-[260px]">
+              <SelectValue placeholder="Selecionar WhatsApp" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>WhatsApps conectados</SelectLabel>
+                {instanceList.map((instance) => (
+                  <SelectItem key={instance.id} value={instance.id}>
+                    {instance.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -433,6 +610,26 @@ export default function ContactsPage() {
           </Select>
         </div>
 
+        {!isLoadingBotInstances && instanceList.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col gap-3 p-6">
+              <p className="text-sm font-medium">
+                Nenhum WhatsApp configurado para esta empresa.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Adicione um numero primeiro. Depois gere o QR e conecte o celular para
+                sincronizar grupos e contatos desse numero.
+              </p>
+              <div>
+                <Button onClick={() => setInstanceDialogOpen(true)}>
+                  <Plus className="mr-2 size-4" />
+                  Adicionar WhatsApp
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card>
           <CardHeader className="gap-3">
             <div className="flex items-start gap-3">
@@ -444,14 +641,18 @@ export default function ContactsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <CardTitle>QR Code do Bot WhatsApp</CardTitle>
                   <Badge variant={botStatusVariant}>{botStatusLabel}</Badge>
+                  {selectedBotInstance?.is_default ? (
+                    <Badge variant="outline">Padrao</Badge>
+                  ) : null}
                   {botQrConfig?.source === "runtime" ? (
                     <Badge variant="outline">Automatico</Badge>
                   ) : null}
                 </div>
 
                 <CardDescription>
-                  O bot publica o QR automaticamente neste painel. Use "Trocar celular"
-                  para apagar a sessao atual e parear com qualquer outro aparelho.
+                  {selectedBotInstance
+                    ? `Gerencie o numero "${selectedBotInstance.name}" por aqui. Use "Trocar celular" para apagar a sessao atual e parear outro aparelho para esse mesmo slot.`
+                    : "Selecione ou adicione um WhatsApp para gerar o QR e conectar o aparelho."}
                 </CardDescription>
               </div>
             </div>
@@ -471,9 +672,9 @@ export default function ContactsPage() {
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-xl border bg-muted/10 p-4">
-                  <p className="text-xs text-muted-foreground">Nome da conta</p>
+                  <p className="text-xs text-muted-foreground">Slot do WhatsApp</p>
                   <p className="mt-1 text-sm font-medium">
-                    {connectedNameLabel}
+                    {selectedBotInstance?.name || "-"}
                   </p>
                 </div>
 
@@ -496,7 +697,11 @@ export default function ContactsPage() {
                 <Button
                   variant="outline"
                   onClick={() => handleBotControl("disconnect")}
-                  disabled={botActionLoading !== null || botQrConfig?.status === "offline"}
+                  disabled={
+                    !canManageSelectedInstance ||
+                    botActionLoading !== null ||
+                    botQrConfig?.status === "offline"
+                  }
                 >
                   <PlugZap className="mr-2 size-4" />
                   {botActionLoading === "disconnect" ? "Desconectando..." : "Desconectar"}
@@ -504,7 +709,7 @@ export default function ContactsPage() {
 
                 <Button
                   onClick={() => handleBotControl("restart")}
-                  disabled={botActionLoading !== null}
+                  disabled={!canManageSelectedInstance || botActionLoading !== null}
                 >
                   <RotateCcw className="mr-2 size-4" />
                   {botActionLoading === "restart" ? "Gerando QR..." : "Gerar QR"}
@@ -513,12 +718,25 @@ export default function ContactsPage() {
                 <Button
                   variant="secondary"
                   onClick={() => handleBotControl("switch_phone")}
-                  disabled={botActionLoading !== null}
+                  disabled={!canManageSelectedInstance || botActionLoading !== null}
                 >
                   <RotateCcw className="mr-2 size-4" />
                   {botActionLoading === "switch_phone"
                     ? "Trocando celular..."
                     : "Trocar celular"}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={handleSyncContactsFromBot}
+                  disabled={!canSyncContacts || syncingContacts}
+                >
+                  {syncingContacts ? (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 size-4" />
+                  )}
+                  {syncingContacts ? "Sincronizando..." : "Sincronizar contatos"}
                 </Button>
               </div>
 
@@ -530,6 +748,7 @@ export default function ContactsPage() {
                   onChange={(e) => setManualBotQrUrl(e.target.value)}
                   placeholder="Opcional: cole aqui uma URL publica do QR Code ou uma data URL para fallback manual"
                   className="min-h-28 resize-y"
+                  disabled={!canManageSelectedInstance}
                 />
                 <p className="text-xs text-muted-foreground">
                   Se o bot estiver rodando, o preview acima usa o QR automatico. "Trocar
@@ -539,14 +758,16 @@ export default function ContactsPage() {
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Button onClick={handleSaveBotQr} disabled={savingBotQr || !botQrChanged}>
+                <Button
+                  onClick={handleSaveBotQr}
+                  disabled={!canManageSelectedInstance || savingBotQr || !botQrChanged}
+                >
                   {savingBotQr ? "Salvando..." : "Salvar QR Manual"}
                 </Button>
 
-                {botQrConfig?.manual_updated_at ? (
+                {botQrConfig?.updated_at ? (
                   <span className="text-xs text-muted-foreground">
-                    Fallback manual atualizado em{" "}
-                    {formatDateTimePtBr(botQrConfig.manual_updated_at)}
+                    Ultima atualizacao em {formatDateTimePtBr(botQrConfig.updated_at)}
                   </span>
                 ) : null}
               </div>
@@ -591,7 +812,7 @@ export default function ContactsPage() {
 
         <Card>
           <CardContent className="p-0">
-            {isLoading ? (
+            {isLoading || isLoadingBotInstances ? (
               <div className="space-y-3 p-6">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <Skeleton key={i} className="h-12 rounded" />
@@ -599,10 +820,14 @@ export default function ContactsPage() {
               </div>
             ) : visibleContacts.length === 0 ? (
               <p className="py-12 text-center text-sm text-muted-foreground">
-                {contacts?.length === 0
+                {!resolvedBotInstanceId
+                  ? "Selecione um WhatsApp para visualizar os contatos desse numero."
+                  : !canViewContacts
+                  ? "Esse WhatsApp esta desconectado. Gere o QR e conecte o numero para visualizar os contatos dele."
+                  : contacts?.length === 0
                   ? botQrConfig?.status === "connected"
-                    ? "Nenhum contato cadastrado. Clique em 'Novo Contato' para adicionar."
-                    : "Nenhum contato cadastrado. Conecte o WhatsApp para sincronizar ou clique em 'Novo Contato' para adicionar manualmente."
+                    ? "Nenhum contato cadastrado para esse numero. Clique em 'Sincronizar contatos' ou em 'Novo Contato'."
+                    : "Nenhum contato cadastrado para esse numero. Conecte o WhatsApp e sincronize para carregar os grupos e contatos dele."
                   : "Nenhum resultado encontrado."}
               </p>
             ) : (
@@ -675,6 +900,34 @@ export default function ContactsPage() {
         </Card>
       </div>
 
+      <Dialog open={instanceDialogOpen} onOpenChange={setInstanceDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Novo WhatsApp</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 pt-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="instance-name">Nome do WhatsApp</Label>
+              <Input
+                id="instance-name"
+                value={instanceName}
+                onChange={(event) => setInstanceName(event.target.value)}
+                placeholder="Ex: Financeiro"
+              />
+              <p className="text-xs text-muted-foreground">
+                Esse nome ajuda a identificar qual numero sera usado para conectar,
+                sincronizar os contatos e enviar as rotinas.
+              </p>
+            </div>
+
+            <Button onClick={handleCreateInstance} disabled={creatingInstance || !instanceName.trim()}>
+              {creatingInstance ? "Criando..." : "Criar WhatsApp"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -682,6 +935,12 @@ export default function ContactsPage() {
           </DialogHeader>
 
           <div className="flex flex-col gap-4 pt-2">
+            {selectedBotInstance ? (
+              <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                Este contato sera salvo no WhatsApp <span className="font-medium text-foreground">{selectedBotInstance.name}</span>.
+              </div>
+            ) : null}
+
             <div className="flex flex-col gap-2">
               <Label htmlFor="contact-name">Nome</Label>
               <Input
