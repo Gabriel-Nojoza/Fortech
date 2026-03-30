@@ -6,12 +6,9 @@ import { createClient } from "@/lib/supabase/client"
 import {
   clearSupabaseAuthCookies,
   clearTabSessionMarker,
-  hasOtherActiveTabs,
   hasSupabaseAuthCookies,
   hasTabSessionMarker,
   markTabSessionActive,
-  registerCurrentTab,
-  unregisterCurrentTab,
 } from "@/lib/supabase/tab-session"
 
 const TAB_REVALIDATE_INTERVAL_MS = 5 * 60 * 1000
@@ -69,23 +66,9 @@ export function TabSessionGuard({
           return
         }
 
-        if (!hasTabSessionMarker() && !hasOtherActiveTabs()) {
-          clearSupabaseAuthCookies()
-          clearTabSessionMarker()
-
-          if (!isMounted) {
-            return
-          }
-
-          redirectToLogin()
-          return
-        }
-
         const shouldValidateWithSupabase = forceValidate || !hasTabSessionMarker()
 
         if (!shouldValidateWithSupabase) {
-          registerCurrentTab()
-
           if (isMounted) {
             setIsReady(true)
           }
@@ -154,13 +137,8 @@ export function TabSessionGuard({
       void verifyTabSession({ forceValidate: true })
     }
 
-    const handlePageHide = () => {
-      unregisterCurrentTab()
-    }
-
     document.addEventListener("visibilitychange", handleVisibilityChange)
     window.addEventListener("focus", handleWindowFocus)
-    window.addEventListener("pagehide", handlePageHide)
 
     void verifyTabSession({ forceValidate: true })
 
@@ -168,7 +146,6 @@ export function TabSessionGuard({
       isMounted = false
       document.removeEventListener("visibilitychange", handleVisibilityChange)
       window.removeEventListener("focus", handleWindowFocus)
-      window.removeEventListener("pagehide", handlePageHide)
     }
   }, [router])
 
