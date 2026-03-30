@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import useSWR, { mutate } from "swr"
 import {
   Plus,
@@ -67,6 +67,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import type { Contact, WhatsAppBotInstance } from "@/lib/types"
 
+const CONTACTS_RENDER_BATCH_SIZE = 200
+
 const fetcher = async (url: string) => {
   const response = await fetch(url)
   const data = await response.json()
@@ -102,6 +104,7 @@ export default function ContactsPage() {
   const [selectedBotInstanceId, setSelectedBotInstanceId] = useState("")
   const [search, setSearch] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
+  const [visibleLimit, setVisibleLimit] = useState(CONTACTS_RENDER_BATCH_SIZE)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [instanceDialogOpen, setInstanceDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -144,7 +147,15 @@ export default function ContactsPage() {
   const { data: botQrConfig, isLoading: isLoadingBotQr } = useSWR<WhatsAppBotInstance>(
     botQrKey,
     fetcher,
-    { refreshInterval: 5000 }
+    {
+      refreshInterval: (latestData) =>
+        !resolvedBotInstanceId
+          ? 0
+          : latestData?.status === "connected"
+            ? 30000
+            : 5000,
+      revalidateOnFocus: false,
+    }
   )
 
   useEffect(() => {
@@ -172,33 +183,47 @@ export default function ContactsPage() {
     )
   }
 
-  const normalizedSearch = normalizeSearchText(search)
-  const numericSearch = normalizeDigits(search)
+  const deferredSearch = useDeferredValue(search)
+  const normalizedSearch = useMemo(() => normalizeSearchText(deferredSearch), [deferredSearch])
+  const numericSearch = useMemo(() => normalizeDigits(deferredSearch), [deferredSearch])
 
-  const filtered = (contacts ?? []).filter((contact) => {
-    const searchTokens = normalizedSearch.split(" ").filter(Boolean)
-    const searchableText = [
-      normalizeSearchText(contact.name),
-      normalizeSearchText(contact.phone),
-      normalizeSearchText(contact.whatsapp_group_id),
-    ]
-      .filter(Boolean)
-      .join(" ")
+  const filtered = useMemo(() => {
+    return (contacts ?? []).filter((contact) => {
+      const searchTokens = normalizedSearch.split(" ").filter(Boolean)
+      const searchableText = [
+        normalizeSearchText(contact.name),
+        normalizeSearchText(contact.phone),
+        normalizeSearchText(contact.whatsapp_group_id),
+      ]
+        .filter(Boolean)
+        .join(" ")
 
-    const matchesSearch =
-      normalizedSearch.length === 0 ||
-      searchableText.includes(normalizedSearch) ||
-      searchTokens.every((token) => searchableText.includes(token)) ||
-      (numericSearch.length > 0 &&
-        (normalizeDigits(contact.phone).includes(numericSearch) ||
-          normalizeDigits(contact.whatsapp_group_id).includes(numericSearch)))
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        searchableText.includes(normalizedSearch) ||
+        searchTokens.every((token) => searchableText.includes(token)) ||
+        (numericSearch.length > 0 &&
+          (normalizeDigits(contact.phone).includes(numericSearch) ||
+            normalizeDigits(contact.whatsapp_group_id).includes(numericSearch)))
 
-    const matchesType = typeFilter === "all" || contact.type === typeFilter
-    return matchesSearch && matchesType
-  })
+      const matchesType = typeFilter === "all" || contact.type === typeFilter
+      return matchesSearch && matchesType
+    })
+  }, [contacts, normalizedSearch, numericSearch, typeFilter])
 
   const canViewContacts = Boolean(resolvedBotInstanceId) && botQrConfig?.status === "connected"
-  const visibleContacts = canViewContacts ? filtered.filter((contact) => contact.is_active) : []
+  const visibleContacts = useMemo(
+    () => (canViewContacts ? filtered.filter((contact) => contact.is_active) : []),
+    [canViewContacts, filtered]
+  )
+  const displayedContacts = useMemo(
+    () => visibleContacts.slice(0, visibleLimit),
+    [visibleContacts, visibleLimit]
+  )
+
+  useEffect(() => {
+    setVisibleLimit(CONTACTS_RENDER_BATCH_SIZE)
+  }, [resolvedBotInstanceId, normalizedSearch, typeFilter, contacts?.length])
 
   const savedManualBotQrUrl = (botQrConfig?.manual_qr_code_url ?? "").trim()
   const currentManualBotQrUrl = manualBotQrUrl.trim()
@@ -854,7 +879,7 @@ export default function ContactsPage() {
                   </TableHeader>
 
                   <TableBody>
-                    {visibleContacts.map((contact) => (
+                    {displayedContacts.map((contact) => (
                       <TableRow key={contact.id}>
                         <TableCell className="font-medium">{contact.name}</TableCell>
 
@@ -904,6 +929,24 @@ export default function ContactsPage() {
                     ))}
                   </TableBody>
                 </Table>
+
+                {displayedContacts.length < visibleContacts.length ? (
+                  <div className="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground">
+                    <span>
+                      Mostrando {displayedContacts.length} de {visibleContacts.length} contatos.
+                    </span>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setVisibleLimit((current) => current + CONTACTS_RENDER_BATCH_SIZE)
+                      }
+                    >
+                      Carregar mais
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             )}
           </CardContent>
