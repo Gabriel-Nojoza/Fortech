@@ -148,12 +148,7 @@ export default function ContactsPage() {
     botQrKey,
     fetcher,
     {
-      refreshInterval: (latestData) =>
-        !resolvedBotInstanceId
-          ? 0
-          : latestData?.status === "connected"
-            ? 30000
-            : 5000,
+      refreshInterval: resolvedBotInstanceId ? 10000 : 0,
       revalidateOnFocus: false,
     }
   )
