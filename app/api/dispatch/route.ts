@@ -20,6 +20,7 @@ import {
 import { exportPowerBIReportPdf, sanitizeFileName } from "@/lib/powerbi-report-pdf"
 import { getAccessToken } from "@/lib/powerbi"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
+import { getCompanyWhatsAppBotInstance } from "@/lib/whatsapp-bot-instances"
 
 function getDispatchLogTarget(contact: {
   phone?: string | null
@@ -105,6 +106,15 @@ export async function POST(request: NextRequest) {
 
   if (!schedule) {
     return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
+  }
+
+  const resolvedBotInstance = await getCompanyWhatsAppBotInstance(
+    supabase,
+    companyId,
+    schedule.bot_instance_id ?? null
+  ).catch(() => null)
+  if (resolvedBotInstance) {
+    schedule.bot_instance_id = resolvedBotInstance.id
   }
 
   const scheduleReportConfigs = resolveScheduleReportConfigs(schedule)
