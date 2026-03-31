@@ -511,7 +511,7 @@ async function ensureGroupParticipants(instance, jid) {
 }
 
 async function sendGenericPayload(instance, input) {
-  if (!instance.socket) {
+  if (!instance.socket || !instance.socket.user) {
     throw new Error("Bot ainda nao conectado ao WhatsApp")
   }
 
