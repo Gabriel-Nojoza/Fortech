@@ -514,10 +514,28 @@ async function ensureGroupParticipants(instance, jid) {
   }
 }
 
+async function waitForSocketUser(instance, timeoutMs = 8000) {
+  if (instance.socket?.user) {
+    return
+  }
+
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    if (instance.socket?.user) {
+      return
+    }
+  }
+
+  throw new Error("Bot ainda nao autenticado no WhatsApp")
+}
+
 async function sendGenericPayload(instance, input) {
-  if (!instance.socket || !instance.socket.user) {
+  if (!instance.socket) {
     throw new Error("Bot ainda nao conectado ao WhatsApp")
   }
+
+  await waitForSocketUser(instance)
 
   const jid = resolveRecipientJid(instance, input)
   await ensureGroupParticipants(instance, jid)
