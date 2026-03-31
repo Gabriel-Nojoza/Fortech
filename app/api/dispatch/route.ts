@@ -269,7 +269,7 @@ export async function POST(request: NextRequest) {
   const primarySelectedPageNames = primaryScheduleReportConfig.pbi_page_names ?? []
   const primaryPageName = primaryScheduleReportConfig.pbi_page_name
   const normalizedScheduleExportFormat =
-    typeof schedule.export_format === "string" && schedule.export_format.trim().toUpperCase() === "PDF"
+    typeof schedule.export_format === "string" && schedule.export_format.trim().toLowerCase() === "pdf"
       ? "PDF"
       : schedule.export_format
   const hasMultipleReports = powerBiTargets.length > 1
