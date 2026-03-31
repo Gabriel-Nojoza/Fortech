@@ -296,7 +296,11 @@ async function refreshGroupDirectory(instance) {
 
   const groups = await instance.socket.groupFetchAllParticipating()
   for (const groupId in groups) {
-    upsertGroupCache(instance, groups[groupId])
+    const group = groups[groupId]
+    if (!group.id) {
+      group.id = groupId
+    }
+    upsertGroupCache(instance, group)
   }
 }
 
