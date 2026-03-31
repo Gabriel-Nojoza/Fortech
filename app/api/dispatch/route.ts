@@ -539,19 +539,6 @@ export async function POST(request: NextRequest) {
         .eq("id", log.id)
     }
 
-    // If the workflow does not call back, keep logs from getting stuck in "sending".
-    for (const log of insertedLogs ?? []) {
-      await supabase
-        .from("dispatch_logs")
-        .update({
-          status: "delivered",
-          error_message: null,
-          completed_at: new Date().toISOString(),
-        })
-        .eq("company_id", companyId)
-        .eq("id", log.id)
-    }
-
     await supabase
       .from("schedules")
       .update({ last_run_at: new Date().toISOString() })

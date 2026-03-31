@@ -498,12 +498,25 @@ async function resolveDocumentPayload(input) {
   }
 }
 
+async function ensureGroupParticipants(instance, jid) {
+  if (!isGroupJid(jid) || !instance.socket) {
+    return
+  }
+
+  try {
+    await instance.socket.groupMetadata(jid)
+  } catch {
+    // ignore — best effort to warm up the group key cache
+  }
+}
+
 async function sendGenericPayload(instance, input) {
   if (!instance.socket) {
     throw new Error("Bot ainda nao conectado ao WhatsApp")
   }
 
   const jid = resolveRecipientJid(instance, input)
+  await ensureGroupParticipants(instance, jid)
   const documentPayload = await resolveDocumentPayload(input)
   const message = typeof input?.message === "string" ? input.message.trim() : ""
   const caption = typeof input?.caption === "string" ? input.caption.trim() : ""
