@@ -38,6 +38,7 @@ export function getDispatchLogOutcome(log: DispatchLogLike) {
   const status = typeof log.status === "string" ? log.status.trim().toLowerCase() : ""
   const hasError =
     typeof log.error_message === "string" && log.error_message.trim().length > 0
+  const completedAt = toValidDate(log.completed_at)
 
   if (status === "delivered") {
     return "delivered" as const
@@ -45,6 +46,10 @@ export function getDispatchLogOutcome(log: DispatchLogLike) {
 
   if (status === "failed" || hasError) {
     return "failed" as const
+  }
+
+  if (completedAt) {
+    return "delivered" as const
   }
 
   return "ongoing" as const

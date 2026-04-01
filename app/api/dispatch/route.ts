@@ -490,17 +490,27 @@ export async function POST(request: NextRequest) {
     }
 
     if (!webhookUrl) {
-      return NextResponse.json(
-        { error: "URL do webhook N8N nao configurada" },
-        { status: 400 }
-      )
+      const errMsg = "URL do webhook N8N nao configurada"
+      for (const log of insertedLogs ?? []) {
+        await supabase
+          .from("dispatch_logs")
+          .update({ status: "failed", error_message: errMsg, completed_at: new Date().toISOString() })
+          .eq("company_id", companyId)
+          .eq("id", log.id)
+      }
+      return NextResponse.json({ error: errMsg }, { status: 400 })
     }
 
     if (!callbackSecret) {
-      return NextResponse.json(
-        { error: "Callback secret do N8N nao configurado" },
-        { status: 400 }
-      )
+      const errMsg = "Callback secret do N8N nao configurado"
+      for (const log of insertedLogs ?? []) {
+        await supabase
+          .from("dispatch_logs")
+          .update({ status: "failed", error_message: errMsg, completed_at: new Date().toISOString() })
+          .eq("company_id", companyId)
+          .eq("id", log.id)
+      }
+      return NextResponse.json({ error: errMsg }, { status: 400 })
     }
 
     const webhookResponse = await fetch(webhookUrl, {
@@ -562,6 +572,7 @@ export async function POST(request: NextRequest) {
         .update({ status: "sending" })
         .eq("company_id", companyId)
         .eq("id", log.id)
+        .eq("status", "pending")
     }
 
     await supabase
