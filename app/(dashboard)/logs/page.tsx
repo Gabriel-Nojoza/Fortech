@@ -5,6 +5,9 @@ import useSWR from "swr"
 import { format, isValid } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import {
+  AlertCircle,
+  CheckCircle2,
+  Clock3,
   ScrollText,
   ChevronLeft,
   ChevronRight,
@@ -31,16 +34,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { toast } from "sonner"
 import type { DispatchLog } from "@/lib/types"
 import { formatShortDateTimePtBr } from "@/lib/datetime"
-import { getDispatchLogDisplayStatus } from "@/lib/dispatch-log"
+import {
+  getDispatchLogDisplayStatus,
+  getDispatchLogOutcome,
+} from "@/lib/dispatch-log"
+import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 20
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
@@ -67,6 +68,55 @@ function formatLogDate(log: DispatchLog) {
   }
 
   return formatShortDateTimePtBr(parsed)
+}
+
+function normalizeLogMessage(message: string | null | undefined) {
+  if (typeof message !== "string") {
+    return null
+  }
+
+  const normalized = message.replace(/^error:\s*/i, "").trim()
+  return normalized.length > 0 ? normalized : null
+}
+
+function getLogStatusDetail(log: DispatchLog) {
+  const outcome = getDispatchLogOutcome(log)
+  const normalizedError = normalizeLogMessage(log.error_message)
+  const status = typeof log.status === "string" ? log.status.trim().toLowerCase() : ""
+
+  if (outcome === "failed") {
+    return {
+      icon: AlertCircle,
+      iconClassName: "text-destructive",
+      text: normalizedError ?? "Falha no envio.",
+      containerClassName:
+        "border-destructive/25 bg-destructive/5 text-destructive",
+    }
+  }
+
+  if (outcome === "delivered") {
+    return {
+      icon: CheckCircle2,
+      iconClassName: "text-success",
+      text: "Envio confirmado com sucesso.",
+      containerClassName: "border-success/25 bg-success/5 text-success",
+    }
+  }
+
+  const detailText =
+    status === "exporting"
+      ? "Relatorio em exportacao."
+      : status === "sending"
+        ? "Aguardando confirmacao do envio pelo N8N ou bot."
+        : "Disparo em preparacao."
+
+  return {
+    icon: Clock3,
+    iconClassName: "text-warning",
+    text: detailText,
+    containerClassName:
+      "border-border/70 bg-muted/30 text-muted-foreground",
+  }
 }
 
 export default function LogsPage() {
@@ -229,14 +279,14 @@ export default function LogsPage() {
                         Formato
                       </TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="hidden lg:table-cell">
-                        Erro
-                      </TableHead>
+                      <TableHead className="min-w-[280px]">Detalhe</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {logs.map((log) => {
                       const status = getDispatchLogDisplayStatus(log)
+                      const detail = getLogStatusDetail(log)
+                      const StatusIcon = detail.icon
                       return (
                         <TableRow key={log.id}>
                           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
@@ -259,32 +309,21 @@ export default function LogsPage() {
                           <TableCell>
                             <Badge
                               variant={status.variant}
-                              className={status.className}
+                              className={cn("gap-1.5 font-semibold", status.className)}
                             >
+                              <StatusIcon className={cn("size-3.5", detail.iconClassName)} />
                               {status.label}
                             </Badge>
                           </TableCell>
-                          <TableCell className="hidden max-w-[200px] lg:table-cell">
-                            {log.error_message ? (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="cursor-help truncate text-xs text-destructive">
-                                      {log.error_message.slice(0, 40)}...
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent className="max-w-xs">
-                                    <p className="text-xs">
-                                      {log.error_message}
-                                    </p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                -
-                              </span>
-                            )}
+                          <TableCell className="min-w-[280px] max-w-[360px] align-top">
+                            <div
+                              className={cn(
+                                "rounded-md border px-3 py-2 text-xs leading-relaxed whitespace-normal break-words",
+                                detail.containerClassName
+                              )}
+                            >
+                              {detail.text}
+                            </div>
                           </TableCell>
                         </TableRow>
                       )
