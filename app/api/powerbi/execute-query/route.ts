@@ -8,6 +8,11 @@ import { executeWithQueryFallback } from "@/lib/query-execution-fallback"
 import { normalizeFilters } from "@/lib/query-filters"
 import { getRequestContext } from "@/lib/tenant"
 import type { SelectedColumn, SelectedMeasure } from "@/lib/types"
+import {
+  getWorkspaceAccessScope,
+  isDatasetAllowed,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 function mapExecuteError(error: unknown) {
   const message = error instanceof Error ? error.message : "Erro desconhecido"
@@ -79,8 +84,10 @@ function normalizeSelectedMeasures(input: unknown): SelectedMeasure[] {
 
 export async function POST(request: Request) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const body = await request.json()
     const { datasetId, query } = body
     const filters = normalizeFilters(body?.filters)
@@ -93,6 +100,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "datasetId e query sao obrigatorios" },
         { status: 400 }
+      )
+    }
+
+    if (!isDatasetAllowed(scope, String(datasetId))) {
+      return NextResponse.json(
+        { error: "Dataset nao permitido para este usuario." },
+        { status: 403 }
       )
     }
 
@@ -122,6 +136,23 @@ export async function POST(request: Request) {
       requestedExecutionWorkspaceId || savedExecutionTarget.workspaceId || null
 
     if (effectiveExecutionDatasetId !== datasetId) {
+      if (!isDatasetAllowed(scope, effectiveExecutionDatasetId)) {
+        return NextResponse.json(
+          { error: "Dataset auxiliar de execucao nao permitido para este usuario." },
+          { status: 403 }
+        )
+      }
+
+      if (
+        effectiveExecutionWorkspaceId &&
+        !isWorkspaceAllowed(scope, { pbiWorkspaceId: effectiveExecutionWorkspaceId })
+      ) {
+        return NextResponse.json(
+          { error: "Workspace auxiliar de execucao nao permitido para este usuario." },
+          { status: 403 }
+        )
+      }
+
       const { data: executionReport } = await supabase
         .from("reports")
         .select("id")

@@ -17,6 +17,10 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import { useTheme } from "next-themes"
 import { useRouter } from "next/navigation"
+import {
+  CurrentUserSummary,
+  type CurrentUserSummaryData,
+} from "@/components/auth/current-user-summary"
 import { BrandMark } from "@/components/branding/brand-mark"
 import {
   Sidebar,
@@ -47,7 +51,11 @@ const automationNav = [
 
 
 
-export function AppSidebar() {
+type AppSidebarProps = {
+  currentUser: CurrentUserSummaryData | null
+}
+
+export function AppSidebar({ currentUser }: AppSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const router = useRouter()
@@ -127,6 +135,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
+        <CurrentUserSummary user={currentUser} />
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton

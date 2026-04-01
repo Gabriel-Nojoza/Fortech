@@ -2,11 +2,18 @@ import { NextResponse } from "next/server"
 import { getAccessToken, getDatasetMetadata, listDatasets } from "@/lib/powerbi"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext } from "@/lib/tenant"
+import {
+  getWorkspaceAccessScope,
+  isDatasetAllowed,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 export async function GET(request: Request) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const { searchParams } = new URL(request.url)
     const datasetId = searchParams.get("datasetId")?.trim()
     const workspaceId = searchParams.get("workspaceId")?.trim()
@@ -22,6 +29,20 @@ export async function GET(request: Request) {
       return NextResponse.json(
         { error: "workspaceId obrigatorio" },
         { status: 400 }
+      )
+    }
+
+    if (!isWorkspaceAllowed(scope, { pbiWorkspaceId: workspaceId })) {
+      return NextResponse.json(
+        { error: "Workspace nao permitido para este usuario" },
+        { status: 403 }
+      )
+    }
+
+    if (!isDatasetAllowed(scope, datasetId)) {
+      return NextResponse.json(
+        { error: "Dataset nao permitido para este usuario" },
+        { status: 403 }
       )
     }
 

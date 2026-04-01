@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getRequestContext } from "@/lib/tenant"
 import { getCatalogMap, isValidCatalog, saveCatalogEntry } from "@/lib/automation-catalog"
+import { createServiceClient as createClient } from "@/lib/supabase/server"
+import {
+  getWorkspaceAccessScope,
+  isDatasetAllowed,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 export async function GET(request: NextRequest) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
+    const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const { searchParams } = new URL(request.url)
     const datasetId = searchParams.get("datasetId")?.trim()
 
@@ -12,6 +21,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: "datasetId obrigatorio" },
         { status: 400 }
+      )
+    }
+
+    if (!isDatasetAllowed(scope, datasetId)) {
+      return NextResponse.json(
+        { error: "Dataset nao permitido para este usuario." },
+        { status: 403 }
       )
     }
 
@@ -47,7 +63,10 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
+    const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const catalogs = await getCatalogMap(companyId)
     const body = await request.json()
 
@@ -68,6 +87,42 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         { error: "datasetId obrigatorio" },
         { status: 400 }
+      )
+    }
+
+    if (!isDatasetAllowed(scope, datasetId)) {
+      return NextResponse.json(
+        { error: "Dataset nao permitido para este usuario." },
+        { status: 403 }
+      )
+    }
+
+    if (workspaceId && !isWorkspaceAllowed(scope, { pbiWorkspaceId: workspaceId })) {
+      return NextResponse.json(
+        { error: "Workspace nao permitido para este usuario." },
+        { status: 403 }
+      )
+    }
+
+    if (
+      hasExecutionDatasetId &&
+      executionDatasetId &&
+      !isDatasetAllowed(scope, executionDatasetId)
+    ) {
+      return NextResponse.json(
+        { error: "Dataset auxiliar de execucao nao permitido para este usuario." },
+        { status: 403 }
+      )
+    }
+
+    if (
+      hasExecutionWorkspaceId &&
+      executionWorkspaceId &&
+      !isWorkspaceAllowed(scope, { pbiWorkspaceId: executionWorkspaceId })
+    ) {
+      return NextResponse.json(
+        { error: "Workspace auxiliar de execucao nao permitido para este usuario." },
+        { status: 403 }
       )
     }
 

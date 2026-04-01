@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext, isAuthContextError } from "@/lib/tenant"
+import { getAccessibleScheduleIds } from "@/lib/schedule-access"
 import { readWhatsAppBotRuntimeState } from "@/lib/whatsapp-bot"
 import {
   getWorkspaceAccessScope,
@@ -41,9 +42,16 @@ export async function GET() {
 
     const thirtyDaysAgo = new Date(todayStart)
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29)
+    const hasRestrictedScope =
+      workspaceScope.workspaceRestricted || workspaceScope.datasetRestricted
+    const accessibleScheduleIds = hasRestrictedScope
+      ? await getAccessibleScheduleIds(supabase, companyId, workspaceScope)
+      : []
 
     const reportsQuery =
-      workspaceScope.restricted && workspaceScope.workspaceIds.length === 0
+      workspaceScope.workspaceRestricted && workspaceScope.workspaceIds.length === 0
+        ? Promise.resolve({ count: 0, error: null } as const)
+        : workspaceScope.datasetRestricted && workspaceScope.datasetIds.length === 0
         ? Promise.resolve({ count: 0, error: null } as const)
         : (() => {
             let query = supabase
@@ -52,8 +60,27 @@ export async function GET() {
               .eq("company_id", companyId)
               .eq("is_active", true)
 
-            if (workspaceScope.restricted) {
+            if (workspaceScope.workspaceRestricted) {
               query = query.in("workspace_id", workspaceScope.workspaceIds)
+            }
+
+            if (workspaceScope.datasetRestricted) {
+              query = query.in("dataset_id", workspaceScope.datasetIds)
+            }
+
+             return query
+           })()
+    const dispatchLogsQuery =
+      hasRestrictedScope && accessibleScheduleIds.length === 0
+        ? Promise.resolve({ data: [], error: null } as const)
+        : (() => {
+            let query = supabase
+              .from("dispatch_logs")
+              .select("*")
+              .eq("company_id", companyId)
+
+            if (hasRestrictedScope) {
+              query = query.in("schedule_id", accessibleScheduleIds)
             }
 
             return query
@@ -67,10 +94,7 @@ export async function GET() {
           .select("id", { count: "exact", head: true })
           .eq("company_id", companyId)
           .eq("is_active", true),
-        supabase
-          .from("dispatch_logs")
-          .select("*")
-          .eq("company_id", companyId),
+        dispatchLogsQuery,
         supabase
           .from("company_settings")
           .select("key, value")

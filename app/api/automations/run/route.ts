@@ -9,6 +9,7 @@ import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
 import { normalizeContactForResponse } from "@/lib/contact-compat"
 import { executeWithQueryFallback } from "@/lib/query-execution-fallback"
 import { normalizeFilters } from "@/lib/query-filters"
+import { getRequestContext } from "@/lib/tenant"
 import {
   getStoredAutomationById,
   isMissingAutomationRelationError,
@@ -22,6 +23,11 @@ import {
   buildN8nEndpointUrls,
   normalizeN8nSettings,
 } from "@/lib/n8n-webhook"
+import {
+  getWorkspaceAccessScope,
+  isDatasetAllowed,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 type ContactRecord = {
   id: string
@@ -92,10 +98,15 @@ function getRequestOrigin(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { companyId } = await resolveRequestCompanyContext(request, {
+    const requestCompanyContext = await resolveRequestCompanyContext(request, {
       allowCallbackSecret: true,
     })
+    const { companyId, source } = requestCompanyContext
     const supabase = createClient()
+    const accessScope =
+      source === "auth"
+        ? await getWorkspaceAccessScope(supabase, await getRequestContext())
+        : null
     const body = await request.json()
 
     const automationId = typeof body.automation_id === "string" ? body.automation_id : ""
@@ -178,6 +189,14 @@ export async function POST(request: Request) {
       }
 
       datasetId = String(automation.dataset_id)
+
+      if (accessScope && !isDatasetAllowed(accessScope, datasetId)) {
+        return NextResponse.json(
+          { error: "Automacao nao permitida para este usuario." },
+          { status: 403 }
+        )
+      }
+
       exportFormat = hasExportFormatOverride
         ? adHocExportFormat
         : String(automation.export_format || "csv")
@@ -283,6 +302,13 @@ export async function POST(request: Request) {
         )
       }
 
+      if (accessScope && !isDatasetAllowed(accessScope, adHocDatasetId)) {
+        return NextResponse.json(
+          { error: "Dataset nao permitido para este usuario." },
+          { status: 403 }
+        )
+      }
+
       const { data: report } = await supabase
         .from("reports")
         .select("id")
@@ -323,6 +349,26 @@ export async function POST(request: Request) {
 
     const executionTarget = getExecutionTarget(catalogs[datasetId], datasetId)
     const executionDatasetId = adHocExecutionDatasetId || executionTarget.datasetId
+
+    if (accessScope && !isDatasetAllowed(accessScope, executionDatasetId)) {
+      return NextResponse.json(
+        { error: "Dataset auxiliar de execucao nao permitido para este usuario." },
+        { status: 403 }
+      )
+    }
+
+    const executionWorkspaceId = executionTarget.workspaceId || null
+    if (
+      accessScope &&
+      executionWorkspaceId &&
+      !isWorkspaceAllowed(accessScope, { pbiWorkspaceId: executionWorkspaceId })
+    ) {
+      return NextResponse.json(
+        { error: "Workspace auxiliar de execucao nao permitido para este usuario." },
+        { status: 403 }
+      )
+    }
+
     const token = await getAccessToken()
     const execution = await executeWithQueryFallback({
       runQuery: (nextQuery) => executeDAXQuery(token, executionDatasetId, nextQuery),

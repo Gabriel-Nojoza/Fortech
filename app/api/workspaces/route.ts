@@ -9,8 +9,44 @@ export async function GET() {
     const supabase = createClient()
     const scope = await getWorkspaceAccessScope(supabase, context)
 
-    if (scope.restricted && scope.workspaceIds.length === 0) {
+    if (scope.workspaceRestricted && scope.workspaceIds.length === 0) {
       return NextResponse.json([])
+    }
+
+    let datasetWorkspaceIds: string[] | null = null
+
+    if (scope.datasetRestricted) {
+      if (scope.datasetIds.length === 0) {
+        return NextResponse.json([])
+      }
+
+      const { data: reportRows, error: reportScopeError } = await supabase
+        .from("reports")
+        .select("workspace_id")
+        .eq("company_id", context.companyId)
+        .eq("is_active", true)
+        .in("dataset_id", scope.datasetIds)
+
+      if (reportScopeError) {
+        return NextResponse.json(
+          { error: reportScopeError.message },
+          { status: 500 }
+        )
+      }
+
+      datasetWorkspaceIds = Array.from(
+        new Set(
+          (reportRows ?? []).flatMap((report) =>
+            typeof report.workspace_id === "string" && report.workspace_id.trim()
+              ? [report.workspace_id.trim()]
+              : []
+          )
+        )
+      )
+
+      if (datasetWorkspaceIds.length === 0) {
+        return NextResponse.json([])
+      }
     }
 
     let query = supabase
@@ -19,8 +55,12 @@ export async function GET() {
       .eq("company_id", context.companyId)
       .order("name")
 
-    if (scope.restricted) {
+    if (scope.workspaceRestricted) {
       query = query.in("id", scope.workspaceIds)
+    }
+
+    if (datasetWorkspaceIds) {
+      query = query.in("id", datasetWorkspaceIds)
     }
 
     const { data: workspaces, error } = await query
@@ -32,13 +72,18 @@ export async function GET() {
     // Get report counts
     const enriched = await Promise.all(
       (workspaces ?? []).map(async (ws) => {
-        const { count } = await supabase
+        let reportsCountQuery = supabase
           .from("reports")
           .select("id", { count: "exact", head: true })
           .eq("company_id", context.companyId)
           .eq("workspace_id", ws.id)
           .eq("is_active", true)
 
+        if (scope.datasetRestricted) {
+          reportsCountQuery = reportsCountQuery.in("dataset_id", scope.datasetIds)
+        }
+
+        const { count } = await reportsCountQuery
         return { ...ws, report_count: count ?? 0 }
       })
     )

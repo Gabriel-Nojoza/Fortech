@@ -64,8 +64,10 @@ interface UserData {
     callback_secret?: string
   }
   workspace_access_configured?: boolean
+  dataset_access_configured?: boolean
   available_workspaces?: WorkspaceOption[]
   selected_pbi_workspace_ids?: string[]
+  selected_pbi_dataset_ids?: string[]
   app_metadata?: {
     role?: string
     company_id?: string
@@ -77,6 +79,11 @@ interface UserData {
   }
 }
 
+interface DatasetOption {
+  id: string
+  name: string
+}
+
 interface PowerBIPreview {
   workspace_count: number
   dataset_count: number
@@ -84,6 +91,7 @@ interface PowerBIPreview {
     id: string
     name: string
     dataset_count: number
+    datasets: DatasetOption[]
   }>
 }
 
@@ -91,6 +99,7 @@ interface WorkspaceOption {
   id: string
   name: string
   dataset_count?: number
+  datasets?: DatasetOption[]
 }
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
@@ -122,6 +131,12 @@ export default function UsersPage() {
   const [powerbiPreviewError, setPowerbiPreviewError] = useState<string | null>(null)
   const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceOption[]>([])
   const [selectedPbiWorkspaceIds, setSelectedPbiWorkspaceIds] = useState<string[]>([])
+  const [selectedPbiDatasetIds, setSelectedPbiDatasetIds] = useState<string[]>([])
+  const totalAvailableDatasets = workspaceOptions.reduce(
+    (count, workspace) =>
+      count + (Array.isArray(workspace.datasets) ? workspace.datasets.length : 0),
+    0
+  )
 
   function notifySuccess(message: string) {
     window.setTimeout(() => {
@@ -149,10 +164,11 @@ export default function UsersPage() {
     setFormN8nCallbackSecret("")
     setLoadingEditDetails(false)
     setPowerbiPreview(null)
-    setPowerbiPreviewError(null)
-    setWorkspaceOptions([])
-    setSelectedPbiWorkspaceIds([])
-    setDialogOpen(true)
+      setPowerbiPreviewError(null)
+      setWorkspaceOptions([])
+      setSelectedPbiWorkspaceIds([])
+      setSelectedPbiDatasetIds([])
+      setDialogOpen(true)
   }
 
   async function openEdit(user: UserData) {
@@ -172,6 +188,7 @@ export default function UsersPage() {
     setPowerbiPreviewError(null)
     setWorkspaceOptions([])
     setSelectedPbiWorkspaceIds([])
+    setSelectedPbiDatasetIds([])
     setLoadingEditDetails(true)
     setDialogOpen(true)
 
@@ -192,6 +209,7 @@ export default function UsersPage() {
       setFormN8nCallbackSecret(details.n8n?.callback_secret || "")
       setWorkspaceOptions(details.available_workspaces || [])
       setSelectedPbiWorkspaceIds(details.selected_pbi_workspace_ids || [])
+      setSelectedPbiDatasetIds(details.selected_pbi_dataset_ids || [])
     } catch (err) {
       notifyError(err instanceof Error ? err.message : "Erro ao carregar dados do usuario")
     } finally {
@@ -200,11 +218,63 @@ export default function UsersPage() {
   }
 
   function toggleWorkspace(workspaceId: string, checked: boolean) {
+    const workspace = workspaceOptions.find((item) => item.id === workspaceId)
+    const datasetIds = Array.isArray(workspace?.datasets)
+      ? workspace.datasets.flatMap((dataset) =>
+          dataset.id.trim() ? [dataset.id.trim()] : []
+        )
+      : []
+
     setSelectedPbiWorkspaceIds((current) =>
       checked
         ? Array.from(new Set([...current, workspaceId]))
         : current.filter((id) => id !== workspaceId)
     )
+
+    if (datasetIds.length > 0) {
+      setSelectedPbiDatasetIds((current) =>
+        checked
+          ? Array.from(new Set([...current, ...datasetIds]))
+          : current.filter((id) => !datasetIds.includes(id))
+      )
+    }
+  }
+
+  function toggleDataset(workspaceId: string, datasetId: string, checked: boolean) {
+    setSelectedPbiDatasetIds((current) =>
+      checked
+        ? Array.from(new Set([...current, datasetId]))
+        : current.filter((id) => id !== datasetId)
+    )
+
+    if (checked) {
+      setSelectedPbiWorkspaceIds((current) =>
+        current.includes(workspaceId) ? current : [...current, workspaceId]
+      )
+    }
+  }
+
+  function toggleAllDatasetsForWorkspace(workspaceId: string, checked: boolean) {
+    const workspace = workspaceOptions.find((item) => item.id === workspaceId)
+    const datasetIds = Array.isArray(workspace?.datasets)
+      ? workspace.datasets.flatMap((dataset) =>
+          dataset.id.trim() ? [dataset.id.trim()] : []
+        )
+      : []
+
+    if (datasetIds.length === 0) return
+
+    setSelectedPbiDatasetIds((current) =>
+      checked
+        ? Array.from(new Set([...current, ...datasetIds]))
+        : current.filter((id) => !datasetIds.includes(id))
+    )
+
+    if (checked) {
+      setSelectedPbiWorkspaceIds((current) =>
+        current.includes(workspaceId) ? current : [...current, workspaceId]
+      )
+    }
   }
 
   async function handleTestPowerBI() {
@@ -236,7 +306,15 @@ export default function UsersPage() {
         id: workspace.id,
         name: workspace.name,
         dataset_count: workspace.dataset_count,
+        datasets: workspace.datasets || [],
       }))
+      const nextDatasetIds = nextWorkspaceOptions.flatMap((workspace) =>
+        Array.isArray(workspace.datasets)
+          ? workspace.datasets.flatMap((dataset) =>
+              dataset.id.trim() ? [dataset.id.trim()] : []
+            )
+          : []
+      )
 
       setPowerbiPreview(preview)
       setWorkspaceOptions(nextWorkspaceOptions)
@@ -246,6 +324,14 @@ export default function UsersPage() {
         }
 
         const nextIds = new Set(nextWorkspaceOptions.map((workspace) => workspace.id))
+        return current.filter((id) => nextIds.has(id))
+      })
+      setSelectedPbiDatasetIds((current) => {
+        if (workspaceOptions.length === 0 && current.length === 0) {
+          return nextDatasetIds
+        }
+
+        const nextIds = new Set(nextDatasetIds)
         return current.filter((id) => nextIds.has(id))
       })
       notifySuccess("Credenciais validadas e dados carregados")
@@ -273,6 +359,24 @@ export default function UsersPage() {
 
     setSaving(true)
     try {
+      const selectedPbiDatasetAccess =
+        formRole === "client" && workspaceOptions.length > 0
+          ? workspaceOptions.flatMap((workspace) => {
+              if (
+                !selectedPbiWorkspaceIds.includes(workspace.id) ||
+                !Array.isArray(workspace.datasets)
+              ) {
+                return []
+              }
+
+              return workspace.datasets.flatMap((dataset) =>
+                selectedPbiDatasetIds.includes(dataset.id)
+                  ? [{ workspace_id: workspace.id, dataset_id: dataset.id }]
+                  : []
+              )
+            })
+          : undefined
+
       const payload = {
         id: editUser?.id,
         email: formEmail,
@@ -299,6 +403,11 @@ export default function UsersPage() {
           formRole === "client" && workspaceOptions.length > 0
             ? selectedPbiWorkspaceIds
             : undefined,
+        selected_pbi_dataset_ids:
+          formRole === "client" && workspaceOptions.length > 0
+            ? selectedPbiDatasetIds
+            : undefined,
+        selected_pbi_dataset_access: selectedPbiDatasetAccess,
       }
 
       const res = await fetch("/api/admin/users", {
@@ -556,7 +665,7 @@ export default function UsersPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-border/60 p-3">
+                  <div className="rounded-lg border border-border/60 p-3 md:col-span-2">
                     <p className="mb-3 text-sm font-medium">Power BI (Cliente)</p>
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col gap-2">
@@ -567,6 +676,9 @@ export default function UsersPage() {
                             setFormPbiTenantId(e.target.value)
                             setPowerbiPreview(null)
                             setPowerbiPreviewError(null)
+                            setWorkspaceOptions([])
+                            setSelectedPbiWorkspaceIds([])
+                            setSelectedPbiDatasetIds([])
                           }}
                           placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                         />
@@ -579,6 +691,9 @@ export default function UsersPage() {
                             setFormPbiClientId(e.target.value)
                             setPowerbiPreview(null)
                             setPowerbiPreviewError(null)
+                            setWorkspaceOptions([])
+                            setSelectedPbiWorkspaceIds([])
+                            setSelectedPbiDatasetIds([])
                           }}
                           placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                         />
@@ -592,6 +707,9 @@ export default function UsersPage() {
                             setFormPbiClientSecret(e.target.value)
                             setPowerbiPreview(null)
                             setPowerbiPreviewError(null)
+                            setWorkspaceOptions([])
+                            setSelectedPbiWorkspaceIds([])
+                            setSelectedPbiDatasetIds([])
                           }}
                           placeholder="Client secret"
                         />
@@ -633,20 +751,21 @@ export default function UsersPage() {
                       )}
 
                       <div className="rounded-md border border-border/60 bg-muted/10 p-3">
-                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <p className="text-sm font-medium text-foreground">Workspaces liberados</p>
                             <p className="text-xs text-muted-foreground">
                               Selecione quais workspaces este usuario podera acessar.
                             </p>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:justify-end">
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
                               onClick={() => setSelectedPbiWorkspaceIds(workspaceOptions.map((workspace) => workspace.id))}
                               disabled={workspaceOptions.length === 0}
+                              className="h-8 px-3 text-xs whitespace-nowrap"
                             >
                               Marcar todos
                             </Button>
@@ -656,6 +775,7 @@ export default function UsersPage() {
                               size="sm"
                               onClick={() => setSelectedPbiWorkspaceIds([])}
                               disabled={workspaceOptions.length === 0}
+                              className="h-8 px-3 text-xs whitespace-nowrap"
                             >
                               Limpar
                             </Button>
@@ -668,33 +788,129 @@ export default function UsersPage() {
                           </div>
                         ) : (
                           <>
-                            <div className="mb-2 text-xs text-muted-foreground">
-                              {selectedPbiWorkspaceIds.length} de {workspaceOptions.length} workspaces selecionados
+                            <div className="mb-3 flex flex-wrap gap-2">
+                              <Badge variant="secondary" className="font-normal">
+                                {selectedPbiWorkspaceIds.length} de {workspaceOptions.length} workspaces selecionados
+                              </Badge>
+                              <Badge variant="outline" className="font-normal">
+                                {selectedPbiDatasetIds.length} de {totalAvailableDatasets} datasets selecionados
+                              </Badge>
                             </div>
-                            <ScrollArea className="h-40 rounded-md border border-border/60">
-                              <div className="space-y-2 p-3">
+                            <ScrollArea className="h-80 rounded-md border border-border/60">
+                              <div className="space-y-3 p-3">
                                 {workspaceOptions.map((workspace) => {
                                   const checked = selectedPbiWorkspaceIds.includes(workspace.id)
+                                  const datasets = Array.isArray(workspace.datasets)
+                                    ? workspace.datasets
+                                    : []
+                                  const selectedDatasetCount = datasets.filter((dataset) =>
+                                    selectedPbiDatasetIds.includes(dataset.id)
+                                  ).length
 
                                   return (
-                                    <label
+                                    <div
                                       key={workspace.id}
-                                      className="flex cursor-pointer items-start gap-3 rounded-md border border-border/50 px-3 py-2 text-sm hover:bg-muted/20"
+                                      className="rounded-xl border border-border/50 bg-background/60 p-3 text-sm shadow-sm"
                                     >
-                                      <Checkbox
-                                        checked={checked}
-                                        onCheckedChange={(value) => toggleWorkspace(workspace.id, value === true)}
-                                      />
-                                      <div className="min-w-0 flex-1">
-                                        <div className="truncate font-medium text-foreground">{workspace.name}</div>
-                                        <div className="text-xs text-muted-foreground">
-                                          ID: {workspace.id}
-                                          {typeof workspace.dataset_count === "number"
-                                            ? ` • ${workspace.dataset_count} datasets`
-                                            : ""}
+                                      <label className="flex min-w-0 cursor-pointer items-start gap-3 rounded-lg p-2 transition-colors hover:bg-muted/30">
+                                        <Checkbox
+                                          checked={checked}
+                                          onCheckedChange={(value) => toggleWorkspace(workspace.id, value === true)}
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="truncate font-medium text-foreground" title={workspace.name}>
+                                            {workspace.name}
+                                          </div>
+                                          <div className="mt-1 truncate text-[11px] text-muted-foreground" title={workspace.id}>
+                                            ID: {workspace.id}
+                                          </div>
+                                          <div className="mt-2 flex flex-wrap gap-2">
+                                            {typeof workspace.dataset_count === "number" ? (
+                                              <Badge variant="outline" className="font-normal">
+                                                {workspace.dataset_count} datasets
+                                              </Badge>
+                                            ) : null}
+                                            {datasets.length > 0 ? (
+                                              <Badge variant="secondary" className="font-normal">
+                                                {selectedDatasetCount} selecionados
+                                              </Badge>
+                                            ) : null}
+                                          </div>
                                         </div>
-                                      </div>
-                                    </label>
+                                      </label>
+
+                                      {checked ? (
+                                        <div className="mt-3 border-t border-border/40 pt-3">
+                                          <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                            <p className="text-xs font-medium text-foreground">
+                                              Datasets deste workspace
+                                            </p>
+                                            <div className="flex flex-wrap gap-2">
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => toggleAllDatasetsForWorkspace(workspace.id, true)}
+                                                disabled={datasets.length === 0}
+                                                className="h-8 px-3 text-xs whitespace-nowrap"
+                                              >
+                                                Todos datasets
+                                              </Button>
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => toggleAllDatasetsForWorkspace(workspace.id, false)}
+                                                disabled={datasets.length === 0}
+                                                className="h-8 px-3 text-xs whitespace-nowrap"
+                                              >
+                                                Limpar datasets
+                                              </Button>
+                                            </div>
+                                          </div>
+
+                                          {datasets.length === 0 ? (
+                                            <div className="text-xs text-muted-foreground">
+                                              Nenhum dataset encontrado neste workspace.
+                                            </div>
+                                          ) : (
+                                            <div className="space-y-2">
+                                              {datasets.map((dataset) => (
+                                                <label
+                                                  key={dataset.id}
+                                                  className="flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border border-border/40 bg-background px-3 py-3 transition-colors hover:bg-muted/20"
+                                                >
+                                                  <Checkbox
+                                                    checked={selectedPbiDatasetIds.includes(dataset.id)}
+                                                    onCheckedChange={(value) =>
+                                                      toggleDataset(
+                                                        workspace.id,
+                                                        dataset.id,
+                                                        value === true
+                                                      )
+                                                    }
+                                                  />
+                                                  <div className="min-w-0 flex-1">
+                                                    <div
+                                                      className="truncate font-medium leading-snug text-foreground"
+                                                      title={dataset.name}
+                                                    >
+                                                      {dataset.name}
+                                                    </div>
+                                                    <div
+                                                      className="mt-1 truncate text-[11px] text-muted-foreground"
+                                                      title={dataset.id}
+                                                    >
+                                                      ID: {dataset.id}
+                                                    </div>
+                                                  </div>
+                                                </label>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   )
                                 })}
                               </div>
@@ -705,7 +921,7 @@ export default function UsersPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-border/60 p-3">
+                  <div className="rounded-lg border border-border/60 p-3 md:col-span-2">
                     <p className="mb-3 text-sm font-medium">N8N (Cliente)</p>
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col gap-2">

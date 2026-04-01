@@ -12,6 +12,10 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import { useTheme } from "next-themes"
 import { useRouter } from "next/navigation"
+import {
+  CurrentUserSummary,
+  type CurrentUserSummaryData,
+} from "@/components/auth/current-user-summary"
 import { BrandMark } from "@/components/branding/brand-mark"
 import { BRAND_ADMIN_SUBTITLE } from "@/lib/branding"
 import {
@@ -33,7 +37,11 @@ const adminNav = [
   { title: "Usuarios", href: "/admin/users", icon: Users },
 ]
 
-export function AdminSidebar() {
+type AdminSidebarProps = {
+  currentUser: CurrentUserSummaryData | null
+}
+
+export function AdminSidebar({ currentUser }: AdminSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const router = useRouter()
@@ -89,6 +97,7 @@ export function AdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
+        <CurrentUserSummary user={currentUser} />
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton

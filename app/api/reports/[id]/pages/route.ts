@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getAccessToken, listReportPages } from "@/lib/powerbi"
 import { getRequestContext } from "@/lib/tenant"
+import {
+  getWorkspaceAccessScope,
+  isDatasetAllowed,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { companyId } = await getRequestContext()
+    const contextValue = await getRequestContext()
+    const { companyId } = contextValue
     const { id } = await context.params
     const reportId = String(id ?? "").trim()
 
@@ -17,10 +23,11 @@ export async function GET(
     }
 
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, contextValue)
 
     const { data: report, error } = await supabase
       .from("reports")
-      .select("id, pbi_report_id, workspace_id, is_active")
+      .select("id, pbi_report_id, workspace_id, dataset_id, is_active")
       .eq("company_id", companyId)
       .eq("id", reportId)
       .eq("is_active", true)
@@ -28,6 +35,13 @@ export async function GET(
 
     if (error || !report) {
       return NextResponse.json({ error: "Relatorio nao encontrado" }, { status: 404 })
+    }
+
+    if (!isDatasetAllowed(scope, report.dataset_id)) {
+      return NextResponse.json(
+        { error: "Relatorio nao permitido para este usuario" },
+        { status: 403 }
+      )
     }
 
     const { data: workspace, error: workspaceError } = await supabase
@@ -42,6 +56,18 @@ export async function GET(
       return NextResponse.json(
         { error: "Workspace do relatorio nao encontrado" },
         { status: 404 }
+      )
+    }
+
+    if (
+      !isWorkspaceAllowed(scope, {
+        workspaceId: report.workspace_id,
+        pbiWorkspaceId: workspace.pbi_workspace_id,
+      })
+    ) {
+      return NextResponse.json(
+        { error: "Workspace nao permitido para este usuario" },
+        { status: 403 }
       )
     }
 

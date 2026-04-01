@@ -3,6 +3,11 @@ import { getAccessToken, executeDAXQuery, listDatasets } from "@/lib/powerbi"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
 import { getRequestContext } from "@/lib/tenant"
+import {
+  getWorkspaceAccessScope,
+  isDatasetAllowed,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 const MAX_FILTER_OPTIONS = 200
 
@@ -73,8 +78,10 @@ function buildDistinctValuesQuery(
 
 export async function GET(request: Request) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const { searchParams } = new URL(request.url)
     const datasetId = searchParams.get("datasetId")?.trim() || ""
     const tableName = searchParams.get("tableName")?.trim() || ""
@@ -89,6 +96,13 @@ export async function GET(request: Request) {
       return NextResponse.json(
         { error: "datasetId, tableName e columnName sao obrigatorios" },
         { status: 400 }
+      )
+    }
+
+    if (!isDatasetAllowed(scope, datasetId)) {
+      return NextResponse.json(
+        { error: "Dataset nao permitido para este usuario." },
+        { status: 403 }
       )
     }
 
@@ -118,6 +132,23 @@ export async function GET(request: Request) {
       requestedExecutionWorkspaceId || savedExecutionTarget.workspaceId || null
 
     if (effectiveExecutionDatasetId !== datasetId) {
+      if (!isDatasetAllowed(scope, effectiveExecutionDatasetId)) {
+        return NextResponse.json(
+          { error: "Dataset auxiliar de execucao nao permitido para este usuario." },
+          { status: 403 }
+        )
+      }
+
+      if (
+        effectiveExecutionWorkspaceId &&
+        !isWorkspaceAllowed(scope, { pbiWorkspaceId: effectiveExecutionWorkspaceId })
+      ) {
+        return NextResponse.json(
+          { error: "Workspace auxiliar de execucao nao permitido para este usuario." },
+          { status: 403 }
+        )
+      }
+
       const { data: executionReport } = await supabase
         .from("reports")
         .select("id")

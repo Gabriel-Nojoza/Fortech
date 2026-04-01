@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext, isAuthContextError } from "@/lib/tenant"
+import { getAccessibleScheduleIds } from "@/lib/schedule-access"
+import { getWorkspaceAccessScope } from "@/lib/workspace-access"
 
 export async function GET(request: NextRequest) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const { searchParams } = new URL(request.url)
 
     const status = searchParams.get("status")
@@ -16,6 +20,14 @@ export async function GET(request: NextRequest) {
       ? Math.min(Math.max(rawLimit, 1), 200)
       : 50
     const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0
+    const hasRestrictedScope = scope.workspaceRestricted || scope.datasetRestricted
+    const accessibleScheduleIds = hasRestrictedScope
+      ? await getAccessibleScheduleIds(supabase, companyId, scope)
+      : []
+
+    if (hasRestrictedScope && accessibleScheduleIds.length === 0) {
+      return NextResponse.json({ data: [], count: 0 })
+    }
 
     const buildQuery = (orderColumn: "created_at" | "id") => {
       let query = supabase
@@ -27,6 +39,10 @@ export async function GET(request: NextRequest) {
 
       if (status && status !== "all") {
         query = query.eq("status", status)
+      }
+
+      if (hasRestrictedScope) {
+        query = query.in("schedule_id", accessibleScheduleIds)
       }
 
       return query

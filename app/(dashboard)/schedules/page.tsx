@@ -25,7 +25,6 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Dialog,
   DialogContent,
@@ -1333,7 +1332,10 @@ export default function SchedulesPage() {
                             <ChevronDown className="size-4 opacity-50" />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-[360px] p-0" align="start">
+                        <PopoverContent
+                          className="w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+                          align="start"
+                        >
                           <div className="border-b px-3 py-3">
                             <p className="text-sm font-medium">Paginas do relatorio</p>
                             <p className="text-xs text-muted-foreground">
@@ -1368,8 +1370,16 @@ export default function SchedulesPage() {
                             </Button>
                           </div>
 
-                          <ScrollArea className="max-h-64">
-                            <div className="space-y-1 p-2">
+                          <div
+                            className="max-h-64 overflow-y-auto overscroll-contain p-2 pr-2"
+                            onWheelCapture={(event) => {
+                              const container = event.currentTarget
+                              container.scrollTop += event.deltaY
+                              event.preventDefault()
+                              event.stopPropagation()
+                            }}
+                          >
+                            <div className="space-y-1">
                               {reportPages.length === 0 ? (
                                 <div className="px-2 py-4 text-xs text-muted-foreground">
                                   Nenhuma pagina disponivel para este relatorio.
@@ -1398,7 +1408,7 @@ export default function SchedulesPage() {
                                 ))
                               )}
                             </div>
-                          </ScrollArea>
+                          </div>
                         </PopoverContent>
                       </Popover>
 

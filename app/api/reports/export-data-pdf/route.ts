@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { renderHtmlScreenshotToPdf } from "@/lib/browser-pdf"
 import { getAccessToken, executeDAXQuery } from "@/lib/powerbi"
+import { createServiceClient as createClient } from "@/lib/supabase/server"
+import { getCatalogMap } from "@/lib/automation-catalog"
+import { getRequestContext } from "@/lib/tenant"
+import {
+    getWorkspaceAccessScope,
+    isDatasetAllowed,
+} from "@/lib/workspace-access"
 
 function escapeHtml(value: unknown) {
     return String(value ?? "")
@@ -13,6 +20,10 @@ function escapeHtml(value: unknown) {
 
 export async function POST(req: NextRequest) {
     try {
+        const context = await getRequestContext()
+        const { companyId } = context
+        const supabase = createClient()
+        const scope = await getWorkspaceAccessScope(supabase, context)
         const body = await req.json()
 
         const datasetId = body.datasetId
@@ -22,6 +33,29 @@ export async function POST(req: NextRequest) {
             return NextResponse.json(
                 { error: "datasetId e query obrigatorios" },
                 { status: 400 }
+                )
+        }
+
+        if (!isDatasetAllowed(scope, String(datasetId))) {
+            return NextResponse.json(
+                { error: "Dataset nao permitido para este usuario." },
+                { status: 403 }
+            )
+        }
+
+        const { data: report } = await supabase
+            .from("reports")
+            .select("id")
+            .eq("company_id", companyId)
+            .eq("dataset_id", datasetId)
+            .limit(1)
+            .maybeSingle()
+
+        const catalogs = await getCatalogMap(companyId)
+        if (!report && !catalogs[String(datasetId)]) {
+            return NextResponse.json(
+                { error: "Dataset nao pertence a empresa do usuario." },
+                { status: 403 }
             )
         }
 

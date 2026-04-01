@@ -3,11 +3,17 @@ import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext } from "@/lib/tenant"
 import { getAccessToken } from "@/lib/powerbi"
 import { syncWorkspaceCatalogs } from "@/lib/powerbi-catalog-sync"
+import {
+  getWorkspaceAccessScope,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 export async function POST(request: NextRequest) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const body = await request.json()
     const workspaceId = String(body?.workspaceId ?? "").trim()
 
@@ -15,6 +21,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "workspaceId obrigatorio" },
         { status: 400 }
+      )
+    }
+
+    if (!isWorkspaceAllowed(scope, { pbiWorkspaceId: workspaceId })) {
+      return NextResponse.json(
+        { error: "Workspace nao permitido para este usuario" },
+        { status: 403 }
+      )
+    }
+
+    if (scope.datasetRestricted) {
+      return NextResponse.json(
+        {
+          error:
+            "A importacao em lote do workspace nao esta disponivel quando o usuario possui acesso restrito por dataset.",
+        },
+        { status: 403 }
       )
     }
 

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext } from "@/lib/tenant"
-import { getWorkspaceAccessScope } from "@/lib/workspace-access"
+import {
+  getWorkspaceAccessScope,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,10 +15,9 @@ export async function GET(request: NextRequest) {
     const workspaceId = searchParams.get("workspace_id")
 
     if (
-      scope.restricted &&
       workspaceId &&
       workspaceId !== "all" &&
-      !scope.workspaceIds.includes(workspaceId)
+      !isWorkspaceAllowed(scope, { workspaceId })
     ) {
       return NextResponse.json(
         { error: "Workspace nao permitido para este usuario" },
@@ -23,7 +25,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    if (scope.restricted && scope.workspaceIds.length === 0) {
+    if (scope.workspaceRestricted && scope.workspaceIds.length === 0) {
+      return NextResponse.json([])
+    }
+
+    if (scope.datasetRestricted && scope.datasetIds.length === 0) {
       return NextResponse.json([])
     }
 
@@ -38,8 +44,12 @@ export async function GET(request: NextRequest) {
       query = query.eq("workspace_id", workspaceId)
     }
 
-    if (scope.restricted) {
+    if (scope.workspaceRestricted) {
       query = query.in("workspace_id", scope.workspaceIds)
+    }
+
+    if (scope.datasetRestricted) {
+      query = query.in("dataset_id", scope.datasetIds)
     }
 
     const { data, error } = await query
@@ -54,7 +64,7 @@ export async function GET(request: NextRequest) {
       .select("id, name")
       .eq("company_id", context.companyId)
 
-    if (scope.restricted) {
+    if (scope.workspaceRestricted) {
       workspacesQuery = workspacesQuery.in("id", scope.workspaceIds)
     }
 

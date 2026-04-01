@@ -3,6 +3,11 @@ import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext } from "@/lib/tenant"
 import { getAccessToken, getWorkspaceScanResult, getWorkspaceScanStatus, listDatasets, requestWorkspaceScan } from "@/lib/powerbi"
 import { saveCatalogEntry } from "@/lib/automation-catalog"
+import {
+  getWorkspaceAccessScope,
+  isDatasetAllowed,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -18,8 +23,10 @@ function toString(value: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const body = await request.json()
     const workspaceId = String(body?.workspaceId ?? "").trim()
     const datasetId = String(body?.datasetId ?? "").trim()
@@ -28,6 +35,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "workspaceId e datasetId sao obrigatorios" },
         { status: 400 }
+      )
+    }
+
+    if (!isWorkspaceAllowed(scope, { pbiWorkspaceId: workspaceId })) {
+      return NextResponse.json(
+        { error: "Workspace nao permitido para este usuario" },
+        { status: 403 }
+      )
+    }
+
+    if (!isDatasetAllowed(scope, datasetId)) {
+      return NextResponse.json(
+        { error: "Dataset nao permitido para este usuario" },
+        { status: 403 }
       )
     }
 

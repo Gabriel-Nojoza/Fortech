@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
 import { getTimePartsInTimeZone, isSameMinuteInTimeZone, matchesCronValue } from "@/lib/schedule-cron"
+import { getScheduleAccessMaps, isScheduleAccessible } from "@/lib/schedule-access"
 import {
   isMissingAutomationRelationError,
   loadStoredAutomations,
 } from "@/lib/automation-storage"
+import { getRequestContext } from "@/lib/tenant"
+import { getWorkspaceAccessScope } from "@/lib/workspace-access"
 
 type ScheduleRow = {
   id: string
@@ -87,9 +90,18 @@ export async function GET(request: NextRequest) {
 
       return !isSameMinuteInTimeZone(lastRunAt, now, timeZone)
     })
+    const visibleDueSchedules =
+      source === "auth"
+        ? await (async () => {
+            const context = await getRequestContext()
+            const scope = await getWorkspaceAccessScope(supabase, context)
+            const accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
+            return dueSchedules.filter((schedule) => isScheduleAccessible(schedule, accessMaps))
+          })()
+        : dueSchedules
 
     const reportIds = Array.from(
-      new Set(dueSchedules.map((schedule) => schedule.report_id).filter(Boolean))
+      new Set(visibleDueSchedules.map((schedule) => schedule.report_id).filter(Boolean))
     )
 
     let reportMap = new Map<string, string>()
@@ -129,10 +141,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (dueSchedules.length > 0) {
+    if (visibleDueSchedules.length > 0) {
       const claimedAt = now.toISOString()
       await Promise.all(
-        dueSchedules.map((schedule) =>
+        visibleDueSchedules.map((schedule) =>
           supabase
             .from("schedules")
             .update({ last_run_at: claimedAt })
@@ -155,8 +167,8 @@ export async function GET(request: NextRequest) {
         currentLocalTime.hour
       ).padStart(2, "0")}:${String(currentLocalTime.minute).padStart(2, "0")}`,
       dispatch_url: `${getRequestOrigin(request)}/api/dispatch`,
-      total_due: dueSchedules.length,
-      schedules: dueSchedules.map((schedule) => ({
+      total_due: visibleDueSchedules.length,
+      schedules: visibleDueSchedules.map((schedule) => ({
         id: schedule.id,
         name: schedule.name,
         report_id: schedule.report_id,

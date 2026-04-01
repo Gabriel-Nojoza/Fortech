@@ -3,9 +3,9 @@ import { z } from "zod"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext } from "@/lib/tenant"
 import {
-  isMissingAutomationRelationError,
-  loadStoredAutomations,
-} from "@/lib/automation-storage"
+  getScheduleAccessMaps,
+  isScheduleAccessible,
+} from "@/lib/schedule-access"
 import {
   getPrimaryScheduleReportConfig,
   getScheduleReportIds,
@@ -13,6 +13,7 @@ import {
   resolveScheduleReportConfigs,
 } from "@/lib/schedule-report-configs"
 import { normalizeSchedulePageNames } from "@/lib/schedule-pages"
+import { getWorkspaceAccessScope } from "@/lib/workspace-access"
 import {
   getCompanyWhatsAppBotInstance,
   isMissingBotInstanceIdColumnError,
@@ -40,6 +41,20 @@ function isMissingScheduleReportConfigsColumn(message?: string | null) {
     typeof message === "string" &&
     message.includes("report_configs") &&
     message.includes("schedules")
+  )
+}
+
+function hasAccessToScheduleReports(
+  reportIds: string[],
+  visibleTargetIds: Set<string>
+) {
+  return reportIds.length > 0 && reportIds.every((reportId) => visibleTargetIds.has(reportId))
+}
+
+function getScheduleAccessErrorResponse() {
+  return NextResponse.json(
+    { error: "Voce nao tem acesso a um ou mais relatorios desta rotina." },
+    { status: 403 }
   )
 }
 
@@ -126,8 +141,14 @@ const scheduleUpdateSchema = baseScheduleSchema
   .superRefine(validateScheduleReports)
 
 export async function GET() {
-  const { companyId } = await getRequestContext()
+  const context = await getRequestContext()
+  const { companyId } = context
   const supabase = createClient()
+  const scope = await getWorkspaceAccessScope(supabase, context)
+
+  if (scope.datasetRestricted && scope.datasetIds.length === 0) {
+    return NextResponse.json([])
+  }
 
   const { data: schedules, error } = await supabase
     .from("schedules")
@@ -139,53 +160,13 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  const reportIds = Array.from(
-    new Set(
-      (schedules ?? []).flatMap((schedule) =>
-        getScheduleReportIds(resolveScheduleReportConfigs(schedule))
-      )
-    )
+  const accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
+  const visibleSchedules = (schedules ?? []).filter((schedule) =>
+    isScheduleAccessible(schedule, accessMaps)
   )
 
-  let reportMap = new Map<string, string>()
-  if (reportIds.length > 0) {
-    const { data: reports } = await supabase
-      .from("reports")
-      .select("id, name")
-      .eq("company_id", companyId)
-      .in("id", reportIds)
-
-    reportMap = new Map((reports ?? []).map((report) => [report.id, report.name]))
-  }
-
-  let automationMap = new Map<string, string>()
-  if (reportIds.length > 0) {
-    const { data: automations, error: automationsError } = await supabase
-      .from("automations")
-      .select("id, name")
-      .eq("company_id", companyId)
-      .in("id", reportIds)
-
-    if (automationsError) {
-      if (!isMissingAutomationRelationError(automationsError)) {
-        return NextResponse.json({ error: automationsError.message }, { status: 500 })
-      }
-
-      const storedAutomations = await loadStoredAutomations(supabase, companyId)
-      automationMap = new Map(
-        storedAutomations
-          .filter((automation) => reportIds.includes(automation.id))
-          .map((automation) => [automation.id, automation.name])
-      )
-    } else {
-      automationMap = new Map(
-        (automations ?? []).map((automation) => [automation.id, automation.name])
-      )
-    }
-  }
-
   const enriched = await Promise.all(
-    (schedules ?? []).map(async (schedule) => {
+    visibleSchedules.map(async (schedule) => {
       const { data: scContacts } = await supabase
         .from("schedule_contacts")
         .select("contact_id")
@@ -207,12 +188,12 @@ export async function GET() {
 
       const reportConfigs = resolveScheduleReportConfigs(schedule).map((reportConfig) => {
         const reportName =
-          reportMap.get(reportConfig.report_id) ??
-          automationMap.get(reportConfig.report_id) ??
+          accessMaps.reportNames.get(reportConfig.report_id) ??
+          accessMaps.automationNames.get(reportConfig.report_id) ??
           "Desconhecido"
-        const reportSource = reportMap.has(reportConfig.report_id)
+        const reportSource = accessMaps.reportNames.has(reportConfig.report_id)
           ? "powerbi"
-          : automationMap.has(reportConfig.report_id)
+          : accessMaps.automationNames.has(reportConfig.report_id)
             ? "created"
             : "unknown"
 
@@ -244,8 +225,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const { companyId } = await getRequestContext()
+  const context = await getRequestContext()
+  const { companyId } = context
   const supabase = createClient()
+  const scope = await getWorkspaceAccessScope(supabase, context)
+  const accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
   const body = await request.json()
   const parsed = scheduleSchema.safeParse(body)
 
@@ -260,6 +244,11 @@ export async function POST(request: NextRequest) {
   const normalizedContactIds = [...new Set((contact_ids ?? []).map((id) => id.trim()).filter(Boolean))]
   const reportConfigs = resolveScheduleReportConfigs(parsed.data)
   const primaryReportConfig = getPrimaryScheduleReportConfig(reportConfigs)
+  const scheduleReportIds = getScheduleReportIds(reportConfigs)
+
+  if (!hasAccessToScheduleReports(scheduleReportIds, accessMaps.visibleTargetIds)) {
+    return getScheduleAccessErrorResponse()
+  }
 
   if (!primaryReportConfig) {
     return NextResponse.json(
@@ -418,8 +407,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const { companyId } = await getRequestContext()
+  const context = await getRequestContext()
+  const { companyId } = context
   const supabase = createClient()
+  const scope = await getWorkspaceAccessScope(supabase, context)
+  const accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
   const body = await request.json()
   const parsed = scheduleUpdateSchema.safeParse(body)
 
@@ -476,6 +468,10 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
   }
 
+  if (!isScheduleAccessible(existingSchedule, accessMaps)) {
+    return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
+  }
+
   const reportConfigs = isUpdatingReportSelection
     ? resolveScheduleReportConfigs({
         report_configs: parsed.data.report_configs ?? existingSchedule.report_configs,
@@ -490,6 +486,7 @@ export async function PUT(request: NextRequest) {
             : existingSchedule.pbi_page_names,
       })
     : resolveScheduleReportConfigs(existingSchedule)
+  const scheduleReportIds = getScheduleReportIds(reportConfigs)
   const effectiveExportFormat = parsed.data.export_format ?? existingSchedule.export_format
   const selectedBotInstance = await getCompanyWhatsAppBotInstance(
     supabase,
@@ -516,6 +513,10 @@ export async function PUT(request: NextRequest) {
       },
       { status: 400 }
     )
+  }
+
+  if (!hasAccessToScheduleReports(scheduleReportIds, accessMaps.visibleTargetIds)) {
+    return getScheduleAccessErrorResponse()
   }
 
   if (
@@ -680,13 +681,31 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const { companyId } = await getRequestContext()
+  const context = await getRequestContext()
+  const { companyId } = context
   const supabase = createClient()
+  const scope = await getWorkspaceAccessScope(supabase, context)
+  const accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
   const { searchParams } = new URL(request.url)
   const id = searchParams.get("id")
 
   if (!id) {
     return NextResponse.json({ error: "ID obrigatorio" }, { status: 400 })
+  }
+
+  const { data: existingSchedule, error: existingScheduleError } = await supabase
+    .from("schedules")
+    .select("id, report_id, report_configs, pbi_page_name, pbi_page_names")
+    .eq("company_id", companyId)
+    .eq("id", id)
+    .maybeSingle()
+
+  if (existingScheduleError) {
+    return NextResponse.json({ error: existingScheduleError.message }, { status: 500 })
+  }
+
+  if (!existingSchedule || !isScheduleAccessible(existingSchedule, accessMaps)) {
+    return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
   }
 
   const { error } = await supabase

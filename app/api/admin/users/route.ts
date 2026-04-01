@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdminContext } from "@/lib/tenant"
-import { listReports, listWorkspaces } from "@/lib/powerbi"
+import { listDatasets, listReports, listWorkspaces } from "@/lib/powerbi"
 import {
   getCompanyWorkspaceOptions,
+  getSelectedPbiDatasetIds,
   getSelectedPbiWorkspaceIds,
+  getUserAssignedPbiDatasetIds,
   getUserAssignedPbiWorkspaceIds,
+  isDatasetAccessConfigured,
   isWorkspaceAccessConfigured,
+  normalizePbiDatasetIds,
+  normalizePbiDatasetSelections,
   normalizePbiWorkspaceIds,
+  syncUserDatasetAccess,
   syncUserWorkspaceAccess,
 } from "@/lib/workspace-access"
 
@@ -112,6 +118,51 @@ async function getPowerBIAccessToken(config: {
   return String(json.access_token ?? "")
 }
 
+async function discoverPowerBIWorkspaces(config: Record<string, unknown> | undefined) {
+  const tenantId =
+    typeof config?.tenant_id === "string" ? config.tenant_id.trim() : ""
+  const clientId =
+    typeof config?.client_id === "string" ? config.client_id.trim() : ""
+  const clientSecret =
+    typeof config?.client_secret === "string" ? config.client_secret.trim() : ""
+
+  if (!tenantId || !clientId || !clientSecret) {
+    return null
+  }
+
+  const token = await getPowerBIAccessToken({
+    tenant_id: tenantId,
+    client_id: clientId,
+    client_secret: clientSecret,
+  })
+
+  const workspaces = await listWorkspaces(token)
+
+  return Promise.all(
+    workspaces.map(async (workspace) => {
+      try {
+        const datasets = await listDatasets(token, workspace.id)
+        return {
+          id: workspace.id,
+          name: workspace.name,
+          dataset_count: datasets.length,
+          datasets: datasets.map((dataset) => ({
+            id: String(dataset.id ?? ""),
+            name: String(dataset.name ?? ""),
+          })),
+        }
+      } catch {
+        return {
+          id: workspace.id,
+          name: workspace.name,
+          dataset_count: 0,
+          datasets: [],
+        }
+      }
+    })
+  )
+}
+
 async function upsertWorkspace(
   supabase: ReturnType<typeof getAdminClient>,
   payload: Record<string, unknown>
@@ -177,24 +228,49 @@ export async function GET(request: Request) {
 
       const companyId = getUserCompanyId(current)
       const settings = await getUserSettingsSnapshot(supabase, companyId)
-      const availableWorkspaces = await getCompanyWorkspaceOptions(supabase, companyId)
+      const discoveredWorkspaces = await discoverPowerBIWorkspaces(
+        settings.powerbi
+      ).catch(() => null)
+      const availableWorkspaces =
+        discoveredWorkspaces ?? (await getCompanyWorkspaceOptions(supabase, companyId))
       const assignedPbiWorkspaceIds = await getUserAssignedPbiWorkspaceIds(
         supabase,
         current.id,
         companyId,
         current
       )
+      const assignedPbiDatasetIds = await getUserAssignedPbiDatasetIds(
+        supabase,
+        current.id,
+        companyId,
+        current
+      )
       const workspaceAccessConfigured = isWorkspaceAccessConfigured(current)
+      const datasetAccessConfigured = isDatasetAccessConfigured(current)
+      const allDatasetIds = availableWorkspaces.flatMap((workspace) =>
+        Array.isArray(workspace.datasets)
+          ? workspace.datasets.flatMap((dataset) =>
+              typeof dataset.id === "string" && dataset.id.trim()
+                ? [dataset.id.trim()]
+                : []
+            )
+          : []
+      )
 
       return NextResponse.json({
         ...current,
         company_id: companyId,
         workspace_access_configured: workspaceAccessConfigured,
+        dataset_access_configured: datasetAccessConfigured,
         available_workspaces: availableWorkspaces,
         selected_pbi_workspace_ids:
           workspaceAccessConfigured && assignedPbiWorkspaceIds !== null
             ? assignedPbiWorkspaceIds
             : availableWorkspaces.map((workspace) => workspace.id),
+        selected_pbi_dataset_ids:
+          datasetAccessConfigured && assignedPbiDatasetIds !== null
+            ? assignedPbiDatasetIds
+            : allDatasetIds,
         ...settings,
       })
     }
@@ -225,6 +301,20 @@ export async function POST(request: Request) {
     const normalizedRole = role === "admin" ? "admin" : "client"
     const hasWorkspaceSelectionPayload = Array.isArray(body?.selected_pbi_workspace_ids)
     const normalizedSelectedPbiWorkspaceIds = normalizePbiWorkspaceIds(body?.selected_pbi_workspace_ids)
+    const hasDatasetSelectionPayload =
+      Array.isArray(body?.selected_pbi_dataset_access) ||
+      Array.isArray(body?.selected_pbi_dataset_ids)
+    const normalizedSelectedDatasetSelections = normalizePbiDatasetSelections(
+      body?.selected_pbi_dataset_access
+    ).filter(
+      (entry) =>
+        normalizedSelectedPbiWorkspaceIds.length === 0 ||
+        normalizedSelectedPbiWorkspaceIds.includes(entry.workspaceId)
+    )
+    const normalizedSelectedPbiDatasetIds =
+      normalizedSelectedDatasetSelections.length > 0
+        ? normalizedSelectedDatasetSelections.map((entry) => entry.datasetId)
+        : normalizePbiDatasetIds(body?.selected_pbi_dataset_ids)
     let targetCompanyId = context.companyId
 
     if (!normalizedEmail || !normalizedPassword) {
@@ -359,8 +449,12 @@ export async function POST(request: Request) {
         company_id: targetCompanyId,
         workspace_access_configured:
           normalizedRole === "client" ? hasWorkspaceSelectionPayload : false,
+        dataset_access_configured:
+          normalizedRole === "client" ? hasDatasetSelectionPayload : false,
         selected_pbi_workspace_ids:
           normalizedRole === "client" ? normalizedSelectedPbiWorkspaceIds : [],
+        selected_pbi_dataset_ids:
+          normalizedRole === "client" ? normalizedSelectedPbiDatasetIds : [],
       },
       user_metadata: {
         name: normalizedName,
@@ -368,8 +462,12 @@ export async function POST(request: Request) {
         company_id: targetCompanyId,
         workspace_access_configured:
           normalizedRole === "client" ? hasWorkspaceSelectionPayload : false,
+        dataset_access_configured:
+          normalizedRole === "client" ? hasDatasetSelectionPayload : false,
         selected_pbi_workspace_ids:
           normalizedRole === "client" ? normalizedSelectedPbiWorkspaceIds : [],
+        selected_pbi_dataset_ids:
+          normalizedRole === "client" ? normalizedSelectedPbiDatasetIds : [],
       },
     })
 
@@ -388,6 +486,14 @@ export async function POST(request: Request) {
         userId: data.user.id,
         companyId: targetCompanyId,
         selectedPbiWorkspaceIds: normalizedSelectedPbiWorkspaceIds,
+      })
+    }
+
+    if (data.user && normalizedRole === "client" && hasDatasetSelectionPayload) {
+      await syncUserDatasetAccess(supabase, {
+        userId: data.user.id,
+        companyId: targetCompanyId,
+        selectedDatasets: normalizedSelectedDatasetSelections,
       })
     }
 
@@ -416,6 +522,8 @@ export async function PUT(request: Request) {
       powerbi,
       n8n,
       selected_pbi_workspace_ids,
+      selected_pbi_dataset_access,
+      selected_pbi_dataset_ids,
     } = body
     const normalizedEmail = String(email ?? "").trim().toLowerCase()
     const normalizedPassword = String(password ?? "").trim()
@@ -423,6 +531,20 @@ export async function PUT(request: Request) {
     const normalizedRole = role === "admin" ? "admin" : "client"
     const hasWorkspaceSelectionPayload = Array.isArray(selected_pbi_workspace_ids)
     const normalizedSelectedPbiWorkspaceIds = normalizePbiWorkspaceIds(selected_pbi_workspace_ids)
+    const hasDatasetSelectionPayload =
+      Array.isArray(selected_pbi_dataset_access) ||
+      Array.isArray(selected_pbi_dataset_ids)
+    const normalizedSelectedDatasetSelections = normalizePbiDatasetSelections(
+      selected_pbi_dataset_access
+    ).filter(
+      (entry) =>
+        normalizedSelectedPbiWorkspaceIds.length === 0 ||
+        normalizedSelectedPbiWorkspaceIds.includes(entry.workspaceId)
+    )
+    const normalizedSelectedPbiDatasetIds =
+      normalizedSelectedDatasetSelections.length > 0
+        ? normalizedSelectedDatasetSelections.map((entry) => entry.datasetId)
+        : normalizePbiDatasetIds(selected_pbi_dataset_ids)
 
     if (!id) {
       return NextResponse.json({ error: "ID obrigatorio" }, { status: 400 })
@@ -446,12 +568,24 @@ export async function PUT(request: Request) {
       normalizedRole === "client"
         ? hasWorkspaceSelectionPayload || isWorkspaceAccessConfigured(current)
         : false
+    const nextDatasetAccessConfigured =
+      normalizedRole === "client"
+        ? hasDatasetSelectionPayload || isDatasetAccessConfigured(current)
+        : false
     const nextSelectedPbiWorkspaceIds =
       normalizedRole === "client"
         ? (
             hasWorkspaceSelectionPayload
               ? normalizedSelectedPbiWorkspaceIds
               : getSelectedPbiWorkspaceIds(current)
+          )
+        : []
+    const nextSelectedPbiDatasetIds =
+      normalizedRole === "client"
+        ? (
+            hasDatasetSelectionPayload
+              ? normalizedSelectedPbiDatasetIds
+              : getSelectedPbiDatasetIds(current)
           )
         : []
 
@@ -533,14 +667,18 @@ export async function PUT(request: Request) {
         role: normalizedRole,
         company_id: targetCompanyId,
         workspace_access_configured: nextWorkspaceAccessConfigured,
+        dataset_access_configured: nextDatasetAccessConfigured,
         selected_pbi_workspace_ids: nextSelectedPbiWorkspaceIds,
+        selected_pbi_dataset_ids: nextSelectedPbiDatasetIds,
       },
       user_metadata: {
         name: normalizedName,
         role: normalizedRole,
         company_id: targetCompanyId,
         workspace_access_configured: nextWorkspaceAccessConfigured,
+        dataset_access_configured: nextDatasetAccessConfigured,
         selected_pbi_workspace_ids: nextSelectedPbiWorkspaceIds,
+        selected_pbi_dataset_ids: nextSelectedPbiDatasetIds,
       },
     }
 
@@ -576,6 +714,20 @@ export async function PUT(request: Request) {
         userId: id,
         companyId: targetCompanyId,
         selectedPbiWorkspaceIds: normalizedSelectedPbiWorkspaceIds,
+      })
+    }
+
+    if (normalizedRole !== "client" || !nextDatasetAccessConfigured) {
+      await syncUserDatasetAccess(supabase, {
+        userId: id,
+        companyId: targetCompanyId,
+        selectedDatasets: [],
+      })
+    } else if (hasDatasetSelectionPayload) {
+      await syncUserDatasetAccess(supabase, {
+        userId: id,
+        companyId: targetCompanyId,
+        selectedDatasets: normalizedSelectedDatasetSelections,
       })
     }
 

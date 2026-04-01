@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
 import { normalizeContactForResponse } from "@/lib/contact-compat"
+import { getScheduleAccessMaps, isScheduleAccessible } from "@/lib/schedule-access"
 import {
   getStoredAutomationById,
   isMissingAutomationRelationError,
@@ -17,8 +18,10 @@ import {
   getScheduleReportIds,
   resolveScheduleReportConfigs,
 } from "@/lib/schedule-report-configs"
+import { getRequestContext } from "@/lib/tenant"
 import { exportPowerBIReportPdf, sanitizeFileName } from "@/lib/powerbi-report-pdf"
 import { getAccessToken } from "@/lib/powerbi"
+import { getWorkspaceAccessScope } from "@/lib/workspace-access"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 import { getCompanyWhatsAppBotInstance } from "@/lib/whatsapp-bot-instances"
 
@@ -86,10 +89,18 @@ function applyMessageTemplate(template: string | null | undefined, reportName: s
 
 
 export async function POST(request: NextRequest) {
-  const { companyId } = await resolveRequestCompanyContext(request, {
+  const { companyId, source } = await resolveRequestCompanyContext(request, {
     allowCallbackSecret: true,
   })
   const supabase = createClient()
+  const accessMaps =
+    source === "auth"
+      ? await (async () => {
+          const context = await getRequestContext()
+          const scope = await getWorkspaceAccessScope(supabase, context)
+          return getScheduleAccessMaps(supabase, companyId, scope)
+        })()
+      : null
   const body = await request.json()
   const { schedule_id } = body
 
@@ -105,6 +116,10 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (!schedule) {
+    return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
+  }
+
+  if (accessMaps && !isScheduleAccessible(schedule, accessMaps)) {
     return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
   }
 

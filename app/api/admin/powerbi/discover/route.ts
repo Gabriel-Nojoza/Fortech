@@ -60,12 +60,17 @@ export async function POST(request: Request) {
             id: ws.id,
             name: ws.name,
             dataset_count: datasets.length,
+            datasets: datasets.map((dataset) => ({
+              id: String(dataset.id ?? ""),
+              name: String(dataset.name ?? ""),
+            })),
           }
         } catch {
           return {
             id: ws.id,
             name: ws.name,
             dataset_count: 0,
+            datasets: [],
           }
         }
       })

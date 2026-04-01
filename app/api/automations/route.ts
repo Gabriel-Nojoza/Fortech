@@ -3,11 +3,17 @@ import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getRequestContext } from "@/lib/tenant"
 import {
   createStoredAutomation,
+  getStoredAutomationById,
   deleteStoredAutomation,
   isMissingAutomationRelationError,
   listStoredAutomationsWithContacts,
   updateStoredAutomation,
 } from "@/lib/automation-storage"
+import {
+  getWorkspaceAccessScope,
+  isDatasetAllowed,
+  isWorkspaceAllowed,
+} from "@/lib/workspace-access"
 
 type AutomationRow = Record<string, unknown>
 type NormalizedAutomationRow = AutomationRow & {
@@ -19,6 +25,34 @@ type NormalizedAutomationRow = AutomationRow & {
   export_format: string
   message_template: string | null
   is_active: boolean
+}
+
+function isAutomationVisible(
+  scope: {
+    workspaceRestricted: boolean
+    datasetRestricted: boolean
+    workspaceIds: string[]
+    pbiWorkspaceIds: string[]
+    datasetIds: string[]
+  },
+  automation: {
+    dataset_id?: unknown
+    workspace_id?: unknown
+  }
+) {
+  const datasetId =
+    typeof automation.dataset_id === "string" && automation.dataset_id.trim()
+      ? automation.dataset_id
+      : null
+  const workspaceId =
+    typeof automation.workspace_id === "string" && automation.workspace_id.trim()
+      ? automation.workspace_id
+      : null
+
+  return (
+    isDatasetAllowed(scope, datasetId) &&
+    isWorkspaceAllowed(scope, { workspaceId })
+  )
 }
 
 const OPTIONAL_AUTOMATION_COLUMNS = new Set([
@@ -156,8 +190,15 @@ async function insertAutomationWithFallback(
 
 export async function GET() {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
+
+    if (scope.datasetRestricted && scope.datasetIds.length === 0) {
+      return NextResponse.json([])
+    }
+
     const { data, error } = await supabase
       .from("automations")
       .select("*")
@@ -167,15 +208,21 @@ export async function GET() {
     if (error) {
       if (isMissingAutomationRelationError(error)) {
         const storedAutomations = await listStoredAutomationsWithContacts(supabase, companyId)
-        return NextResponse.json(storedAutomations)
+        return NextResponse.json(
+          storedAutomations.filter((automation) => isAutomationVisible(scope, automation))
+        )
       }
 
       throw error
     }
 
+    const visibleAutomations = (data || []).filter((automation) =>
+      isAutomationVisible(scope, automation)
+    )
+
     // Fetch contacts for each automation
     const automationsWithContacts = await Promise.all(
-      (data || []).map(async (automation) => {
+      visibleAutomations.map(async (automation) => {
         const { data: contactData, error: contactsError } = await supabase
           .from("automation_contacts")
           .select("contact_id, contacts(*)")
@@ -206,8 +253,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const body = await request.json()
 
     const {
@@ -228,6 +277,23 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "name e dataset_id sao obrigatorios" },
         { status: 400 }
+      )
+    }
+
+    if (!isDatasetAllowed(scope, String(dataset_id))) {
+      return NextResponse.json(
+        { error: "Dataset nao permitido para este usuario." },
+        { status: 403 }
+      )
+    }
+
+    if (
+      workspace_id &&
+      !isWorkspaceAllowed(scope, { workspaceId: String(workspace_id) })
+    ) {
+      return NextResponse.json(
+        { error: "Workspace nao permitido para este usuario." },
+        { status: 403 }
       )
     }
 
@@ -291,8 +357,10 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const body = await request.json()
     const { id, contact_ids, ...updates } = body
 
@@ -300,8 +368,54 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "id obrigatorio" }, { status: 400 })
     }
 
+    const nextDatasetId =
+      typeof updates.dataset_id === "string" ? updates.dataset_id.trim() : ""
+    const nextWorkspaceId =
+      typeof updates.workspace_id === "string" ? updates.workspace_id.trim() : ""
+
+    if (nextDatasetId && !isDatasetAllowed(scope, nextDatasetId)) {
+      return NextResponse.json(
+        { error: "Dataset nao permitido para este usuario." },
+        { status: 403 }
+      )
+    }
+
+    if (nextWorkspaceId && !isWorkspaceAllowed(scope, { workspaceId: nextWorkspaceId })) {
+      return NextResponse.json(
+        { error: "Workspace nao permitido para este usuario." },
+        { status: 403 }
+      )
+    }
+
     let data: Record<string, unknown> | null = null
     let usingStoredAutomation = false
+
+    const { data: existingAutomation, error: existingAutomationError } = await supabase
+      .from("automations")
+      .select("id, dataset_id, workspace_id")
+      .eq("company_id", companyId)
+      .eq("id", id)
+      .maybeSingle()
+
+    if (existingAutomationError && !isMissingAutomationRelationError(existingAutomationError)) {
+      throw existingAutomationError
+    }
+
+    if (existingAutomation) {
+      if (
+        !isDatasetAllowed(scope, String(existingAutomation.dataset_id ?? "")) ||
+        !isWorkspaceAllowed(scope, {
+          workspaceId: typeof existingAutomation.workspace_id === "string"
+            ? existingAutomation.workspace_id
+            : null,
+        })
+      ) {
+        return NextResponse.json(
+          { error: "Automacao nao permitida para este usuario." },
+          { status: 403 }
+        )
+      }
+    }
 
     const { data: dbData, error } = await supabase
       .from("automations")
@@ -317,6 +431,21 @@ export async function PUT(request: Request) {
       }
 
       usingStoredAutomation = true
+      const storedAutomation = await getStoredAutomationById(supabase, companyId, id)
+      if (!storedAutomation) {
+        return NextResponse.json({ error: "Automacao nao encontrada" }, { status: 404 })
+      }
+
+      if (
+        !isDatasetAllowed(scope, storedAutomation.dataset_id) ||
+        !isWorkspaceAllowed(scope, { workspaceId: storedAutomation.workspace_id })
+      ) {
+        return NextResponse.json(
+          { error: "Automacao nao permitida para este usuario." },
+          { status: 403 }
+        )
+      }
+
       data = (await updateStoredAutomation(supabase, companyId, id, {
         ...updates,
         ...(contact_ids !== undefined ? { contact_ids } : {}),
@@ -364,8 +493,10 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { companyId } = await getRequestContext()
+    const context = await getRequestContext()
+    const { companyId } = context
     const supabase = createClient()
+    const scope = await getWorkspaceAccessScope(supabase, context)
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
 
@@ -373,10 +504,52 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "id obrigatorio" }, { status: 400 })
     }
 
+    const { data: existingAutomation, error: existingAutomationError } = await supabase
+      .from("automations")
+      .select("id, dataset_id, workspace_id")
+      .eq("company_id", companyId)
+      .eq("id", id)
+      .maybeSingle()
+
+    if (existingAutomationError && !isMissingAutomationRelationError(existingAutomationError)) {
+      throw existingAutomationError
+    }
+
+    if (existingAutomation) {
+      if (
+        !isDatasetAllowed(scope, String(existingAutomation.dataset_id ?? "")) ||
+        !isWorkspaceAllowed(scope, {
+          workspaceId: typeof existingAutomation.workspace_id === "string"
+            ? existingAutomation.workspace_id
+            : null,
+        })
+      ) {
+        return NextResponse.json(
+          { error: "Automacao nao permitida para este usuario." },
+          { status: 403 }
+        )
+      }
+    }
+
     const { error } = await supabase.from("automations").delete().eq("company_id", companyId).eq("id", id)
     if (error) {
       if (!isMissingAutomationRelationError(error)) {
         throw error
+      }
+
+      const storedAutomation = await getStoredAutomationById(supabase, companyId, id)
+      if (!storedAutomation) {
+        return NextResponse.json({ error: "Automacao nao encontrada" }, { status: 404 })
+      }
+
+      if (
+        !isDatasetAllowed(scope, storedAutomation.dataset_id) ||
+        !isWorkspaceAllowed(scope, { workspaceId: storedAutomation.workspace_id })
+      ) {
+        return NextResponse.json(
+          { error: "Automacao nao permitida para este usuario." },
+          { status: 403 }
+        )
       }
 
       const deleted = await deleteStoredAutomation(supabase, companyId, id)
