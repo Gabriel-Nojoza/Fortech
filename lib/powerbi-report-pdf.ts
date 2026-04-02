@@ -94,8 +94,10 @@ function buildPowerBICaptureHtml(input: {
     }
 
     #report-container {
-      width: 100%;
-      height: 100%;
+      width: 118%;
+      height: 118%;
+      transform: scale(0.85);
+      transform-origin: top left;
     }
 
     .status {
