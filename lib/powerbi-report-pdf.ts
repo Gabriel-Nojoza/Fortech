@@ -509,7 +509,7 @@ export async function exportPowerBIReportPdf(input: {
       screenshotScale: 1,
       forceExpandScrollable: true,
       scrollableSegmentationMode: "full-page-scroll-steps",
-      autoGrowPageHeight: true,
+      autoGrowPageHeight: false,
       maxPageHeightMm: 10000,
     })
   }
