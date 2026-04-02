@@ -89,23 +89,48 @@ function applyMessageTemplate(template: string | null | undefined, reportName: s
 
 
 export async function POST(request: NextRequest) {
-  const { companyId, source } = await resolveRequestCompanyContext(request, {
-    allowCallbackSecret: true,
-  })
   const supabase = createClient()
-  const accessMaps =
-    source === "auth"
-      ? await (async () => {
-          const context = await getRequestContext()
-          const scope = await getWorkspaceAccessScope(supabase, context)
-          return getScheduleAccessMaps(supabase, companyId, scope)
-        })()
-      : null
   const body = await request.json()
   const { schedule_id } = body
 
   if (!schedule_id) {
     return NextResponse.json({ error: "schedule_id obrigatorio" }, { status: 400 })
+  }
+
+  // Allow platform scheduler secret to dispatch for any company
+  const platformSecret = process.env.PLATFORM_SCHEDULER_SECRET?.trim()
+  const headerSecret = request.headers.get("x-callback-secret")?.trim()
+  const isPlatformRequest = platformSecret && headerSecret === platformSecret
+
+  let companyId: string
+  let source: string
+  let accessMaps: Awaited<ReturnType<typeof getScheduleAccessMaps>> | null = null
+
+  if (isPlatformRequest) {
+    const { data: scheduleRow } = await supabase
+      .from("schedules")
+      .select("company_id")
+      .eq("id", schedule_id)
+      .single()
+
+    if (!scheduleRow) {
+      return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
+    }
+
+    companyId = scheduleRow.company_id
+    source = "platform"
+  } else {
+    const context = await resolveRequestCompanyContext(request, {
+      allowCallbackSecret: true,
+    })
+    companyId = context.companyId
+    source = context.source
+
+    if (source === "auth") {
+      const reqContext = await getRequestContext()
+      const scope = await getWorkspaceAccessScope(supabase, reqContext)
+      accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
+    }
   }
 
   const { data: schedule } = await supabase
