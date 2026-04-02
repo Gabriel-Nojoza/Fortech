@@ -233,12 +233,35 @@ export async function renderScreenshotPayloadsToPdf(
 ) {
   const documents = screenshotPayloads.map((payload) => parseScreenshotDocument(payload))
 
-  const pages = documents.flatMap((document) =>
-    document.segments.map((segment, index) => ({
+  const pages = documents.flatMap((document) => {
+    const rawPages = document.segments.map((segment, index) => ({
       segmentBase64: segment,
       info: document.metadata[index],
     }))
-  )
+
+    return rawPages.map((page, index) => {
+      const previous = index > 0 ? rawPages[index - 1] : null
+      const scale = page.info.viewportHeight > 0 ? page.info.height / page.info.viewportHeight : 1
+      const overlapScrollPx = previous
+        ? Math.max(
+            0,
+            previous.info.scrollTop + previous.info.viewportHeight - page.info.scrollTop
+          )
+        : 0
+
+      // Remove the rows that were already present in the previous scroll segment.
+      const cropTopPx = Math.min(
+        Math.max(0, page.info.height - 1),
+        Math.round(overlapScrollPx * scale)
+      )
+
+      return {
+        ...page,
+        cropTopPx,
+        visibleHeightPx: Math.max(1, page.info.height - cropTopPx),
+      }
+    })
+  })
 
   if (
     pages.length === 0 ||
@@ -259,7 +282,7 @@ export async function renderScreenshotPayloadsToPdf(
     const requiredContentHeightPx = pages.reduce((maxHeight, page) => {
       const renderedImageHeightPx = Math.max(
         1,
-        Math.round((page.info.height * contentWidthPx) / page.info.width)
+        Math.round((page.visibleHeightPx * contentWidthPx) / page.info.width)
       )
 
       return Math.max(maxHeight, renderedImageHeightPx)
@@ -280,16 +303,20 @@ export async function renderScreenshotPayloadsToPdf(
   const contentHeightPx = Math.max(1, pageHeightPx - pageMarginPx * 2)
 
   const pagesHtml = pages
-    .map(({ segmentBase64, info }, index) => {
+    .map(({ segmentBase64, info, cropTopPx, visibleHeightPx }, index) => {
       const renderedImageWidthPx = contentWidthPx
-      const renderedImageHeightPx = Math.max(
+      const renderedCropTopPx = Math.max(
+        0,
+        Math.round((cropTopPx * renderedImageWidthPx) / info.width)
+      )
+      const renderedVisibleHeightPx = Math.max(
         1,
-        Math.round((info.height * renderedImageWidthPx) / info.width)
+        Math.round((visibleHeightPx * renderedImageWidthPx) / info.width)
       )
 
       const localSlices = Math.max(
         1,
-        Math.ceil(renderedImageHeightPx / contentHeightPx)
+        Math.ceil(renderedVisibleHeightPx / contentHeightPx)
       )
 
       return Array.from({ length: localSlices }, (_, sliceIndex) => {
@@ -301,7 +328,7 @@ export async function renderScreenshotPayloadsToPdf(
               <img
                 src="data:image/png;base64,${escapeHtmlAttribute(segmentBase64)}"
                 alt="Relatorio Power BI - segmento ${index + 1}"
-                style="transform: translateY(-${offsetY}px);"
+                style="transform: translateY(-${renderedCropTopPx + offsetY}px);"
               />
             </div>
           </section>
