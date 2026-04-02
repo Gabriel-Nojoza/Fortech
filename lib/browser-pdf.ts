@@ -1046,23 +1046,59 @@ async function prepareScrollableSegments(
               rectHeight: rect.height,
               area: rect.width * rect.height,
               textLength,
+              textDensity: textLength / Math.max(rect.width * rect.height, 1),
+              overflowRatio: overflowHeight / Math.max(el.clientHeight, 1),
             }
           })
           .filter(Boolean)
-          .sort((a, b) => {
+
+        const refinedCandidates = candidates.filter((candidate) => {
+          return !candidates.some((other) => {
+            if (other === candidate) return false
+            if (!(candidate.el instanceof HTMLElement) || !(other.el instanceof HTMLElement)) {
+              return false
+            }
+            if (!candidate.el.contains(other.el)) return false
+
+            const comparableSize =
+              other.rectWidth >= candidate.rectWidth * 0.52 &&
+              other.rectHeight >= candidate.rectHeight * 0.3
+            const keepsMostContent =
+              other.textLength >= Math.max(32, candidate.textLength * 0.65)
+            const hasComparableScroll =
+              other.overflowHeight >= Math.max(120, candidate.overflowHeight * 0.3)
+            const isMeaningfullyTighter =
+              other.area <= candidate.area * 0.82 ||
+              other.textDensity >= candidate.textDensity * 1.2
+
+            return (
+              comparableSize &&
+              keepsMostContent &&
+              hasComparableScroll &&
+              isMeaningfullyTighter
+            )
+          })
+        })
+
+        const rankedCandidates = (refinedCandidates.length ? refinedCandidates : candidates).sort(
+          (a, b) => {
+            if (b.overflowRatio !== a.overflowRatio) {
+              return b.overflowRatio - a.overflowRatio
+            }
+            if (b.textDensity !== a.textDensity) {
+              return b.textDensity - a.textDensity
+            }
             if (b.overflowHeight !== a.overflowHeight) {
               return b.overflowHeight - a.overflowHeight
             }
-            if (b.textLength !== a.textLength) {
-              return b.textLength - a.textLength
+            if (a.area !== b.area) {
+              return a.area - b.area
             }
-            if (b.rectHeight !== a.rectHeight) {
-              return b.rectHeight - a.rectHeight
-            }
-            return b.area - a.area
-          })
+            return b.textLength - a.textLength
+          }
+        )
 
-        const target = candidates[0] || null
+        const target = rankedCandidates[0] || null
 
         if (!target) {
           return {
