@@ -1078,35 +1078,19 @@ async function prepareScrollableSegments(
         target.el.setAttribute("data-report-scroll-target", "1")
 
         const baseRect = target.el.getBoundingClientRect()
-        let clipRect = baseRect
-        let ancestor = target.el.parentElement
-
-        while (
-          ancestor &&
-          ancestor !== document.body &&
-          ancestor !== document.documentElement
-        ) {
-          const rect = ancestor.getBoundingClientRect()
-          const containsTarget =
-            rect.left <= baseRect.left + 4 &&
-            rect.top <= baseRect.top + 4 &&
-            rect.right >= baseRect.right - 4 &&
-            rect.bottom >= baseRect.bottom - 4
-          const growsWidth = rect.width >= baseRect.width + 48
-          const keepsHeightClose =
-            rect.height >= baseRect.height - 40 &&
-            rect.height <= baseRect.height + 220
-          const staysInViewport =
-            rect.width <= window.innerWidth * 0.99 &&
-            rect.height <= Math.max(window.innerHeight, baseRect.height + 220)
-
-          if (containsTarget && growsWidth && keepsHeightClose && staysInViewport) {
-            clipRect = rect
-            break
-          }
-
-          ancestor = ancestor.parentElement
-        }
+        const clipPaddingX = 8
+        const clipPaddingTop = 8
+        const clipPaddingBottom = 12
+        const clipLeft = Math.max(0, Math.floor(baseRect.left - clipPaddingX))
+        const clipTop = Math.max(0, Math.floor(baseRect.top - clipPaddingTop))
+        const clipRight = Math.min(
+          window.innerWidth,
+          Math.ceil(baseRect.right + clipPaddingX)
+        )
+        const clipBottom = Math.min(
+          window.innerHeight,
+          Math.ceil(baseRect.bottom + clipPaddingBottom)
+        )
 
         const positions = []
         const maxScrollTop = Math.max(0, target.scrollHeight - target.clientHeight)
@@ -1133,10 +1117,10 @@ async function prepareScrollableSegments(
           totalHeight: target.scrollHeight,
           positions: Array.from(new Set(positions)),
           clip: {
-            x: Math.max(0, Math.floor(clipRect.left)),
-            y: Math.max(0, Math.floor(clipRect.top)),
-            width: Math.max(1, Math.floor(clipRect.width)),
-            height: Math.max(1, Math.floor(clipRect.height)),
+            x: clipLeft,
+            y: clipTop,
+            width: Math.max(1, clipRight - clipLeft),
+            height: Math.max(1, clipBottom - clipTop),
           },
         }
       })()`,

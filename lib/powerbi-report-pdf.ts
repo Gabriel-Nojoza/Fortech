@@ -94,10 +94,8 @@ function buildPowerBICaptureHtml(input: {
     }
 
     #report-container {
-      width: 118%;
-      height: 118%;
-      transform: scale(0.85);
-      transform-origin: top left;
+      width: 100%;
+      height: 100%;
     }
 
     .status {
@@ -449,7 +447,7 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
     viewportHeight: 42000,
     deviceScaleFactor: 1,
     pageWidthMm: 620,
-    pageHeightMm: 1200,
+    pageHeightMm: 900,
     pageMarginMm: 1,
   }
 }
@@ -512,7 +510,7 @@ export async function exportPowerBIReportPdf(input: {
       forceExpandScrollable: true,
       scrollableSegmentationMode: "segments-only",
       autoGrowPageHeight: false,
-      maxPageHeightMm: 2000,
+      maxPageHeightMm: 1200,
     })
   }
 
@@ -542,10 +540,10 @@ export async function exportPowerBIReportPdf(input: {
 
   return renderScreenshotPayloadsToPdf(screenshotPayloads, {
     pdfTimeoutMs: 120000,
-    pageWidthMm: preset.pageWidthMm,
-    pageHeightMm: preset.pageHeightMm,
-    pageMarginMm: preset.pageMarginMm,
-    autoGrowPageHeight: false,
-    maxPageHeightMm: 2000,
-  })
+      pageWidthMm: preset.pageWidthMm,
+      pageHeightMm: preset.pageHeightMm,
+      pageMarginMm: preset.pageMarginMm,
+      autoGrowPageHeight: false,
+      maxPageHeightMm: 1200,
+    })
 }
