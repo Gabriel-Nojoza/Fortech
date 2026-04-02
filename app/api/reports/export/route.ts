@@ -115,6 +115,55 @@ function detectPdfProfile(
     : "desktop"
 }
 
+async function exportFileFromPowerBi(input: {
+  token: string
+  workspaceId: string
+  reportId: string
+  format: "PDF" | "PNG" | "PPTX"
+  pageNames: string[]
+}) {
+  const exportJob = await exportReport(
+    input.token,
+    input.workspaceId,
+    input.reportId,
+    input.format,
+    { pageNames: input.pageNames }
+  )
+
+  let finalStatus: Awaited<ReturnType<typeof getExportStatus>> | null = null
+
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await sleep(2000)
+
+    const status = await getExportStatus(
+      input.token,
+      input.workspaceId,
+      input.reportId,
+      exportJob.id
+    )
+
+    if (status.status === "Succeeded") {
+      finalStatus = status
+      break
+    }
+
+    if (status.status === "Failed") {
+      throw new Error("Falha ao exportar relatorio no Power BI")
+    }
+  }
+
+  if (!finalStatus) {
+    throw new Error("Tempo limite ao exportar relatorio")
+  }
+
+  return getExportFile(
+    input.token,
+    input.workspaceId,
+    input.reportId,
+    exportJob.id
+  )
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -145,7 +194,7 @@ export async function POST(request: NextRequest) {
       request.headers.get("user-agent")
     )
 
-    const preferNativePowerBiExport = body?.prefer_native_export === true
+    const preferNativePowerBiExport = body?.prefer_native_export !== false
 
     if (!reportId) {
       return new Response(JSON.stringify({ error: "report_id obrigatorio" }), {
@@ -216,6 +265,7 @@ export async function POST(request: NextRequest) {
     const token = await getAccessToken(companyId)
     const safeName = sanitizeFileName(report.name || "relatorio")
     let browserPdfErrorMessage: string | null = null
+    let nativePdfError: unknown = null
 
     if (format === "PDF" && !preferNativePowerBiExport) {
       try {
@@ -252,26 +302,85 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let exportJob: Awaited<ReturnType<typeof exportReport>>
-
     try {
-      exportJob = await exportReport(
+      const fileBuffer = await exportFileFromPowerBi({
         token,
-        workspace.pbi_workspace_id,
-        report.pbi_report_id,
-        format as "PDF" | "PNG" | "PPTX",
-        { pageNames: pbiPageNames }
-      )
+        workspaceId: workspace.pbi_workspace_id,
+        reportId: report.pbi_report_id,
+        format: format as "PDF" | "PNG" | "PPTX",
+        pageNames: pbiPageNames,
+      })
+
+      const extension =
+        format === "PDF" ? "pdf" : format === "PNG" ? "png" : "pptx"
+
+      const contentType =
+        format === "PDF"
+          ? "application/pdf"
+          : format === "PNG"
+            ? "image/png"
+            : "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+      return new Response(fileBuffer, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Content-Disposition": `inline; filename="${safeName}.${extension}"`,
+          "Cache-Control": "no-store",
+        },
+      })
     } catch (exportError) {
       if (isPowerBiEntityNotFoundError(exportError)) {
         await deactivateMissingReport(supabase, companyId, report.id)
         return jsonError(getMissingReportMessage(), 404)
       }
 
+      if (format === "PDF" && preferNativePowerBiExport) {
+        nativePdfError = exportError
+        console.error(
+          "ExportTo do Power BI falhou, tentando captura da pagina do sistema",
+          exportError
+        )
+
+        try {
+          const pdfBuffer = await exportPowerBIReportPdf({
+            token,
+            workspaceId: workspace.pbi_workspace_id,
+            reportId: report.pbi_report_id,
+            reportName: report.name,
+            embedUrl: report.embed_url,
+            pageNames: pbiPageNames,
+            pageName: pbiPageName,
+            pdfProfile,
+          })
+
+          return new Response(pdfBuffer, {
+            status: 200,
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Disposition": `inline; filename="${safeName}.pdf"`,
+              "Cache-Control": "no-store",
+            },
+          })
+        } catch (browserPdfError) {
+          if (isPowerBiEntityNotFoundError(browserPdfError)) {
+            await deactivateMissingReport(supabase, companyId, report.id)
+            return jsonError(getMissingReportMessage(), 404)
+          }
+
+          browserPdfErrorMessage = getErrorMessage(browserPdfError)
+          console.error(
+            "Captura da pagina do sistema falhou apos erro no ExportTo",
+            browserPdfError
+          )
+        }
+      }
+
       if (
         format === "PDF" &&
         pbiPageNames.length > 1 &&
-        isPowerBiFeatureNotAvailableError(exportError)
+        isPowerBiFeatureNotAvailableError(exportError) &&
+        !browserPdfErrorMessage
       ) {
         return jsonError(
           "Nao foi possivel gerar um unico PDF com varias paginas neste ambiente porque o ExportTo nativo do Power BI nao esta disponivel para este relatorio.",
@@ -280,72 +389,19 @@ export async function POST(request: NextRequest) {
       }
 
       if (format === "PDF" && browserPdfErrorMessage) {
-        console.error(
-          "ExportTo do Power BI falhou apos erro na captura da pagina",
-          exportError
-        )
-
-        const errorMessage = isPowerBiFeatureNotAvailableError(exportError)
-          ? "Nao foi possivel gerar o PDF automaticamente neste ambiente. A captura da pagina falhou e o ExportTo nativo do Power BI nao esta disponivel para este relatorio."
-          : "Nao foi possivel gerar o PDF deste relatorio agora. Tente novamente."
+        const errorMessage =
+          nativePdfError && isPowerBiFeatureNotAvailableError(nativePdfError)
+            ? "Nao foi possivel gerar o PDF automaticamente neste ambiente. O ExportTo nativo do Power BI nao esta disponivel e a captura da pagina falhou."
+            : !preferNativePowerBiExport &&
+                isPowerBiFeatureNotAvailableError(exportError)
+              ? "Nao foi possivel gerar o PDF automaticamente neste ambiente. A captura da pagina falhou e o ExportTo nativo do Power BI nao esta disponivel para este relatorio."
+              : "Nao foi possivel gerar o PDF deste relatorio agora. Tente novamente."
 
         return jsonError(errorMessage, 500)
       }
 
       throw exportError
     }
-
-    let finalStatus: Awaited<ReturnType<typeof getExportStatus>> | null = null
-
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await sleep(2000)
-
-      const status = await getExportStatus(
-        token,
-        workspace.pbi_workspace_id,
-        report.pbi_report_id,
-        exportJob.id
-      )
-
-      if (status.status === "Succeeded") {
-        finalStatus = status
-        break
-      }
-
-      if (status.status === "Failed") {
-        return jsonError("Falha ao exportar relatorio no Power BI", 500)
-      }
-    }
-
-    if (!finalStatus) {
-      return jsonError("Tempo limite ao exportar relatorio", 504)
-    }
-
-    const fileBuffer = await getExportFile(
-      token,
-      workspace.pbi_workspace_id,
-      report.pbi_report_id,
-      exportJob.id
-    )
-
-    const extension =
-      format === "PDF" ? "pdf" : format === "PNG" ? "png" : "pptx"
-
-    const contentType =
-      format === "PDF"
-        ? "application/pdf"
-        : format === "PNG"
-          ? "image/png"
-          : "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-
-    return new Response(fileBuffer, {
-      status: 200,
-      headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${safeName}.${extension}"`,
-        "Cache-Control": "no-store",
-      },
-    })
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Erro ao exportar relatorio",

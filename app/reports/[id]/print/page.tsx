@@ -108,11 +108,13 @@ export default async function ReportPrintPage({
             width: 100%;
             min-height: 100vh;
             background: #fff;
+            overflow: visible;
           }
 
           #report-container {
             width: 100%;
-            height: 2200px;
+            min-height: 2200px;
+            height: auto;
             background: #fff;
           }
 
@@ -155,16 +157,130 @@ export default async function ReportPrintPage({
             __html: `
               (() => {
                 const reportContainer = document.getElementById("report-container");
+                const reportShell = document.querySelector(".report-shell");
                 const statusNode = document.getElementById("status");
                 const readyMarker = document.getElementById("report-ready-marker");
+                const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
                 const modelsSource = window["powerbi-client"];
                 const models = modelsSource && modelsSource.models;
                 const powerbi = window.powerbi;
+                let finished = false;
+                let settlingRender = false;
+                let lastVisualRenderedAt = 0;
 
                 if (!reportContainer || !models || !powerbi) {
                   if (statusNode) statusNode.textContent = "Erro ao carregar Power BI.";
                   return;
+                }
+
+                function markReady() {
+                  if (finished) {
+                    return;
+                  }
+
+                  finished = true;
+
+                  if (statusNode) {
+                    statusNode.classList.add("hidden");
+                  }
+
+                  if (readyMarker) {
+                    readyMarker.setAttribute("data-report-ready", "true");
+                  }
+                }
+
+                function markError(message) {
+                  finished = true;
+
+                  if (statusNode) {
+                    statusNode.classList.remove("hidden");
+                    statusNode.textContent = message || "Erro ao renderizar relatorio.";
+                  }
+
+                  if (readyMarker) {
+                    readyMarker.setAttribute("data-report-ready", "false");
+                  }
+                }
+
+                async function syncReportHeight() {
+                  try {
+                    const pages = await report.getPages();
+                    const activePage =
+                      Array.isArray(pages) && pages.length
+                        ? pages.find((page) => page.isActive) || pages[0]
+                        : null;
+
+                    const pageWidth = Number(
+                      activePage && activePage.defaultSize && activePage.defaultSize.width
+                    );
+                    const pageHeight = Number(
+                      activePage && activePage.defaultSize && activePage.defaultSize.height
+                    );
+
+                    if (
+                      !Number.isFinite(pageWidth) ||
+                      !Number.isFinite(pageHeight) ||
+                      pageWidth <= 0 ||
+                      pageHeight <= 0
+                    ) {
+                      return;
+                    }
+
+                    const shellWidth =
+                      (reportShell && reportShell.clientWidth) ||
+                      reportContainer.clientWidth ||
+                      window.innerWidth;
+
+                    if (!shellWidth) {
+                      return;
+                    }
+
+                    const nextHeight = Math.max(
+                      2200,
+                      Math.ceil(shellWidth * (pageHeight / pageWidth))
+                    );
+
+                    reportContainer.style.height = nextHeight + "px";
+
+                    if (reportShell) {
+                      reportShell.style.minHeight = nextHeight + "px";
+                    }
+
+                    document.documentElement.style.minHeight = nextHeight + "px";
+                    document.body.style.minHeight = nextHeight + "px";
+                  } catch {
+                    // Mantem a altura minima padrao quando a pagina ativa nao puder ser lida.
+                  }
+                }
+
+                async function waitForVisualStability() {
+                  const startedAt = Date.now();
+                  const fallbackDelayMs = 9000;
+                  const quietPeriodMs = 3200;
+                  const maxWaitMs = 25000;
+
+                  while (Date.now() - startedAt < maxWaitMs) {
+                    if (finished) {
+                      return false;
+                    }
+
+                    await syncReportHeight();
+
+                    if (lastVisualRenderedAt > 0) {
+                      if (Date.now() - lastVisualRenderedAt >= quietPeriodMs) {
+                        await wait(1200);
+                        return true;
+                      }
+                    } else if (Date.now() - startedAt >= fallbackDelayMs) {
+                      await wait(1200);
+                      return true;
+                    }
+
+                    await wait(500);
+                  }
+
+                  return true;
                 }
 
                 const config = {
@@ -179,6 +295,11 @@ export default async function ReportPrintPage({
                       filters: { visible: false },
                       pageNavigation: { visible: false }
                     },
+                    visualRenderedEvents: true,
+                    layoutType: models.LayoutType.Custom,
+                    customLayout: {
+                      displayOption: models.DisplayOption.FitToWidth
+                    },
                     navContentPaneEnabled: false,
                     filterPaneEnabled: false,
                     background: models.BackgroundType.Transparent
@@ -187,28 +308,58 @@ export default async function ReportPrintPage({
 
                 const report = powerbi.embed(reportContainer, config);
 
-                report.on("loaded", function () {
+                report.on("loaded", async function () {
                   if (statusNode) {
                     statusNode.textContent = "Renderizando relatorio...";
                   }
+
+                  await syncReportHeight();
+                  await wait(1500);
+                });
+
+                report.on("visualRendered", function () {
+                  lastVisualRenderedAt = Date.now();
                 });
 
                 report.on("rendered", function () {
-                  window.setTimeout(() => {
+                  if (settlingRender || finished) {
+                    return;
+                  }
+
+                  settlingRender = true;
+
+                  window.setTimeout(async () => {
                     if (statusNode) {
-                      statusNode.classList.add("hidden");
+                      statusNode.textContent = "Relatorio carregado. Finalizando renderizacao...";
                     }
-                    if (readyMarker) {
-                      readyMarker.setAttribute("data-report-ready", "true");
+
+                    const visualsSettled = await waitForVisualStability();
+                    if (!visualsSettled) {
+                      settlingRender = false;
+                      return;
                     }
-                  }, 2500);
+
+                    await syncReportHeight();
+                    await wait(1500);
+                    markReady();
+                    settlingRender = false;
+                  }, 1500);
                 });
 
                 report.on("error", function (event) {
-                  if (statusNode) {
-                    statusNode.textContent =
-                      event?.detail?.message || "Erro ao renderizar relatorio.";
+                  markError(event?.detail?.message || "Erro ao renderizar relatorio.");
+                });
+
+                window.setTimeout(() => {
+                  if (!finished) {
+                    markReady();
                   }
+                }, 60000);
+
+                window.addEventListener("resize", () => {
+                  window.setTimeout(() => {
+                    void syncReportHeight();
+                  }, 120);
                 });
               })();
             `,

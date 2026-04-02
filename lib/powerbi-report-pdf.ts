@@ -436,20 +436,20 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
   if (profile === "mobile") {
     return {
       viewportWidth: 7800,
-      viewportHeight: 9200,
+      viewportHeight: 6000,
       deviceScaleFactor: 1,
       pageWidthMm: 700,
-      pageHeightMm: 900,
+      pageHeightMm: 500,
       pageMarginMm: 1,
     }
   }
 
   return {
-    viewportWidth: 7700,
-    viewportHeight: 56000,
+    viewportWidth: 6800,
+    viewportHeight: 42000,
     deviceScaleFactor: 1,
-    pageWidthMm: 710,
-    pageHeightMm: 2500,
+    pageWidthMm: 620,
+    pageHeightMm: 1200,
     pageMarginMm: 1,
   }
 }
@@ -510,9 +510,9 @@ export async function exportPowerBIReportPdf(input: {
       pageMarginMm: preset.pageMarginMm,
       screenshotScale: 1,
       forceExpandScrollable: true,
-      scrollableSegmentationMode: "full-page-scroll-steps",
+      scrollableSegmentationMode: "segments-only",
       autoGrowPageHeight: false,
-      maxPageHeightMm: 25000,
+      maxPageHeightMm: 2000,
     })
   }
 
@@ -534,7 +534,7 @@ export async function exportPowerBIReportPdf(input: {
       deviceScaleFactor: preset.deviceScaleFactor,
       screenshotScale: 1,
       forceExpandScrollable: true,
-      scrollableSegmentationMode: "full-page-scroll-steps",
+      scrollableSegmentationMode: "segments-only",
     })
 
     screenshotPayloads.push(screenshotPayload)
@@ -546,6 +546,6 @@ export async function exportPowerBIReportPdf(input: {
     pageHeightMm: preset.pageHeightMm,
     pageMarginMm: preset.pageMarginMm,
     autoGrowPageHeight: false,
-    maxPageHeightMm: 500,
+    maxPageHeightMm: 2000,
   })
 }
