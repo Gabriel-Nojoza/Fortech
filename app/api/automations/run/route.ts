@@ -409,27 +409,13 @@ export async function POST(request: Request) {
         normalizedN8nSettings.webhookUrl || process.env.N8N_WEBHOOK_URL?.trim() || ""
       const callbackSecret = normalizedN8nSettings.callbackSecret
 
-      if (!webhookUrl) {
-        return NextResponse.json(
-          { error: "URL do webhook N8N nao configurada" },
-          { status: 400 }
-        )
-      }
-
-      if (!callbackSecret) {
-        return NextResponse.json(
-          { error: "Callback secret do N8N nao configurado" },
-          { status: 400 }
-        )
-      }
-
       const logEntries = contacts.map((contact) => ({
         company_id: companyId,
         schedule_id: scheduleIdOverride,
         report_name: reportTitle,
         contact_name: String(contact.name || ""),
         contact_phone: getDispatchLogTarget(contact),
-        status: "sending",
+        status: "pending",
         export_format: exportFormat,
       }))
 
@@ -443,6 +429,38 @@ export async function POST(request: Request) {
           { error: `Nao foi possivel criar logs do disparo: ${insertLogsError.message}` },
           { status: 500 }
         )
+      }
+
+      if (!webhookUrl) {
+        const errMsg = "URL do webhook N8N nao configurada"
+        for (const log of logs ?? []) {
+          await supabase
+            .from("dispatch_logs")
+            .update({ status: "failed", error_message: errMsg, completed_at: new Date().toISOString() })
+            .eq("company_id", companyId)
+            .eq("id", log.id)
+        }
+        return NextResponse.json({ error: errMsg }, { status: 400 })
+      }
+
+      if (!callbackSecret) {
+        const errMsg = "Callback secret do N8N nao configurado"
+        for (const log of logs ?? []) {
+          await supabase
+            .from("dispatch_logs")
+            .update({ status: "failed", error_message: errMsg, completed_at: new Date().toISOString() })
+            .eq("company_id", companyId)
+            .eq("id", log.id)
+        }
+        return NextResponse.json({ error: errMsg }, { status: 400 })
+      }
+
+      for (const log of logs ?? []) {
+        await supabase
+          .from("dispatch_logs")
+          .update({ status: "sending" })
+          .eq("company_id", companyId)
+          .eq("id", log.id)
       }
 
       const appUrl = getRequestOrigin(request)

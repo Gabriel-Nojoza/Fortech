@@ -105,9 +105,9 @@ function getLogStatusDetail(log: DispatchLog) {
 
   const detailText =
     status === "exporting"
-      ? "Relatorio em exportacao."
+      ? "Exportando relatorio no Power BI..."
       : status === "sending"
-        ? "Aguardando confirmacao do envio pelo N8N ou bot."
+        ? "Enviando via N8N ou bot. Aguardando confirmacao."
         : "Disparo em preparacao."
 
   return {
@@ -115,7 +115,7 @@ function getLogStatusDetail(log: DispatchLog) {
     iconClassName: "text-warning",
     text: detailText,
     containerClassName:
-      "border-border/70 bg-muted/30 text-muted-foreground",
+      "border-warning/30 bg-warning/8 text-warning",
   }
 }
 
