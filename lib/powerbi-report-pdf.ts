@@ -444,10 +444,10 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
 
   return {
     viewportWidth: 6800,
-    viewportHeight: 4200,
+    viewportHeight: 32000,
     deviceScaleFactor: 1,
     pageWidthMm: 620,
-    pageHeightMm: 420,
+    pageHeightMm: 5000,
     pageMarginMm: 1,
   }
 }
@@ -509,8 +509,8 @@ export async function exportPowerBIReportPdf(input: {
       screenshotScale: 1,
       forceExpandScrollable: true,
       scrollableSegmentationMode: "full-page-scroll-steps",
-      autoGrowPageHeight: false,
-      maxPageHeightMm: 500,
+      autoGrowPageHeight: true,
+      maxPageHeightMm: 10000,
     })
   }
 
