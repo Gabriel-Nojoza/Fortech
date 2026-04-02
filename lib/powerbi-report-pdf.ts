@@ -86,7 +86,7 @@ function buildPowerBICaptureHtml(input: {
     .frame {
       position: relative;
       width: 100%;
-      height: 1100px;
+      height: 2200px;
       overflow: hidden;
       border-radius: 0;
       background: var(--frame-bg);
@@ -304,9 +304,9 @@ function buildPowerBICaptureHtml(input: {
 
       async function waitForVisualStability() {
         const startedAt = Date.now()
-        const fallbackDelayMs = 9000
-        const quietPeriodMs = 3200
-        const maxWaitMs = 25000
+        const fallbackDelayMs = 12000
+        const quietPeriodMs = 4500
+        const maxWaitMs = 45000
 
         while (Date.now() - startedAt < maxWaitMs) {
           if (finished) {
@@ -434,20 +434,20 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
   if (profile === "mobile") {
     return {
       viewportWidth: 7800,
-      viewportHeight: 5200,
+      viewportHeight: 9200,
       deviceScaleFactor: 1,
       pageWidthMm: 700,
-      pageHeightMm: 460,
+      pageHeightMm: 900,
       pageMarginMm: 1,
     }
   }
 
   return {
     viewportWidth: 6800,
-    viewportHeight: 32000,
+    viewportHeight: 56000,
     deviceScaleFactor: 1,
     pageWidthMm: 620,
-    pageHeightMm: 5000,
+    pageHeightMm: 10000,
     pageMarginMm: 1,
   }
 }
@@ -498,8 +498,8 @@ export async function exportPowerBIReportPdf(input: {
     })
 
     return renderHtmlScreenshotToPdf(html, {
-      pngTimeoutMs: 90000,
-      pdfTimeoutMs: 90000,
+      pngTimeoutMs: 120000,
+      pdfTimeoutMs: 120000,
       captureWidth: preset.viewportWidth,
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
@@ -510,7 +510,7 @@ export async function exportPowerBIReportPdf(input: {
       forceExpandScrollable: true,
       scrollableSegmentationMode: "full-page-scroll-steps",
       autoGrowPageHeight: false,
-      maxPageHeightMm: 10000,
+      maxPageHeightMm: 25000,
     })
   }
 
@@ -526,7 +526,7 @@ export async function exportPowerBIReportPdf(input: {
     })
 
     const screenshotPayload = await renderHtmlToPng(html, {
-      timeoutMs: 90000,
+      timeoutMs: 120000,
       captureWidth: preset.viewportWidth,
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
@@ -539,7 +539,7 @@ export async function exportPowerBIReportPdf(input: {
   }
 
   return renderScreenshotPayloadsToPdf(screenshotPayloads, {
-    pdfTimeoutMs: 90000,
+    pdfTimeoutMs: 120000,
     pageWidthMm: preset.pageWidthMm,
     pageHeightMm: preset.pageHeightMm,
     pageMarginMm: preset.pageMarginMm,
