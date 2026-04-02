@@ -443,10 +443,10 @@ function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
   }
 
   return {
-    viewportWidth: 6800,
+    viewportWidth: 8500,
     viewportHeight: 56000,
     deviceScaleFactor: 1,
-    pageWidthMm: 620,
+    pageWidthMm: 780,
     pageHeightMm: 2500,
     pageMarginMm: 1,
   }
