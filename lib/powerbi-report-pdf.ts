@@ -304,9 +304,9 @@ function buildPowerBICaptureHtml(input: {
 
       async function waitForVisualStability() {
         const startedAt = Date.now()
-        const fallbackDelayMs = 12000
-        const quietPeriodMs = 4500
-        const maxWaitMs = 45000
+        const fallbackDelayMs = 16000
+        const quietPeriodMs = 6000
+        const maxWaitMs = 60000
 
         while (Date.now() - startedAt < maxWaitMs) {
           if (finished) {
