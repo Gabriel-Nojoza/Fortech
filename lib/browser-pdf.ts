@@ -117,6 +117,7 @@ type SegmentMetadata = {
   height: number
   scrollTop: number
   viewportHeight: number
+  totalHeight?: number
 }
 
 type ScreenshotDocument = {
@@ -186,6 +187,10 @@ function millimetersToCssPixels(value: number) {
     1,
     Math.round((value * CSS_PIXELS_PER_INCH) / MILLIMETERS_PER_INCH)
   )
+}
+
+function cssPixelsToMillimeters(value: number) {
+  return (value * MILLIMETERS_PER_INCH) / CSS_PIXELS_PER_INCH
 }
 
 function parseScreenshotDocument(screenshotPayload: Buffer): ScreenshotDocument {
@@ -258,7 +263,21 @@ export async function renderScreenshotPayloadsToPdf(
       return {
         ...page,
         cropTopPx,
-        visibleHeightPx: Math.max(1, page.info.height - cropTopPx),
+        visibleHeightPx: Math.max(
+          1,
+          Math.min(
+            page.info.height - cropTopPx,
+            Math.round(
+              Math.max(
+                1,
+                Math.min(
+                  page.info.viewportHeight,
+                  (page.info.totalHeight ?? page.info.viewportHeight) - page.info.scrollTop
+                ) - overlapScrollPx
+              ) * scale
+            )
+          )
+        ),
       }
     })
   })
@@ -302,7 +321,7 @@ export async function renderScreenshotPayloadsToPdf(
   const pageHeightPx = millimetersToCssPixels(pageHeightMm)
   const contentHeightPx = Math.max(1, pageHeightPx - pageMarginPx * 2)
 
-  const pagesHtml = pages
+  const pageSlices = pages
     .map(({ segmentBase64, info, cropTopPx, visibleHeightPx }, index) => {
       const renderedImageWidthPx = contentWidthPx
       const renderedCropTopPx = Math.max(
@@ -321,20 +340,51 @@ export async function renderScreenshotPayloadsToPdf(
 
       return Array.from({ length: localSlices }, (_, sliceIndex) => {
         const offsetY = sliceIndex * contentHeightPx
+        const remainingHeightPx = Math.max(1, renderedVisibleHeightPx - offsetY)
+        const sliceHeightPx = Math.min(contentHeightPx, remainingHeightPx)
+        const sectionHeightPx = sliceHeightPx + pageMarginPx * 2
 
-        return `
-          <section class="pdf-page">
-            <div class="slice">
+        return {
+          pageName: `pdf-page-${index + 1}-${sliceIndex + 1}`,
+          segmentBase64,
+          segmentIndex: index,
+          offsetY,
+          renderedCropTopPx,
+          sliceHeightPx,
+          sectionHeightPx,
+          sectionHeightMm: Math.max(10, cssPixelsToMillimeters(sectionHeightPx)),
+        }
+      })
+    })
+    .flat()
+
+  const pageCss = pageSlices
+    .map(
+      (slice) => `
+    @page ${slice.pageName} {
+      size: ${pageWidthMm}mm ${slice.sectionHeightMm}mm;
+      margin: 0;
+    }`
+    )
+    .join("")
+
+  const pagesHtml = pageSlices
+    .map(
+      (slice) => `
+          <section
+            class="pdf-page"
+            style="page: ${slice.pageName}; width: ${pageWidthPx}px; height: ${slice.sectionHeightPx}px; padding: ${pageMarginPx}px;"
+          >
+            <div class="slice" style="height: ${slice.sliceHeightPx}px;">
               <img
-                src="data:image/png;base64,${escapeHtmlAttribute(segmentBase64)}"
-                alt="Relatorio Power BI - segmento ${index + 1}"
-                style="transform: translateY(-${renderedCropTopPx + offsetY}px);"
+                src="data:image/png;base64,${escapeHtmlAttribute(slice.segmentBase64)}"
+                alt="Relatorio Power BI - segmento ${slice.segmentIndex + 1}"
+                style="transform: translateY(-${slice.renderedCropTopPx + slice.offsetY}px);"
               />
             </div>
           </section>
         `
-      }).join("")
-    })
+    )
     .join("")
 
   const imageHtml = `<!DOCTYPE html>
@@ -343,10 +393,7 @@ export async function renderScreenshotPayloadsToPdf(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    @page {
-      size: ${pageWidthMm}mm ${pageHeightMm}mm;
-      margin: 0;
-    }
+    ${pageCss}
 
     * {
       box-sizing: border-box;
@@ -366,9 +413,6 @@ export async function renderScreenshotPayloadsToPdf(
     }
 
     .pdf-page {
-      width: ${pageWidthPx}px;
-      height: ${pageHeightPx}px;
-      padding: ${pageMarginPx}px;
       background: #ffffff;
       overflow: hidden;
       break-after: page;
@@ -385,7 +429,6 @@ export async function renderScreenshotPayloadsToPdf(
 
     .slice {
       width: ${contentWidthPx}px;
-      height: ${contentHeightPx}px;
       overflow: hidden;
       position: relative;
       flex: 0 0 auto;
@@ -1608,6 +1651,7 @@ export async function renderHtmlToPng(
         height: overviewDimensions.height,
         scrollTop: 0,
         viewportHeight: overviewDimensions.height,
+        totalHeight: overviewDimensions.height,
       })
     }
 
@@ -1642,6 +1686,7 @@ export async function renderHtmlToPng(
         height: dimensions.height,
         scrollTop,
         viewportHeight,
+        totalHeight: Number(segmentation.totalHeight || viewportHeight),
       })
     }
 
