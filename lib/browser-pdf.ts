@@ -1160,11 +1160,11 @@ async function prepareScrollableSegments(
         const visibleRatio = target.clientHeight / Math.max(target.scrollHeight, 1)
         const stepFactor =
           visibleRatio <= 0.22
-            ? 0.14
+            ? 0.10
             : visibleRatio <= 0.35
-              ? 0.18
-              : 0.24
-        const step = Math.max(40, Math.floor(target.clientHeight * stepFactor))
+              ? 0.14
+              : 0.18
+        const step = Math.max(30, Math.floor(target.clientHeight * stepFactor))
 
         for (let y = 0; y <= maxScrollTop; y += step) {
           positions.push(Math.min(y, maxScrollTop))
@@ -1212,7 +1212,7 @@ async function scrollSegmentTarget(
 
         target.scrollTop = ${Math.max(0, scrollTop)}
         target.dispatchEvent(new Event("scroll", { bubbles: true }))
-        await sleep(3200)
+        await sleep(3800)
         return true
       })()`,
       returnByValue: true,
