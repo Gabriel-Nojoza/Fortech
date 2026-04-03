@@ -1244,6 +1244,79 @@ async function restoreSegmentTarget(
   )
 }
 
+async function measureSegmentClip(
+  client: CdpClient,
+  sessionId: string,
+  fallbackClip?: ClipBox
+) {
+  const result = await client.send(
+    "Runtime.evaluate",
+    {
+      expression: `(() => {
+        const target = document.querySelector('[data-report-scroll-target="1"]')
+        if (!(target instanceof HTMLElement)) return null
+
+        const baseRect = target.getBoundingClientRect()
+        const minWidth = Math.max(24, baseRect.width * 0.04)
+        const minHeight = 10
+        let contentBottom = baseRect.top
+
+        const nodes = [target, ...Array.from(target.querySelectorAll("*"))]
+        for (const node of nodes) {
+          if (!(node instanceof HTMLElement)) continue
+
+          const rect = node.getBoundingClientRect()
+          if (rect.width < minWidth || rect.height < minHeight) continue
+
+          const isVisible =
+            rect.bottom > baseRect.top + 6 &&
+            rect.top < baseRect.bottom - 6 &&
+            rect.right > baseRect.left + 6 &&
+            rect.left < baseRect.right - 6
+
+          if (!isVisible) continue
+
+          const textLength = (node.innerText || "").replace(/\\s+/g, " ").trim().length
+          const hasGraphic =
+            node.querySelector("svg, canvas, img") instanceof Element ||
+            node.tagName === "SVG" ||
+            node.tagName === "CANVAS" ||
+            node.tagName === "IMG"
+
+          if (textLength === 0 && !hasGraphic) continue
+
+          contentBottom = Math.max(contentBottom, Math.min(rect.bottom, baseRect.bottom))
+        }
+
+        const clipLeft = Math.max(0, Math.floor(baseRect.left - 8))
+        const clipTop = Math.max(0, Math.floor(baseRect.top - 8))
+        const clipRight = Math.min(window.innerWidth, Math.ceil(baseRect.right + 8))
+        const clipBottom = Math.min(
+          window.innerHeight,
+          Math.max(clipTop + 1, Math.ceil(contentBottom + 12))
+        )
+
+        return {
+          x: clipLeft,
+          y: clipTop,
+          width: Math.max(1, clipRight - clipLeft),
+          height: Math.max(1, clipBottom - clipTop),
+        }
+      })()`,
+      returnByValue: true,
+      awaitPromise: true,
+    },
+    { sessionId }
+  )
+
+  const measured = (result.result as { value?: ClipBox | null } | undefined)?.value ?? null
+  if (!measured || !measured.width || !measured.height) {
+    return fallbackClip
+  }
+
+  return measured
+}
+
 async function captureViewportPng(
   client: CdpClient,
   sessionId: string,
@@ -1546,6 +1619,10 @@ export async function renderHtmlToPng(
 
     for (const scrollTop of scrollPositions) {
       await scrollSegmentTarget(client, sessionId, scrollTop)
+      const dynamicClip =
+        scrollableSegmentationMode === "full-page-scroll-steps"
+          ? undefined
+          : await measureSegmentClip(client, sessionId, clip)
 
       const png = await captureViewportPng(
         client,
@@ -1554,7 +1631,7 @@ export async function renderHtmlToPng(
         captureHeight,
         deviceScaleFactor,
         screenshotScale,
-        scrollableSegmentationMode === "full-page-scroll-steps" ? undefined : clip
+        dynamicClip
       )
 
       segmentBuffers.push(png)
