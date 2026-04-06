@@ -24,6 +24,19 @@ type DispatchLogStatsRecord = {
   completed_at?: string | null
 }
 
+// Brazil is UTC-3 (America/Sao_Paulo — no DST since 2019)
+const BRAZIL_OFFSET_MS = 3 * 60 * 60 * 1000
+
+function getBrazilDayStart(date: Date): Date {
+  const brazilTime = new Date(date.getTime() - BRAZIL_OFFSET_MS)
+  const midnight = new Date(Date.UTC(
+    brazilTime.getUTCFullYear(),
+    brazilTime.getUTCMonth(),
+    brazilTime.getUTCDate()
+  ))
+  return new Date(midnight.getTime() + BRAZIL_OFFSET_MS)
+}
+
 export async function GET() {
   try {
     const context = await getRequestContext()
@@ -32,16 +45,12 @@ export async function GET() {
     const workspaceScope = await getWorkspaceAccessScope(supabase, context)
 
     const now = new Date()
-    const todayStart = new Date(now)
-    todayStart.setHours(0, 0, 0, 0)
-    const tomorrowStart = new Date(todayStart)
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1)
+    const todayStart = getBrazilDayStart(now)
+    const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
 
-    const chartStart = new Date(todayStart)
-    chartStart.setDate(chartStart.getDate() - 6)
+    const chartStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
 
-    const thirtyDaysAgo = new Date(todayStart)
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29)
+    const thirtyDaysAgo = new Date(todayStart.getTime() - 29 * 24 * 60 * 60 * 1000)
     const hasRestrictedScope =
       workspaceScope.workspaceRestricted || workspaceScope.datasetRestricted
     const accessibleScheduleIds = hasRestrictedScope
@@ -173,17 +182,13 @@ export async function GET() {
       n8n.callback_secret.trim()
     )
 
-    // Chart data: last 7 days
+    // Chart data: last 7 days (boundaries in Brazil timezone UTC-3)
     const chartData = []
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(chartStart)
-      d.setDate(chartStart.getDate() + (6 - i))
-      const dayStr = d.toLocaleDateString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-      })
-      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-      const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)
+    for (let i = 0; i < 7; i++) {
+      const dayStart = new Date(chartStart.getTime() + i * 24 * 60 * 60 * 1000)
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+      const brazilDay = new Date(dayStart.getTime() - BRAZIL_OFFSET_MS)
+      const dayStr = `${String(brazilDay.getUTCDate()).padStart(2, "0")}/${String(brazilDay.getUTCMonth() + 1).padStart(2, "0")}`
 
       const dayItems = logsWithDates.filter((log) => {
         return log.effectiveDate >= dayStart && log.effectiveDate < dayEnd
