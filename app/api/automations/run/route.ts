@@ -108,6 +108,16 @@ export async function POST(request: Request) {
         ? await getWorkspaceAccessScope(supabase, await getRequestContext())
         : null
     const body = await request.json()
+    console.log("[automations/run] request received", {
+      requestUrl: request.url,
+      requestHost: request.headers.get("host")?.trim() || null,
+      requestOrigin: request.headers.get("origin")?.trim() || null,
+      automationId: typeof body?.automation_id === "string" ? body.automation_id : null,
+      scheduleId: typeof body?.schedule_id === "string" ? body.schedule_id : null,
+      exportFormat:
+        typeof body?.export_format === "string" ? body.export_format : null,
+      contactCount: Array.isArray(body?.contact_ids) ? body.contact_ids.length : 0,
+    })
 
     const automationId = typeof body.automation_id === "string" ? body.automation_id : ""
     const adHocDatasetId = typeof body.dataset_id === "string" ? body.dataset_id : ""
@@ -479,6 +489,19 @@ export async function POST(request: Request) {
           contacts,
           logs?.map((log) => log.id) || []
         )
+
+        console.log("[automations/run] forwarding payload to n8n", {
+          companyId,
+          appUrl,
+          webhookUrl,
+          callbackUrl,
+          botSendUrl,
+          scheduleId: scheduleContext?.id ?? scheduleIdOverride,
+          automationName: reportTitle,
+          exportFormat,
+          contactCount: contacts.length,
+          rowCount,
+        })
 
         const webhookResponse = await fetch(webhookUrl, {
           method: "POST",

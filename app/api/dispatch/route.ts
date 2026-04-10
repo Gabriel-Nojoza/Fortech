@@ -1,3 +1,4 @@
+// Cache bust 1
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
@@ -19,11 +20,23 @@ import {
   resolveScheduleReportConfigs,
 } from "@/lib/schedule-report-configs"
 import { getRequestContext } from "@/lib/tenant"
-import { exportPowerBIReportPdf, sanitizeFileName } from "@/lib/powerbi-report-pdf"
-import { getAccessToken } from "@/lib/powerbi"
+import {
+  exportPowerBIReportDocument,
+  sanitizeFileName,
+} from "@/lib/powerbi-report-pdf"
+import {
+  exportReport,
+  getAccessToken,
+  getExportFile,
+  getExportStatus,
+} from "@/lib/powerbi"
 import { getWorkspaceAccessScope } from "@/lib/workspace-access"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 import { getCompanyWhatsAppBotInstance } from "@/lib/whatsapp-bot-instances"
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 function getDispatchLogTarget(contact: {
   phone?: string | null
@@ -65,15 +78,16 @@ function getPageAttachmentLabel(pageName: string, index: number) {
 function buildPageAttachmentFileName(
   reportName: string,
   pageName: string,
-  index: number
+  index: number,
+  extension = "pdf"
 ) {
   const safeReportName = sanitizeFileName(reportName || "relatorio") || "relatorio"
   const pageLabel = getPageAttachmentLabel(pageName, index)
-  return `${safeReportName}-${pageLabel}.pdf`
+  return `${safeReportName}-${pageLabel}.${extension}`
 }
 
-function buildReportAttachmentFileName(reportName: string) {
-  return `${sanitizeFileName(reportName || "relatorio") || "relatorio"}.pdf`
+function buildReportAttachmentFileName(reportName: string, extension = "pdf") {
+  return `${sanitizeFileName(reportName || "relatorio") || "relatorio"}.${extension}`
 }
 
 function applyMessageTemplate(template: string | null | undefined, reportName: string) {
@@ -85,6 +99,99 @@ function applyMessageTemplate(template: string | null | undefined, reportName: s
 
     return ""
   })
+}
+
+async function exportPdfFromPowerBi(input: {
+  token: string
+  workspaceId: string
+  reportId: string
+  pageNames?: string[] | null
+  pageName?: string | null
+}) {
+  const exportJob = await exportReport(
+    input.token,
+    input.workspaceId,
+    input.reportId,
+    "PDF",
+    {
+      pageNames: input.pageNames ?? null,
+      pageName: input.pageName ?? null,
+    }
+  )
+
+  let finalStatus: Awaited<ReturnType<typeof getExportStatus>> | null = null
+
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await sleep(2000)
+
+    const status = await getExportStatus(
+      input.token,
+      input.workspaceId,
+      input.reportId,
+      exportJob.id
+    )
+
+    if (status.status === "Succeeded") {
+      finalStatus = status
+      break
+    }
+
+    if (status.status === "Failed") {
+      throw new Error("Falha ao exportar relatorio no Power BI")
+    }
+  }
+
+  if (!finalStatus) {
+    throw new Error("Tempo limite ao exportar relatorio")
+  }
+
+  const fileBuffer = await getExportFile(
+    input.token,
+    input.workspaceId,
+    input.reportId,
+    exportJob.id
+  )
+
+  return {
+    buffer: Buffer.from(fileBuffer),
+    contentType: "application/pdf",
+    extension: "pdf",
+  }
+}
+
+async function exportReportPdfInternally(input: {
+  token: string
+  workspaceId: string
+  reportId: string
+  reportName: string
+  embedUrl?: string | null
+  pageNames?: string[] | null
+  pageName?: string | null
+}) {
+  try {
+    return await exportPdfFromPowerBi({
+      token: input.token,
+      workspaceId: input.workspaceId,
+      reportId: input.reportId,
+      pageNames: input.pageNames ?? null,
+      pageName: input.pageName ?? null,
+    })
+  } catch (nativeExportError) {
+    console.error(
+      "[dispatch] native Power BI PDF export failed, falling back to browser capture",
+      nativeExportError
+    )
+
+    return exportPowerBIReportDocument({
+      token: input.token,
+      workspaceId: input.workspaceId,
+      reportId: input.reportId,
+      reportName: input.reportName,
+      embedUrl: input.embedUrl ?? null,
+      pageNames: input.pageNames ?? null,
+      pageName: input.pageName ?? null,
+    })
+  }
 }
 
 
@@ -105,6 +212,13 @@ export async function POST(request: NextRequest) {
   let companyId: string
   let source: string
   let accessMaps: Awaited<ReturnType<typeof getScheduleAccessMaps>> | null = null
+
+  console.log("[dispatch] request received", {
+    requestUrl: request.url,
+    requestHost: request.headers.get("host")?.trim() || null,
+    requestOrigin: request.headers.get("origin")?.trim() || null,
+    scheduleId: schedule_id ?? null,
+  })
 
   if (isPlatformRequest) {
     const { data: scheduleRow } = await supabase
@@ -341,10 +455,7 @@ export async function POST(request: NextRequest) {
   }
 
   const directPdfTargets =
-    normalizedScheduleExportFormat === "PDF" &&
-    (hasMultipleReports || hasMultiplePagesInAnyReport)
-      ? powerBiTargets
-      : []
+    normalizedScheduleExportFormat === "PDF" ? powerBiTargets : []
 
   const logs =
       directPdfTargets.length > 0
@@ -405,10 +516,24 @@ export async function POST(request: NextRequest) {
     const { callbackUrl, botSendUrl } = buildN8nEndpointUrls(appUrl, schedule.bot_instance_id)
     const reportExportUrl = `${appUrl.trim().replace(/\/+$/, "")}/api/reports/export`
     const callbackHeaders = buildN8nCallbackHeaders(callbackSecret)
-      const dispatchTargets = buildDispatchTargets(
-        normalizedContacts,
-        (insertedLogs ?? []).map((log) => log.id)
-      )
+    const dispatchTargets = buildDispatchTargets(
+      normalizedContacts,
+      (insertedLogs ?? []).map((log) => log.id)
+    )
+
+    console.log("[dispatch] resolved endpoints", {
+      source,
+      companyId,
+      scheduleId: schedule.id,
+      appUrl,
+      callbackUrl,
+      botSendUrl,
+      reportExportUrl,
+      exportFormat: normalizedScheduleExportFormat,
+      reportCount: powerBiTargets.length,
+      directPdfTargets: directPdfTargets.length,
+      contactCount: normalizedContacts.length,
+    })
 
     if (directPdfTargets.length > 0) {
       const pbiToken = await getAccessToken(companyId)
@@ -441,7 +566,16 @@ export async function POST(request: NextRequest) {
 
           if (selectedPageNames.length > 1) {
             for (const [pageIndex, pageName] of selectedPageNames.entries()) {
-              const pdfBuffer = await exportPowerBIReportPdf({
+              console.log("[dispatch] direct PDF generation", {
+                mode: "one_pdf_per_page",
+                scheduleId: schedule.id,
+                contact: getDispatchLogTarget(contact),
+                reportName: target.report.name,
+                pageName,
+                pageIndex,
+              })
+
+              const exportedFile = await exportReportPdfInternally({
                 token: pbiToken,
                 workspaceId: pbiWorkspaceId,
                 reportId: pbiReportId,
@@ -451,22 +585,47 @@ export async function POST(request: NextRequest) {
                 pageName,
               })
 
+              console.log("[dispatch] sending document to bot", {
+                mode: "direct_pdf",
+                scheduleId: schedule.id,
+                contact: getDispatchLogTarget(contact),
+                reportName: target.report.name,
+                fileName: buildPageAttachmentFileName(
+                  target.report.name,
+                  pageName,
+                  pageIndex,
+                  "pdf"
+                ),
+                contentType: exportedFile.contentType,
+                byteLength: exportedFile.buffer.byteLength,
+              })
+
               await sendWhatsAppBotMessage({
                 instance_id: schedule.bot_instance_id ?? null,
                 phone: contact.phone,
                 whatsapp_group_id: contact.whatsapp_group_id,
                 message: pageIndex === 0 ? reportMessage : null,
-                document_base64: Buffer.from(pdfBuffer).toString("base64"),
+                document_base64: Buffer.from(exportedFile.buffer).toString("base64"),
                 file_name: buildPageAttachmentFileName(
                   target.report.name,
                   pageName,
-                  pageIndex
+                  pageIndex,
+                  "pdf"
                 ),
-                mimetype: "application/pdf",
+                mimetype: exportedFile.contentType,
               })
             }
           } else {
-            const pdfBuffer = await exportPowerBIReportPdf({
+            console.log("[dispatch] direct PDF generation", {
+              mode: "single_document",
+              scheduleId: schedule.id,
+              contact: getDispatchLogTarget(contact),
+              reportName: target.report.name,
+              selectedPageNames,
+              pageName: target.config.pbi_page_name,
+            })
+
+            const exportedFile = await exportPowerBIReportDocument({
               token: pbiToken,
               workspaceId: pbiWorkspaceId,
               reportId: pbiReportId,
@@ -476,14 +635,24 @@ export async function POST(request: NextRequest) {
               pageName: target.config.pbi_page_name,
             })
 
+            console.log("[dispatch] sending document to bot", {
+              mode: "direct_pdf",
+              scheduleId: schedule.id,
+              contact: getDispatchLogTarget(contact),
+              reportName: target.report.name,
+              fileName: buildReportAttachmentFileName(target.report.name, exportedFile.extension),
+              contentType: exportedFile.contentType,
+              byteLength: exportedFile.buffer.byteLength,
+            })
+
             await sendWhatsAppBotMessage({
               instance_id: schedule.bot_instance_id ?? null,
               phone: contact.phone,
               whatsapp_group_id: contact.whatsapp_group_id,
               message: reportMessage,
-              document_base64: Buffer.from(pdfBuffer).toString("base64"),
-              file_name: buildReportAttachmentFileName(target.report.name),
-              mimetype: "application/pdf",
+              document_base64: Buffer.from(exportedFile.buffer).toString("base64"),
+              file_name: buildReportAttachmentFileName(target.report.name, exportedFile.extension),
+              mimetype: exportedFile.contentType,
             })
           }
 
@@ -510,9 +679,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         logs_created: (insertedLogs ?? []).length,
-        attachment_mode: hasMultipleReports ? "multiple_reports" : "one_pdf_per_page",
+        attachment_mode:
+          hasMultipleReports
+            ? "multiple_reports"
+            : hasMultiplePagesInAnyReport
+              ? "one_pdf_per_page"
+              : "single_pdf",
       })
     }
+
+    console.log("[dispatch] forwarding to n8n webhook", {
+      scheduleId: schedule.id,
+      webhookUrl,
+      callbackUrl,
+      botSendUrl,
+      reportExportUrl,
+      reportName: primaryReport?.name ?? null,
+      selectedPageNames: primarySelectedPageNames,
+    })
 
     if (!webhookUrl) {
       const errMsg = "URL do webhook N8N nao configurada"

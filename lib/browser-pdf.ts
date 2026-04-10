@@ -84,9 +84,9 @@ type PngRenderOptions = {
   screenshotScale?: number
   forceExpandScrollable?: boolean
   scrollableSegmentationMode?:
-    | "segments-only"
-    | "overview-and-segments"
-    | "full-page-scroll-steps"
+  | "segments-only"
+  | "overview-and-segments"
+  | "full-page-scroll-steps"
 }
 
 type ScreenshotToPdfOptions = {
@@ -101,9 +101,9 @@ type ScreenshotToPdfOptions = {
   screenshotScale?: number
   forceExpandScrollable?: boolean
   scrollableSegmentationMode?:
-    | "segments-only"
-    | "overview-and-segments"
-    | "full-page-scroll-steps"
+  | "segments-only"
+  | "overview-and-segments"
+  | "full-page-scroll-steps"
   autoGrowPageHeight?: boolean
   maxPageHeightMm?: number
 }
@@ -139,7 +139,7 @@ const PNG_SIGNATURE = Buffer.from([
 const CSS_PIXELS_PER_INCH = 96
 const MILLIMETERS_PER_INCH = 25.4
 const MAX_CAPTURE_WIDTH = 8192
-const MAX_CAPTURE_HEIGHT = 12000
+const MAX_CAPTURE_HEIGHT = 60000
 const MAX_DEVICE_SCALE_FACTOR = 2
 const MAX_SCREENSHOT_SCALE = 1.5
 
@@ -249,9 +249,9 @@ export async function renderScreenshotPayloadsToPdf(
       const scale = page.info.viewportHeight > 0 ? page.info.height / page.info.viewportHeight : 1
       const overlapScrollPx = previous
         ? Math.max(
-            0,
-            previous.info.scrollTop + previous.info.viewportHeight - page.info.scrollTop
-          )
+          0,
+          previous.info.scrollTop + previous.info.viewportHeight - page.info.scrollTop
+        )
         : 0
 
       // Remove the rows that were already present in the previous scroll segment.
@@ -291,99 +291,161 @@ export async function renderScreenshotPayloadsToPdf(
 
   const pageWidthMm = options?.pageWidthMm ?? 420
   let pageHeightMm = options?.pageHeightMm ?? 594
-  const pageMarginMm = options?.pageMarginMm ?? 8
+  const pageMarginMm = options?.pageMarginMm ?? 4
+  const autoGrowPageHeight = options?.autoGrowPageHeight ?? false
 
   const pageWidthPx = millimetersToCssPixels(pageWidthMm)
   const pageMarginPx = millimetersToCssPixels(pageMarginMm)
   const contentWidthPx = Math.max(1, pageWidthPx - pageMarginPx * 2)
 
-  if (options?.autoGrowPageHeight) {
-    const requiredContentHeightPx = pages.reduce((maxHeight, page) => {
-      const renderedImageHeightPx = Math.max(
-        1,
-        Math.round((page.visibleHeightPx * contentWidthPx) / page.info.width)
-      )
-
-      return Math.max(maxHeight, renderedImageHeightPx)
-    }, 0)
-
-    const requiredPageHeightPx = requiredContentHeightPx + pageMarginPx * 2
-    const requiredPageHeightMm =
-      (requiredPageHeightPx * MILLIMETERS_PER_INCH) / CSS_PIXELS_PER_INCH
-    const maxPageHeightMm = options?.maxPageHeightMm ?? 500
-
-    pageHeightMm = Math.min(
-      maxPageHeightMm,
-      Math.max(pageHeightMm, Math.ceil(requiredPageHeightMm))
+  const requiredContentHeightPx = pages.reduce((totalHeight, page) => {
+    const renderedImageHeightPx = Math.max(
+      1,
+      Math.round((page.visibleHeightPx * contentWidthPx) / page.info.width)
     )
-  }
+
+    return totalHeight + renderedImageHeightPx
+  }, 0)
+
+  const requiredPageHeightPx = requiredContentHeightPx + pageMarginPx * 2
+  const requiredPageHeightMm =
+    (requiredPageHeightPx * MILLIMETERS_PER_INCH) / CSS_PIXELS_PER_INCH
+  const maxPageHeightMm = options?.maxPageHeightMm ?? 14400
+  const safeSinglePageHeightMm = Math.min(maxPageHeightMm, 1200)
+  const canUseSingleTallPage =
+    autoGrowPageHeight && requiredPageHeightMm <= safeSinglePageHeightMm
+
+  pageHeightMm = canUseSingleTallPage
+    ? Math.min(maxPageHeightMm, Math.ceil(requiredPageHeightMm))
+    : Math.min(maxPageHeightMm, Math.max(1, pageHeightMm))
 
   const pageHeightPx = millimetersToCssPixels(pageHeightMm)
-  const contentHeightPx = Math.max(1, pageHeightPx - pageMarginPx * 2)
+  const pageContentHeightPx = Math.max(1, pageHeightPx - pageMarginPx * 2)
 
-  const pageSlices = pages
-    .map(({ segmentBase64, info, cropTopPx, visibleHeightPx }, index) => {
-      const renderedImageWidthPx = contentWidthPx
-      const renderedCropTopPx = Math.max(
-        0,
-        Math.round((cropTopPx * renderedImageWidthPx) / info.width)
-      )
-      const renderedVisibleHeightPx = Math.max(
-        1,
-        Math.round((visibleHeightPx * renderedImageWidthPx) / info.width)
-      )
-
-      const localSlices = Math.max(
-        1,
-        Math.ceil(renderedVisibleHeightPx / contentHeightPx)
-      )
-
-      return Array.from({ length: localSlices }, (_, sliceIndex) => {
-        const offsetY = sliceIndex * contentHeightPx
-        const remainingHeightPx = Math.max(1, renderedVisibleHeightPx - offsetY)
-        const sliceHeightPx = Math.min(contentHeightPx, remainingHeightPx)
-        const sectionHeightPx = sliceHeightPx + pageMarginPx * 2
-
-        return {
-          pageName: `pdf-page-${index + 1}-${sliceIndex + 1}`,
-          segmentBase64,
-          segmentIndex: index,
-          offsetY,
-          renderedCropTopPx,
-          sliceHeightPx,
-          sectionHeightPx,
-          sectionHeightMm: Math.max(10, cssPixelsToMillimeters(sectionHeightPx)),
-        }
-      })
-    })
-    .flat()
-
-  const pageCss = pageSlices
-    .map(
-      (slice) => `
-    @page ${slice.pageName} {
-      size: ${pageWidthMm}mm ${slice.sectionHeightMm}mm;
-      margin: 0;
-    }`
+  const pageSlices = pages.map(({ segmentBase64, info, cropTopPx, visibleHeightPx }, index) => {
+    const renderedImageWidthPx = contentWidthPx
+    const renderedCropTopPx = Math.max(
+      0,
+      Math.round((cropTopPx * renderedImageWidthPx) / info.width)
     )
-    .join("")
+    const renderedVisibleHeightPx = Math.max(
+      1,
+      Math.round((visibleHeightPx * renderedImageWidthPx) / info.width)
+    )
 
-  const pagesHtml = pageSlices
+    return {
+      segmentBase64,
+      segmentIndex: index,
+      renderedCropTopPx,
+      renderedVisibleHeightPx,
+    }
+  })
+
+  const paginatedSlices = canUseSingleTallPage
+    ? [
+        {
+          pageHeightPx,
+          slices: pageSlices,
+        },
+      ]
+    : (() => {
+        const laidOutPages: Array<{
+          pageHeightPx: number
+          slices: Array<{
+            segmentBase64: string
+            segmentIndex: number
+            renderedCropTopPx: number
+            renderedVisibleHeightPx: number
+          }>
+        }> = []
+
+        let currentSlices: Array<{
+          segmentBase64: string
+          segmentIndex: number
+          renderedCropTopPx: number
+          renderedVisibleHeightPx: number
+        }> = []
+        let usedPageContentHeightPx = 0
+
+        const flushPage = () => {
+          if (currentSlices.length === 0) {
+            return
+          }
+
+          laidOutPages.push({
+            pageHeightPx,
+            slices: currentSlices,
+          })
+          currentSlices = []
+          usedPageContentHeightPx = 0
+        }
+
+        for (const slice of pageSlices) {
+          let remainingHeightPx = slice.renderedVisibleHeightPx
+          let currentCropTopPx = slice.renderedCropTopPx
+
+          while (remainingHeightPx > 0) {
+            const remainingPageHeightPx = Math.max(
+              1,
+              pageContentHeightPx - usedPageContentHeightPx
+            )
+            const chunkHeightPx = Math.min(remainingHeightPx, remainingPageHeightPx)
+
+            currentSlices.push({
+              segmentBase64: slice.segmentBase64,
+              segmentIndex: slice.segmentIndex,
+              renderedCropTopPx: currentCropTopPx,
+              renderedVisibleHeightPx: chunkHeightPx,
+            })
+
+            usedPageContentHeightPx += chunkHeightPx
+            remainingHeightPx -= chunkHeightPx
+            currentCropTopPx += chunkHeightPx
+
+            if (usedPageContentHeightPx >= pageContentHeightPx - 1) {
+              flushPage()
+            }
+          }
+        }
+
+        flushPage()
+
+        return laidOutPages.length > 0
+          ? laidOutPages
+          : [{ pageHeightPx, slices: pageSlices }]
+      })()
+
+  // We write one single @page for the whole content if we want a single page,
+  // or we just define a default page size that fits the max height.
+  const pageCss = `
+    @page {
+      size: ${pageWidthMm}mm ${pageHeightMm}mm;
+      margin: 0;
+    }
+  `
+
+  const pagesHtml = paginatedSlices
     .map(
-      (slice) => `
-          <section
-            class="pdf-page"
-            style="page: ${slice.pageName}; width: ${pageWidthPx}px; height: ${slice.sectionHeightPx}px; padding: ${pageMarginPx}px;"
-          >
-            <div class="slice" style="height: ${slice.sliceHeightPx}px;">
-              <img
-                src="data:image/png;base64,${escapeHtmlAttribute(slice.segmentBase64)}"
-                alt="Relatorio Power BI - segmento ${slice.segmentIndex + 1}"
-                style="transform: translateY(-${slice.renderedCropTopPx + slice.offsetY}px);"
-              />
-            </div>
-          </section>
-        `
+      (pageLayout) => `
+        <section
+          class="pdf-page"
+          style="width: ${pageWidthPx}px; min-height: ${pageLayout.pageHeightPx}px; padding: ${pageMarginPx}px;"
+        >
+          ${pageLayout.slices
+            .map(
+              (slice) => `
+                <div class="slice" style="height: ${slice.renderedVisibleHeightPx}px;">
+                  <img
+                    src="data:image/png;base64,${escapeHtmlAttribute(slice.segmentBase64)}"
+                    alt="Relatorio Power BI - segmento ${slice.segmentIndex + 1}"
+                    style="transform: translateY(-${slice.renderedCropTopPx}px);"
+                  />
+                </div>
+              `
+            )
+            .join("")}
+        </section>
+      `
     )
     .join("")
 
@@ -415,11 +477,12 @@ export async function renderScreenshotPayloadsToPdf(
     .pdf-page {
       background: #ffffff;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-start;
       break-after: page;
       page-break-after: always;
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
     }
 
     .pdf-page:last-child {
@@ -482,8 +545,8 @@ async function findExecutableOnPath(command: string) {
   const extEntries =
     process.platform === "win32"
       ? (process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM")
-          .split(";")
-          .filter(Boolean)
+        .split(";")
+        .filter(Boolean)
       : [""]
 
   for (const entry of pathEntries) {
@@ -612,8 +675,8 @@ function runProcess(command: string, args: string[], timeoutMs: number) {
       reject(
         new Error(
           stderr.trim() ||
-            stdout.trim() ||
-            `Falha ao executar o navegador para gerar PDF (codigo ${code ?? "desconhecido"})`
+          stdout.trim() ||
+          `Falha ao executar o navegador para gerar PDF (codigo ${code ?? "desconhecido"})`
         )
       )
     })
@@ -681,8 +744,8 @@ async function launchChromeWithDebugging(
       reject(
         new Error(
           stderr.trim() ||
-            stdout.trim() ||
-            `Falha ao iniciar o navegador para captura (codigo ${code ?? "desconhecido"})`
+          stdout.trim() ||
+          `Falha ao iniciar o navegador para captura (codigo ${code ?? "desconhecido"})`
         )
       )
     })
@@ -785,7 +848,7 @@ class CdpClient {
   ) {
     const store = sessionId
       ? this.sessions.get(sessionId) ??
-        new Map<string, Array<(params: Record<string, unknown>) => void>>()
+      new Map<string, Array<(params: Record<string, unknown>) => void>>()
       : this.rootListeners
 
     if (sessionId && !this.sessions.has(sessionId)) {
@@ -882,8 +945,8 @@ async function openHtmlInNewPage(client: CdpClient, html: string) {
   const frameId = String(
     (
       frameTreeResult.frameTree as
-        | { frame?: { id?: string | null } | null }
-        | undefined
+      | { frame?: { id?: string | null } | null }
+      | undefined
     )?.frame?.id ?? ""
   )
 
@@ -963,14 +1026,14 @@ async function withBrowserPage<T>(
     return await fn(client, page.sessionId)
   } finally {
     if (client) {
-      await client.close().catch(() => {})
+      await client.close().catch(() => { })
     }
 
     if (chrome) {
-      await closeChrome(chrome.child).catch(() => {})
+      await closeChrome(chrome.child).catch(() => { })
     }
 
-    await cleanupBrowserWorkspace(workspace).catch(() => {})
+    await cleanupBrowserWorkspace(workspace).catch(() => { })
   }
 }
 
@@ -1302,9 +1365,11 @@ async function measureSegmentClip(
         const baseRect = target.getBoundingClientRect()
         const minWidth = Math.max(24, baseRect.width * 0.04)
         const minHeight = 10
+        let contentTop = baseRect.bottom
         let contentBottom = baseRect.top
+        let foundMeaningfulContent = false
 
-        const nodes = [target, ...Array.from(target.querySelectorAll("*"))]
+        const nodes = Array.from(target.querySelectorAll("*"))
         for (const node of nodes) {
           if (!(node instanceof HTMLElement)) continue
 
@@ -1328,11 +1393,18 @@ async function measureSegmentClip(
 
           if (textLength === 0 && !hasGraphic) continue
 
+          foundMeaningfulContent = true
+          contentTop = Math.min(contentTop, Math.max(rect.top, baseRect.top))
           contentBottom = Math.max(contentBottom, Math.min(rect.bottom, baseRect.bottom))
         }
 
+        if (!foundMeaningfulContent) {
+          contentTop = baseRect.top
+          contentBottom = baseRect.bottom
+        }
+
         const clipLeft = Math.max(0, Math.floor(baseRect.left - 8))
-        const clipTop = Math.max(0, Math.floor(baseRect.top - 8))
+        const clipTop = Math.max(0, Math.floor(contentTop - 8))
         const clipRight = Math.min(window.innerWidth, Math.ceil(baseRect.right + 8))
         const clipBottom = Math.min(
           window.innerHeight,
@@ -1391,19 +1463,19 @@ async function captureViewportPng(
       captureBeyondViewport: false,
       clip: clip
         ? {
-            x: clip.x,
-            y: clip.y,
-            width: clip.width,
-            height: clip.height,
-            scale: 1,
-          }
+          x: clip.x,
+          y: clip.y,
+          width: clip.width,
+          height: clip.height,
+          scale: 1,
+        }
         : {
-            x: 0,
-            y: 0,
-            width,
-            height,
-            scale: 1,
-          },
+          x: 0,
+          y: 0,
+          width,
+          height,
+          scale: 1,
+        },
     },
     { sessionId }
   )
@@ -1476,7 +1548,7 @@ export async function renderHtmlToPng(
   options?: PngRenderOptions
 ) {
   const timeoutMs = options?.timeoutMs ?? 60000
-  const domReadyTimeoutMs = Math.max(4000, Math.min(timeoutMs, 60000))
+  const domReadyTimeoutMs = Math.max(4000, Math.min(timeoutMs, 240000))
   const captureWidth = clampCaptureDimension(
     options?.captureWidth ?? parseEnvNumber("REPORT_PDF_CAPTURE_WIDTH", 2560),
     MAX_CAPTURE_WIDTH
@@ -1487,12 +1559,12 @@ export async function renderHtmlToPng(
   )
   const deviceScaleFactor = clampScale(
     options?.deviceScaleFactor ??
-      parseEnvNumber("REPORT_PDF_DEVICE_SCALE_FACTOR", 2),
+    parseEnvNumber("REPORT_PDF_DEVICE_SCALE_FACTOR", 2),
     MAX_DEVICE_SCALE_FACTOR
   )
   const screenshotScale = clampScale(
     options?.screenshotScale ??
-      parseEnvNumber("REPORT_PDF_SCREENSHOT_SCALE", 1),
+    parseEnvNumber("REPORT_PDF_SCREENSHOT_SCALE", 1),
     MAX_SCREENSHOT_SCALE
   )
   const scrollableSegmentationMode =
@@ -1520,6 +1592,24 @@ export async function renderHtmlToPng(
     }
 
     if (options?.forceExpandScrollable === false) {
+      // Consulta a altura real do elemento .frame (definida pelo syncFrameToActivePage do Power BI)
+      // em vez de usar contentSize que pode incluir overflow de iframes ou area de min-height.
+      const frameHeightResult = await client.send(
+        "Runtime.evaluate",
+        {
+          expression: `(() => {
+            const frame = document.querySelector('.frame');
+            if (frame) {
+              return { frameHeight: frame.offsetHeight, frameWidth: frame.offsetWidth };
+            }
+            return { frameHeight: 0, frameWidth: 0 };
+          })()`,
+          returnByValue: true,
+        },
+        { sessionId }
+      )
+      const frameSize = (frameHeightResult.result as { value?: { frameHeight?: number; frameWidth?: number } } | undefined)?.value
+
       const layoutMetrics = await client.send("Page.getLayoutMetrics", {}, { sessionId })
       const contentSize = layoutMetrics.contentSize as
         | { width?: number; height?: number }
@@ -1529,11 +1619,14 @@ export async function renderHtmlToPng(
         captureWidth,
         Math.ceil(contentSize?.width ?? lastState.scrollWidth ?? captureWidth)
       )
+      // Usa a altura do elemento .frame (altura real do relatório Power BI),
+      // ignorando min-height da página e overflow de iframes.
+      const frameHeight = frameSize?.frameHeight && frameSize.frameHeight > 100 ? frameSize.frameHeight : 0
       const fullHeight = Math.max(
-        captureHeight,
-        Math.ceil(contentSize?.height ?? lastState.scrollHeight ?? captureHeight)
+        920,
+        frameHeight || Math.ceil(contentSize?.height ?? lastState.scrollHeight ?? captureHeight)
       )
-      const safeFullHeight = Math.min(fullHeight, 30000)
+      const safeFullHeight = Math.min(fullHeight, 60000)
 
       await client.send(
         "Emulation.setDeviceMetricsOverride",
@@ -1547,16 +1640,24 @@ export async function renderHtmlToPng(
         { sessionId }
       )
 
-      await delay(700)
+      await delay(3000)
 
-      // ✅ CORRIGIDO: captureBeyondViewport: false — o viewport já foi redimensionado
-      // para o tamanho exato do conteúdo. Usar true causava área preta abaixo do relatório.
+      // Captura com clip exato para a largura/altura do conteúdo real, evitando área em branco.
+      const screenshotClip = {
+        x: 0,
+        y: 0,
+        width: fullWidth,
+        height: safeFullHeight,
+        scale: 1,
+      }
+
       const screenshot = await client.send(
         "Page.captureScreenshot",
         {
           format: "png",
           fromSurface: true,
-          captureBeyondViewport: false,
+          captureBeyondViewport: true,
+          clip: screenshotClip,
         },
         { sessionId }
       )
@@ -1572,6 +1673,21 @@ export async function renderHtmlToPng(
     const segmentation = await prepareScrollableSegments(client, sessionId)
 
     if (!segmentation || segmentation.mode !== "segmented") {
+      // Tenta obter a altura real do .frame (definida pelo syncFrameToActivePage do Power BI)
+      const frameHeightResultFallback = await client.send(
+        "Runtime.evaluate",
+        {
+          expression: `(() => {
+            const frame = document.querySelector('.frame');
+            if (frame) return { frameHeight: frame.offsetHeight, frameWidth: frame.offsetWidth };
+            return { frameHeight: 0, frameWidth: 0 };
+          })()`,
+          returnByValue: true,
+        },
+        { sessionId }
+      )
+      const frameSizeFallback = (frameHeightResultFallback.result as { value?: { frameHeight?: number; frameWidth?: number } } | undefined)?.value
+
       const layoutMetrics = await client.send("Page.getLayoutMetrics", {}, { sessionId })
       const contentSize = layoutMetrics.contentSize as
         | { width?: number; height?: number }
@@ -1581,11 +1697,12 @@ export async function renderHtmlToPng(
         captureWidth,
         Math.ceil(contentSize?.width ?? lastState.scrollWidth ?? captureWidth)
       )
+      const frameHeightFallback = frameSizeFallback?.frameHeight && frameSizeFallback.frameHeight > 100 ? frameSizeFallback.frameHeight : 0
       const fullHeight = Math.max(
-        captureHeight,
-        Math.ceil(contentSize?.height ?? lastState.scrollHeight ?? captureHeight)
+        920,
+        frameHeightFallback || Math.ceil(contentSize?.height ?? lastState.scrollHeight ?? captureHeight)
       )
-      const safeFullHeight = Math.min(fullHeight, 30000)
+      const safeFullHeight = Math.min(fullHeight, 60000)
 
       await client.send(
         "Emulation.setDeviceMetricsOverride",
@@ -1599,15 +1716,23 @@ export async function renderHtmlToPng(
         { sessionId }
       )
 
-      await delay(700)
+      await delay(3000)
 
-      // ✅ CORRIGIDO: captureBeyondViewport: false — mesmo motivo acima.
+      const fallbackClip = {
+        x: 0,
+        y: 0,
+        width: fullWidth,
+        height: safeFullHeight,
+        scale: 1,
+      }
+
       const screenshot = await client.send(
         "Page.captureScreenshot",
         {
           format: "png",
           fromSurface: true,
-          captureBeyondViewport: false,
+          captureBeyondViewport: true,
+          clip: fallbackClip,
         },
         { sessionId }
       )
@@ -1657,7 +1782,7 @@ export async function renderHtmlToPng(
 
     const scrollPositions =
       scrollableSegmentationMode === "overview-and-segments" ||
-      scrollableSegmentationMode === "full-page-scroll-steps"
+        scrollableSegmentationMode === "full-page-scroll-steps"
         ? positions.filter((scrollTop) => scrollTop > 0)
         : positions
 
@@ -1745,6 +1870,6 @@ export async function renderHtmlToPdfViaCli(
     await runProcess(executablePath, args, timeoutMs)
     return await fs.readFile(outputPath)
   } finally {
-    await cleanupBrowserWorkspace(workspace).catch(() => {})
+    await cleanupBrowserWorkspace(workspace).catch(() => { })
   }
 }

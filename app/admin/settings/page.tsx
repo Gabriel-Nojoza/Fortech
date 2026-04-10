@@ -31,6 +31,10 @@ export default function SettingsPage() {
   const [n8nTesting, setN8nTesting] = useState(false)
   const [n8nTestResult, setN8nTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
+  // Power BI Auto Sync
+  const DEFAULT_SYNC_HOURS = [6, 9, 12, 14, 17]
+  const [syncHours, setSyncHours] = useState<number[]>(DEFAULT_SYNC_HOURS)
+
   // General
   const [appName, setAppName] = useState(BRAND_NAME)
   const [timezone, setTimezone] = useState("America/Sao_Paulo")
@@ -52,10 +56,16 @@ export default function SettingsPage() {
         setAppName(settings.general.app_name ?? BRAND_NAME)
         setTimezone(settings.general.timezone ?? "America/Sao_Paulo")
       }
+      if (settings.powerbi_sync) {
+        const hours = settings.powerbi_sync.hours
+        if (Array.isArray(hours)) {
+          setSyncHours(hours as number[])
+        }
+      }
     }
   }, [settings])
 
-  async function saveSetting(key: string, value: Record<string, string>) {
+  async function saveSetting(key: string, value: Record<string, unknown>) {
     setSaving(key)
     try {
       const res = await fetch("/api/settings", {
@@ -220,6 +230,50 @@ export default function SettingsPage() {
                     {pbiTestResult.message}
                   </div>
                 )}
+
+                <div className="border-t pt-4 flex flex-col gap-3">
+                  <div>
+                    <Label>Sincronizacao Automatica</Label>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Selecione os horarios em que os relatorios serao sincronizados automaticamente todos os dias.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from({ length: 24 }, (_, h) => h).map((hour) => {
+                      const active = syncHours.includes(hour)
+                      return (
+                        <button
+                          key={hour}
+                          type="button"
+                          onClick={() =>
+                            setSyncHours((prev) =>
+                              active ? prev.filter((h) => h !== hour) : [...prev, hour].sort((a, b) => a - b)
+                            )
+                          }
+                          className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                            active
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                          }`}
+                        >
+                          {String(hour).padStart(2, "0")}h
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <Button
+                    className="self-start"
+                    onClick={() =>
+                      saveSetting("powerbi_sync", { hours: syncHours })
+                    }
+                    disabled={saving === "powerbi_sync"}
+                  >
+                    {saving === "powerbi_sync" ? (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                    ) : null}
+                    Salvar Horarios
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

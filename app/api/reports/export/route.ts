@@ -1,3 +1,4 @@
+// Cache bust 1
 import { NextRequest } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import {
@@ -8,7 +9,10 @@ import {
   isPowerBiEntityNotFoundError,
   isPowerBiFeatureNotAvailableError,
 } from "@/lib/powerbi"
-import { exportPowerBIReportPdf, sanitizeFileName } from "@/lib/powerbi-report-pdf"
+import {
+  exportPowerBIReportDocument,
+  sanitizeFileName,
+} from "@/lib/powerbi-report-pdf"
 import {
   getPrimarySchedulePageName,
   resolveSchedulePageNames,
@@ -115,6 +119,23 @@ function detectPdfProfile(
     : "desktop"
 }
 
+function detectPreferNativePowerBiExport(value: unknown) {
+  if (typeof value === "boolean") {
+    return value
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    return normalized === "true" || normalized === "1" || normalized === "yes"
+  }
+
+  if (typeof value === "number") {
+    return value === 1
+  }
+
+  return false
+}
+
 async function exportFileFromPowerBi(input: {
   token: string
   workspaceId: string
@@ -170,6 +191,8 @@ export async function POST(request: NextRequest) {
     const supabase = createClient()
 
     const callbackSecret = getSecretFromRequest(request, body)
+    const requestOrigin = request.headers.get("origin")?.trim() || null
+    const requestHost = request.headers.get("host")?.trim() || null
 
     if (!callbackSecret) {
       return jsonError("callback_secret obrigatorio", 401)
@@ -193,8 +216,21 @@ export async function POST(request: NextRequest) {
       body?.pdf_profile,
       request.headers.get("user-agent")
     )
+    const preferNativePowerBiExport = detectPreferNativePowerBiExport(
+      body?.prefer_native_export
+    )
 
-    const preferNativePowerBiExport = body?.prefer_native_export !== false
+    console.log("[reports/export] request received", {
+      requestUrl: request.url,
+      requestHost,
+      requestOrigin,
+      reportId,
+      format,
+      pbiPageNames,
+      pdfProfile,
+      preferNativePowerBiExport,
+      companyId,
+    })
 
     if (!reportId) {
       return new Response(JSON.stringify({ error: "report_id obrigatorio" }), {
@@ -269,7 +305,16 @@ export async function POST(request: NextRequest) {
 
     if (format === "PDF" && !preferNativePowerBiExport) {
       try {
-        const pdfBuffer = await exportPowerBIReportPdf({
+        console.log("[reports/export] generating PDF via browser capture", {
+          reportId: report.id,
+          reportName: report.name,
+          workspaceId: workspace.pbi_workspace_id,
+          pbiReportId: report.pbi_report_id,
+          pbiPageNames,
+          pdfProfile,
+        })
+
+        const exportedFile = await exportPowerBIReportDocument({
           token,
           workspaceId: workspace.pbi_workspace_id,
           reportId: report.pbi_report_id,
@@ -280,11 +325,11 @@ export async function POST(request: NextRequest) {
           pdfProfile,
         })
 
-        return new Response(pdfBuffer, {
+        return new Response(exportedFile.buffer, {
           status: 200,
           headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `inline; filename="${safeName}.pdf"`,
+            "Content-Type": exportedFile.contentType,
+            "Content-Disposition": `inline; filename="${safeName}.${exportedFile.extension}"`,
             "Cache-Control": "no-store",
           },
         })
@@ -303,6 +348,15 @@ export async function POST(request: NextRequest) {
     }
 
     try {
+      console.log("[reports/export] falling back to native Power BI export", {
+        reportId: report.id,
+        reportName: report.name,
+        workspaceId: workspace.pbi_workspace_id,
+        pbiReportId: report.pbi_report_id,
+        format,
+        pbiPageNames,
+      })
+
       const fileBuffer = await exportFileFromPowerBi({
         token,
         workspaceId: workspace.pbi_workspace_id,
@@ -343,7 +397,7 @@ export async function POST(request: NextRequest) {
         )
 
         try {
-          const pdfBuffer = await exportPowerBIReportPdf({
+          const exportedFile = await exportPowerBIReportDocument({
             token,
             workspaceId: workspace.pbi_workspace_id,
             reportId: report.pbi_report_id,
@@ -354,11 +408,11 @@ export async function POST(request: NextRequest) {
             pdfProfile,
           })
 
-          return new Response(pdfBuffer, {
+          return new Response(exportedFile.buffer, {
             status: 200,
             headers: {
-              "Content-Type": "application/pdf",
-              "Content-Disposition": `inline; filename="${safeName}.pdf"`,
+              "Content-Type": exportedFile.contentType,
+              "Content-Disposition": `inline; filename="${safeName}.${exportedFile.extension}"`,
               "Cache-Control": "no-store",
             },
           })

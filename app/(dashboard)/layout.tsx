@@ -2,6 +2,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/dashboard/sidebar-nav"
 import { TabSessionGuard } from "@/components/auth/tab-session-guard"
 import { createClient } from "@/lib/supabase/server"
+import { PowerBIAutoSyncWatcher } from "@/components/powerbi/auto-sync-watcher"
 
 export default async function DashboardLayout({
   children,
@@ -31,6 +32,7 @@ export default async function DashboardLayout({
 
   return (
     <TabSessionGuard>
+      <PowerBIAutoSyncWatcher />
       <SidebarProvider>
         <AppSidebar currentUser={currentUser} />
         <SidebarInset>{children}</SidebarInset>

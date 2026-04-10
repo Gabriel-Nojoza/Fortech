@@ -21,13 +21,29 @@ type EmbedPayload = {
   embed_token: string
 }
 
+type ReportPage = {
+  name: string
+  displayName: string
+  order: number
+}
+
+type EmbeddedPowerBIReport = {
+  on: (eventName: string, handler: (event?: unknown) => void) => void
+  off?: (eventName: string) => void
+  getPages?: () => Promise<
+    Array<{
+      name: string
+      displayName: string
+      isActive?: boolean
+      setActive?: () => Promise<void>
+    }>
+  >
+}
+
 declare global {
   interface Window {
     powerbi?: {
-      embed: (element: HTMLElement, config: Record<string, unknown>) => {
-        on: (eventName: string, handler: (event?: unknown) => void) => void
-        off?: (eventName: string) => void
-      }
+      embed: (element: HTMLElement, config: Record<string, unknown>) => EmbeddedPowerBIReport
       reset?: (element: HTMLElement) => void
     }
     "powerbi-client"?: {
@@ -51,17 +67,32 @@ const fetcher = async (url: string) => {
   return data as EmbedPayload
 }
 
+const fetchPages = async (reportId: string) => {
+  const response = await fetch(`/api/reports/${reportId}/pages`, { cache: "no-store" })
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(data?.error || "Falha ao carregar paginas do relatorio")
+  }
+
+  return Array.isArray(data?.pages) ? (data.pages as ReportPage[]) : []
+}
+
 interface PowerBIReportViewerProps {
   reportId: string
 }
 
 export function PowerBIReportViewer({ reportId }: PowerBIReportViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const embeddedReportRef = useRef<EmbeddedPowerBIReport | null>(null)
   const [scriptLoaded, setScriptLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [embedData, setEmbedData] = useState<EmbedPayload | null>(null)
+  const [pages, setPages] = useState<ReportPage[]>([])
+  const [pagesLoading, setPagesLoading] = useState(false)
+  const [activePageName, setActivePageName] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
   const pageDescription = useMemo(() => {
@@ -78,15 +109,24 @@ export function PowerBIReportViewer({ reportId }: PowerBIReportViewerProps) {
     async function loadEmbedConfig() {
       setLoading(true)
       setError(null)
+      setPagesLoading(true)
 
       try {
-        const payload = await fetcher(`/api/reports/${reportId}/embed`)
+        const [payload, reportPages] = await Promise.all([
+          fetcher(`/api/reports/${reportId}/embed`),
+          fetchPages(reportId),
+        ])
+
         if (!cancelled) {
           setEmbedData(payload)
+          setPages(reportPages)
+          setActivePageName(reportPages[0]?.name ?? null)
         }
       } catch (nextError) {
         if (!cancelled) {
           setEmbedData(null)
+          setPages([])
+          setActivePageName(null)
           setError(
             nextError instanceof Error
               ? nextError.message
@@ -96,6 +136,7 @@ export function PowerBIReportViewer({ reportId }: PowerBIReportViewerProps) {
       } finally {
         if (!cancelled) {
           setLoading(false)
+          setPagesLoading(false)
         }
       }
     }
@@ -145,8 +186,24 @@ export function PowerBIReportViewer({ reportId }: PowerBIReportViewerProps) {
       },
     })
 
+    embeddedReportRef.current = embeddedReport
+
     embeddedReport.on("loaded", () => {
       setRendering(false)
+      void embeddedReport
+        .getPages?.()
+        .then((reportPages) => {
+          const currentActivePage =
+            Array.isArray(reportPages) && reportPages.length
+              ? reportPages.find((page) => page.isActive) ?? reportPages[0]
+              : null
+
+          setActivePageName(currentActivePage?.name ?? null)
+        })
+        .catch(() => {
+          // If the Power BI client does not expose pages for this embed,
+          // we keep using the list loaded from the API.
+        })
     })
 
     embeddedReport.on("rendered", () => {
@@ -169,7 +226,39 @@ export function PowerBIReportViewer({ reportId }: PowerBIReportViewerProps) {
       setError(nextMessage)
       toast.error(nextMessage)
     })
+
+    return () => {
+      embeddedReportRef.current = null
+    }
   }, [embedData, scriptLoaded])
+
+  async function handleSelectPage(pageName: string) {
+    if (!pageName || activePageName === pageName || !embeddedReportRef.current?.getPages) {
+      return
+    }
+
+    setRendering(true)
+
+    try {
+      const reportPages = await embeddedReportRef.current.getPages()
+      const targetPage = reportPages.find((page) => page.name === pageName)
+
+      if (!targetPage?.setActive) {
+        throw new Error("Nao foi possivel localizar a pagina selecionada no Power BI.")
+      }
+
+      await targetPage.setActive()
+      setActivePageName(pageName)
+    } catch (nextError) {
+      const nextMessage =
+        nextError instanceof Error
+          ? nextError.message
+          : "Nao foi possivel trocar a pagina do relatorio."
+
+      setRendering(false)
+      toast.error(nextMessage)
+    }
+  }
 
   return (
     <div className="flex min-h-[calc(100vh-1rem)] flex-col">
@@ -221,6 +310,56 @@ export function PowerBIReportViewer({ reportId }: PowerBIReportViewerProps) {
           ) : null}
           {embedData?.name ? <Badge variant="secondary">Relatorio: {embedData.name}</Badge> : null}
         </div>
+
+        {!loading && !error ? (
+          <Card className="border-border/70">
+            <CardContent className="flex flex-col gap-3 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium">Paginas do relatorio</p>
+                  <p className="text-xs text-muted-foreground">
+                    Selecione uma pagina para navegar dentro do embed.
+                  </p>
+                </div>
+                {pages.length > 0 ? (
+                  <Badge variant="outline">
+                    {pages.length} {pages.length === 1 ? "pagina" : "paginas"}
+                  </Badge>
+                ) : null}
+              </div>
+
+              {pagesLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  Carregando paginas...
+                </div>
+              ) : pages.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {pages.map((page) => {
+                    const isActive = activePageName === page.name
+
+                    return (
+                      <Button
+                        key={page.name}
+                        type="button"
+                        variant={isActive ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => void handleSelectPage(page.name)}
+                        disabled={rendering && !isActive}
+                      >
+                        {page.displayName || page.name}
+                      </Button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma pagina foi retornada para este relatorio.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card className="relative flex flex-1 overflow-hidden border-border/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.9),rgba(241,245,249,0.7))]">
           <CardContent className="flex flex-1 p-0">

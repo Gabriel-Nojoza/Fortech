@@ -79,6 +79,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    console.log("[bot/send] request received", {
+      requestUrl: request.url,
+      requestHost: request.headers.get("host")?.trim() || null,
+      requestOrigin: request.headers.get("origin")?.trim() || null,
+      companyId,
+      dispatchLogId,
+      instanceId: payload.instance_id ?? null,
+      phone: payload.phone ?? null,
+      whatsappGroupId: payload.whatsapp_group_id ?? null,
+      hasDocumentBase64: Boolean(payload.document_base64),
+      hasDocumentUrl: Boolean(payload.document_url),
+      fileName: payload.file_name ?? null,
+      mimetype: payload.mimetype ?? null,
+    })
+
     const result = await sendWhatsAppBotMessage(payload)
 
     if (companyId && dispatchLogId) {

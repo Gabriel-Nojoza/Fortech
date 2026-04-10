@@ -1,9 +1,13 @@
 import {
-  renderHtmlScreenshotToPdf,
   renderHtmlToPng,
   renderScreenshotPayloadsToPdf,
-} from "@/lib/browser-pdf"
-import { generateReportEmbedToken } from "@/lib/powerbi"
+} from "@/lib/browser-pdf";
+import {
+  exportReport,
+  generateReportEmbedToken,
+  getExportFile,
+  getExportStatus,
+} from "@/lib/powerbi";
 
 function escapeHtml(value: string) {
   return value
@@ -11,7 +15,7 @@ function escapeHtml(value: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
+    .replace(/'/g, "&#39;");
 }
 
 export function sanitizeFileName(value: string) {
@@ -20,17 +24,17 @@ export function sanitizeFileName(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9-_ ]/g, "")
     .trim()
-    .replace(/\s+/g, "-")
+    .replace(/\s+/g, "-");
 }
 
 function buildPowerBICaptureHtml(input: {
-  reportName: string
-  reportId: string
-  embedUrl: string
-  embedToken: string
-  pageName?: string | null
+  reportName: string;
+  reportId: string;
+  embedUrl: string;
+  embedToken: string;
+  pageName?: string | null;
 }) {
-  const title = escapeHtml(input.reportName)
+  const title = escapeHtml(input.reportName);
   const config = JSON.stringify({
     reportId: input.reportId,
     embedUrl: input.embedUrl,
@@ -39,7 +43,7 @@ function buildPowerBICaptureHtml(input: {
       typeof input.pageName === "string" && input.pageName.trim()
         ? input.pageName.trim()
         : null,
-  })
+  });
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -65,7 +69,7 @@ function buildPowerBICaptureHtml(input: {
       margin: 0;
       padding: 0;
       width: 100%;
-      min-height: 100%;
+      height: auto;
       background: var(--canvas-bg);
       font-family: "Segoe UI", Tahoma, sans-serif;
     }
@@ -86,7 +90,7 @@ function buildPowerBICaptureHtml(input: {
     .frame {
       position: relative;
       width: 100%;
-      height: 1200px;
+      height: 2000px;
       overflow: hidden;
       border-radius: 0;
       background: var(--frame-bg);
@@ -304,9 +308,9 @@ function buildPowerBICaptureHtml(input: {
 
       async function waitForVisualStability() {
         const startedAt = Date.now()
-        const fallbackDelayMs = 12000
-        const quietPeriodMs = 4500
-        const maxWaitMs = 45000
+        const fallbackDelayMs = 15000
+        const quietPeriodMs = 8000
+        const maxWaitMs = 90000
 
         while (Date.now() - startedAt < maxWaitMs) {
           if (finished) {
@@ -393,6 +397,21 @@ function buildPowerBICaptureHtml(input: {
           }
 
           await syncFrameToActivePage()
+
+          // Scroll through the page to trigger lazy rendering of rows in tall reports
+          if (frameNode) {
+            const frameHeight = frameNode.offsetHeight
+            if (frameHeight > 2000) {
+              const scrollStep = 1500
+              for (let y = scrollStep; y < frameHeight; y += scrollStep) {
+                window.scrollTo(0, y)
+                await wait(800)
+              }
+              window.scrollTo(0, 0)
+              await wait(2000)
+            }
+          }
+
           await wait(1500)
           markReady("rendered")
           settlingRender = false
@@ -415,7 +434,7 @@ function buildPowerBICaptureHtml(input: {
         if (!finished) {
           markReady("timeout")
         }
-      }, 60000)
+      }, 150000)
 
       window.addEventListener("resize", () => {
         window.setTimeout(() => {
@@ -425,68 +444,242 @@ function buildPowerBICaptureHtml(input: {
     })()
   </script>
 </body>
-</html>`
+</html>`;
 }
 
-export type PowerBiPdfProfile = "desktop" | "mobile"
+export type PowerBiPdfProfile = "desktop" | "mobile";
 
-function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
-  if (profile === "mobile") {
-    return {
-      viewportWidth: 7800,
-      viewportHeight: 6000,
-      deviceScaleFactor: 1,
-      pageWidthMm: 700,
-      pageHeightMm: 500,
-      pageMarginMm: 1,
-    }
+export type PowerBiExportedDocument = {
+  buffer: Buffer;
+  contentType: "application/pdf" | "image/png";
+  extension: "pdf" | "png";
+};
+
+type ScreenshotPayloadSummary = {
+  isSegmented: boolean;
+  segmentCount: number;
+  maxTotalHeightPx: number;
+};
+
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
+function parsePngDimensions(png: Buffer) {
+  if (png.length < 24 || !png.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    throw new Error("A captura do relatorio nao retornou um PNG valido");
   }
 
   return {
-    viewportWidth: 6800,
-    viewportHeight: 42000,
-    deviceScaleFactor: 1,
-    pageWidthMm: 620,
-    pageHeightMm: 420,
-    pageMarginMm: 1,
-  }
+    width: png.readUInt32BE(16),
+    height: png.readUInt32BE(20),
+  };
 }
 
-export async function exportPowerBIReportPdf(input: {
-  token: string
-  workspaceId: string
-  reportId: string
-  reportName: string
-  embedUrl: string | null
-  pageNames?: string[] | null
-  pageName?: string | null
-  pdfProfile?: PowerBiPdfProfile
+function summarizeScreenshotPayload(payload: Buffer): ScreenshotPayloadSummary {
+  try {
+    const parsed = JSON.parse(payload.toString("utf-8")) as {
+      segments?: string[];
+      metadata?: Array<{ height?: number; totalHeight?: number }>;
+    };
+    const segments = Array.isArray(parsed.segments) ? parsed.segments : [];
+    const metadata = Array.isArray(parsed.metadata) ? parsed.metadata : [];
+
+    if (segments.length > 0 && metadata.length > 0) {
+      const maxTotalHeightPx = metadata.reduce((maxHeight, item) => {
+        const nextHeight =
+          typeof item.totalHeight === "number" && item.totalHeight > 0
+            ? item.totalHeight
+            : typeof item.height === "number" && item.height > 0
+              ? item.height
+              : 0;
+        return Math.max(maxHeight, nextHeight);
+      }, 0);
+
+      return {
+        isSegmented: true,
+        segmentCount: segments.length,
+        maxTotalHeightPx,
+      };
+    }
+  } catch {
+    // Quando vier um PNG unico, a altura eh lida direto do arquivo.
+  }
+
+  const dimensions = parsePngDimensions(payload);
+  return {
+    isSegmented: false,
+    segmentCount: 1,
+    maxTotalHeightPx: dimensions.height,
+  };
+}
+
+function shouldUsePngForLargeReport(summary: ScreenshotPayloadSummary) {
+  return summary.isSegmented || summary.maxTotalHeightPx >= 9000;
+}
+
+function toNodeBuffer(value: ArrayBuffer | Buffer) {
+  return Buffer.isBuffer(value) ? value : Buffer.from(value);
+}
+
+async function exportFileFromPowerBi(input: {
+  token: string;
+  workspaceId: string;
+  reportId: string;
+  format: "PDF" | "PNG";
+  pageNames: string[];
+  pageName?: string | null;
 }) {
-  const embedUrl = typeof input.embedUrl === "string" ? input.embedUrl.trim() : ""
+  const exportJob = await exportReport(
+    input.token,
+    input.workspaceId,
+    input.reportId,
+    input.format,
+    {
+      pageNames: input.pageNames,
+      pageName: input.pageName,
+    },
+  );
+
+  let finalStatus: Awaited<ReturnType<typeof getExportStatus>> | null = null;
+
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    const status = await getExportStatus(
+      input.token,
+      input.workspaceId,
+      input.reportId,
+      exportJob.id,
+    );
+
+    if (status.status === "Succeeded") {
+      finalStatus = status;
+      break;
+    }
+
+    if (status.status === "Failed") {
+      throw new Error("Falha ao exportar relatorio no Power BI");
+    }
+  }
+
+  if (!finalStatus) {
+    throw new Error("Tempo limite ao exportar relatorio");
+  }
+
+  return toNodeBuffer(
+    await getExportFile(
+      input.token,
+      input.workspaceId,
+      input.reportId,
+      exportJob.id,
+    ),
+  );
+}
+
+function getPowerBiPdfPreset(profile: PowerBiPdfProfile) {
+  const envCaptureWidth = Number(process.env.REPORT_PDF_CAPTURE_WIDTH || "");
+  const envCaptureHeight = Number(process.env.REPORT_PDF_CAPTURE_HEIGHT || "");
+  const envDeviceScaleFactor = Number(process.env.REPORT_PDF_DEVICE_SCALE_FACTOR || "");
+  const viewportWidth =
+    Number.isFinite(envCaptureWidth) && envCaptureWidth > 0 ? envCaptureWidth : 2560;
+  const viewportHeight =
+    Number.isFinite(envCaptureHeight) && envCaptureHeight > 0 ? envCaptureHeight : 12000;
+  const deviceScaleFactor =
+    Number.isFinite(envDeviceScaleFactor) && envDeviceScaleFactor > 0
+      ? envDeviceScaleFactor
+      : 1;
+  if (profile === "mobile") {
+    return {
+      viewportWidth,
+      // Altura inicial suficiente para o Power BI renderizar todo o conteúdo
+      viewportHeight,
+      deviceScaleFactor,
+      pageWidthMm: 120,
+      // undefined => autoGrowPageHeight calcula a altura real do conteúdo
+      pageHeightMm: undefined,
+      pageMarginMm: 0,
+    };
+  }
+
+  return {
+    viewportWidth,
+    // Altura inicial suficiente para relatórios longos como JA_Geral
+    viewportHeight,
+    deviceScaleFactor,
+    pageWidthMm: 120,
+    // undefined => autoGrowPageHeight calcula a altura real do conteúdo
+    pageHeightMm: undefined,
+    pageMarginMm: 0,
+  };
+}
+
+function getSafeRetryPowerBiPdfPreset(profile: PowerBiPdfProfile) {
+  const base = getPowerBiPdfPreset(profile);
+
+  return {
+    ...base,
+    viewportWidth: Math.min(base.viewportWidth, 1600),
+    viewportHeight: Math.min(base.viewportHeight, 6000),
+    deviceScaleFactor: 1,
+  };
+}
+
+function isBrowserDisconnectError(error: unknown) {
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+  return (
+    message.includes("conexao com o navegador foi encerrada") ||
+    message.includes("conexão com o navegador foi encerrada") ||
+    message.includes("connection to the browser was closed") ||
+    message.includes("target closed") ||
+    message.includes("browser has disconnected") ||
+    message.includes("pipe closed")
+  );
+}
+
+export async function exportPowerBIReportDocument(input: {
+  token: string;
+  workspaceId: string;
+  reportId: string;
+  reportName: string;
+  embedUrl: string | null;
+  pageNames?: string[] | null;
+  pageName?: string | null;
+  pdfProfile?: PowerBiPdfProfile;
+  autoUsePngForLargeReports?: boolean;
+}) {
+  const embedUrl =
+    typeof input.embedUrl === "string" ? input.embedUrl.trim() : "";
 
   if (!embedUrl) {
     throw new Error(
-      "Relatorio sem embed_url salvo. Sincronize novamente os relatorios do Power BI."
-    )
+      "Relatorio sem embed_url salvo. Sincronize novamente os relatorios do Power BI.",
+    );
   }
 
   const embedToken = await generateReportEmbedToken(
     input.token,
     input.workspaceId,
-    input.reportId
-  )
+    input.reportId,
+  );
 
-  const preset = getPowerBiPdfPreset(input.pdfProfile ?? "desktop")
+  const preset = getPowerBiPdfPreset(input.pdfProfile ?? "desktop");
   const normalizedPageNames = Array.isArray(input.pageNames)
-    ? [...new Set(input.pageNames.map((pageName) => pageName.trim()).filter(Boolean))]
-    : []
+    ? [
+        ...new Set(
+          input.pageNames.map((pageName) => pageName.trim()).filter(Boolean),
+        ),
+      ]
+    : [];
 
   const selectedPageNames =
     normalizedPageNames.length > 0
       ? normalizedPageNames
       : typeof input.pageName === "string" && input.pageName.trim()
         ? [input.pageName.trim()]
-        : []
+        : [];
 
   if (selectedPageNames.length <= 1) {
     const html = buildPowerBICaptureHtml({
@@ -495,23 +688,30 @@ export async function exportPowerBIReportPdf(input: {
       embedUrl,
       embedToken,
       pageName: selectedPageNames[0] ?? null,
-    })
+    });
 
-    return renderHtmlScreenshotToPdf(html, {
-      pngTimeoutMs: 120000,
-      pdfTimeoutMs: 120000,
+    const screenshotPayload = await renderHtmlToPng(html, {
+      timeoutMs: 180000,
       captureWidth: preset.viewportWidth,
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
-      pageWidthMm: preset.pageWidthMm,
-      pageHeightMm: preset.pageHeightMm,
-      pageMarginMm: preset.pageMarginMm,
       screenshotScale: 1,
-      forceExpandScrollable: true,
+      forceExpandScrollable: false,
       scrollableSegmentationMode: "segments-only",
-      autoGrowPageHeight: false,
-      maxPageHeightMm: 500,
-    })
+    });
+
+    return {
+      buffer: await renderScreenshotPayloadsToPdf([screenshotPayload], {
+        pdfTimeoutMs: 180000,
+        pageWidthMm: preset.pageWidthMm,
+        pageMarginMm: preset.pageMarginMm,
+        autoGrowPageHeight: true,
+        maxPageHeightMm: 80000,
+      }),
+      contentType: "application/pdf",
+      extension: "pdf",
+    } satisfies PowerBiExportedDocument
+
   }
 
   const screenshotPayloads: Buffer[] = []
@@ -523,27 +723,54 @@ export async function exportPowerBIReportPdf(input: {
       embedUrl,
       embedToken,
       pageName,
-    })
+    });
 
     const screenshotPayload = await renderHtmlToPng(html, {
-      timeoutMs: 120000,
+      timeoutMs: 180000,
       captureWidth: preset.viewportWidth,
       captureHeight: preset.viewportHeight,
       deviceScaleFactor: preset.deviceScaleFactor,
       screenshotScale: 1,
-      forceExpandScrollable: true,
+      forceExpandScrollable: false,
+      // Captura por segmentos de scroll para relatórios muito longos
       scrollableSegmentationMode: "segments-only",
-    })
+    });
 
-    screenshotPayloads.push(screenshotPayload)
+    screenshotPayloads.push(screenshotPayload);
   }
 
-  return renderScreenshotPayloadsToPdf(screenshotPayloads, {
-    pdfTimeoutMs: 120000,
-    pageWidthMm: preset.pageWidthMm,
-    pageHeightMm: preset.pageHeightMm,
-    pageMarginMm: preset.pageMarginMm,
-    autoGrowPageHeight: false,
-    maxPageHeightMm: 500,
-  })
+  return {
+    buffer: await renderScreenshotPayloadsToPdf(screenshotPayloads, {
+      pdfTimeoutMs: 180000,
+      pageWidthMm: preset.pageWidthMm,
+      // pageHeightMm omitido: autoGrowPageHeight calcula a altura exata de cada página
+      pageMarginMm: preset.pageMarginMm,
+      autoGrowPageHeight: true,
+      maxPageHeightMm: 80000,
+    }),
+    contentType: "application/pdf",
+    extension: "pdf",
+  } satisfies PowerBiExportedDocument;
+}
+
+export async function exportPowerBIReportPdf(input: {
+  token: string;
+  workspaceId: string;
+  reportId: string;
+  reportName: string;
+  embedUrl: string | null;
+  pageNames?: string[] | null;
+  pageName?: string | null;
+  pdfProfile?: PowerBiPdfProfile;
+}) {
+  const result = await exportPowerBIReportDocument({
+    ...input,
+    autoUsePngForLargeReports: false,
+  });
+
+  if (result.contentType !== "application/pdf") {
+    throw new Error("A exportacao retornou imagem quando PDF era obrigatorio");
+  }
+
+  return result.buffer;
 }
