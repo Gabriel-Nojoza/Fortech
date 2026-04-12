@@ -37,6 +37,14 @@ function getBrazilDayStart(date: Date): Date {
   return new Date(midnight.getTime() + BRAZIL_OFFSET_MS)
 }
 
+function getBrazilMonthStart(date: Date): Date {
+  const brazilTime = new Date(date.getTime() - BRAZIL_OFFSET_MS)
+  const monthStart = new Date(
+    Date.UTC(brazilTime.getUTCFullYear(), brazilTime.getUTCMonth(), 1)
+  )
+  return new Date(monthStart.getTime() + BRAZIL_OFFSET_MS)
+}
+
 export async function GET() {
   try {
     const context = await getRequestContext()
@@ -47,6 +55,18 @@ export async function GET() {
     const now = new Date()
     const todayStart = getBrazilDayStart(now)
     const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
+    const currentMonthStart = getBrazilMonthStart(now)
+    const nextMonthStart = (() => {
+      const currentMonthBrazil = new Date(currentMonthStart.getTime() - BRAZIL_OFFSET_MS)
+      const monthStart = new Date(
+        Date.UTC(
+          currentMonthBrazil.getUTCFullYear(),
+          currentMonthBrazil.getUTCMonth() + 1,
+          1
+        )
+      )
+      return new Date(monthStart.getTime() + BRAZIL_OFFSET_MS)
+    })()
 
     const chartStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
 
@@ -201,6 +221,39 @@ export async function GET() {
       })
     }
 
+    const calendarData = []
+    for (
+      let dayStart = new Date(currentMonthStart);
+      dayStart < nextMonthStart;
+      dayStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+    ) {
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+      const brazilDay = new Date(dayStart.getTime() - BRAZIL_OFFSET_MS)
+      const isoDate = [
+        brazilDay.getUTCFullYear(),
+        String(brazilDay.getUTCMonth() + 1).padStart(2, "0"),
+        String(brazilDay.getUTCDate()).padStart(2, "0"),
+      ].join("-")
+
+      const dayItems = logsWithDates.filter((log) => {
+        return log.effectiveDate >= dayStart && log.effectiveDate < dayEnd
+      })
+
+      const delivered = dayItems.filter((log) => log.outcome === "delivered").length
+      const failed = dayItems.filter((log) => log.outcome === "failed").length
+      const ongoing = dayItems.filter((log) => log.outcome === "ongoing").length
+      const completed = delivered + failed
+
+      calendarData.push({
+        date: isoDate,
+        delivered,
+        failed,
+        ongoing,
+        total: dayItems.length,
+        successRate: completed > 0 ? Math.round((delivered / completed) * 100) : null,
+      })
+    }
+
     return NextResponse.json({
       totalReports,
       activeContacts,
@@ -216,6 +269,7 @@ export async function GET() {
       pbiConfigured,
       n8nConfigured,
       chartData,
+      calendarData,
       statusBreakdown30d: [
         { key: "delivered", label: "Enviados", value: deliveredCount },
         { key: "failed", label: "Erro", value: failedCount },

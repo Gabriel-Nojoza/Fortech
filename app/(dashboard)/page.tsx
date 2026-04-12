@@ -4,6 +4,7 @@ import useSWR from "swr"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { StatsCards } from "@/components/dashboard/stats-cards"
 import { DispatchChart } from "@/components/dashboard/dispatch-chart"
+import { DispatchCalendar } from "@/components/dashboard/dispatch-calendar"
 import { DispatchStatusPie } from "@/components/dashboard/dispatch-status-pie"
 import { RecentDispatches } from "@/components/dashboard/recent-dispatches"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -84,6 +85,12 @@ export default function DashboardPage() {
             <DispatchChart data={stats?.chartData ?? []} />
             <DispatchStatusPie data={stats?.statusBreakdown30d ?? []} />
           </div>
+        )}
+
+        {statsLoading ? (
+          <Skeleton className="h-[540px] rounded-xl" />
+        ) : (
+          <DispatchCalendar data={stats?.calendarData ?? []} />
         )}
 
         {logsLoading ? (
