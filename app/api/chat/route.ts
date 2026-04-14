@@ -123,33 +123,56 @@ function parseTemporalContext(query: string): TemporalContext {
   return { month, year }
 }
 
+// Mapeamento semântico: palavras em português → palavras-chave nas medidas
+const SEMANTIC_MAP: Array<{ terms: string[]; keywords: string[] }> = [
+  { terms: ["faturamento", "faturado", "faturados", "receita", "vendido"], keywords: ["faturado", "venda", "vl venda", "receita"] },
+  { terms: ["venda", "vendas", "vendido"], keywords: ["venda", "vendido"] },
+  { terms: ["meta", "objetivo", "target"], keywords: ["meta"] },
+  { terms: ["pedido", "pedidos"], keywords: ["pedido"] },
+  { terms: ["lucro", "resultado"], keywords: ["lucro", "margem"] },
+  { terms: ["margem", "percentual"], keywords: ["margem", "%"] },
+  { terms: ["devolucao", "devolucoes", "devolvido"], keywords: ["devolucao", "devol"] },
+  { terms: ["cliente", "clientes"], keywords: ["cliente"] },
+  { terms: ["produto", "produtos"], keywords: ["produto"] },
+  { terms: ["bonificacao", "bonus"], keywords: ["bonificacao", "bonificac"] },
+  { terms: ["positivacao", "positivado"], keywords: ["posit"] },
+  { terms: ["ticket", "tiquete", "medio"], keywords: ["ticket", "tique", "medio"] },
+  { terms: ["dias", "diasuteis", "diasrealizados"], keywords: ["dia"] },
+  { terms: ["tendencia"], keywords: ["tendencia"] },
+  { terms: ["forecast", "previsao"], keywords: ["forecast", "previsao"] },
+]
+
 /**
  * Retorna as medidas mais relevantes para a pergunta do usuário.
- * Usa correspondência de tokens para encontrar medidas cujo nome
- * contém partes da pergunta (e vice-versa).
+ * Usa correspondência semântica + tokens para encontrar medidas.
  */
 function findRelevantMeasures(query: string, measures: MeasureRow[]): MeasureRow[] {
   const normQuery = normalize(query)
-  // Tokens da query com pelo menos 3 chars
   const tokens = normQuery.match(/[a-z0-9]{3,}/g) ?? [normQuery]
+
+  // Expande tokens com sinônimos semânticos
+  const expandedTokens = new Set(tokens)
+  for (const mapping of SEMANTIC_MAP) {
+    if (mapping.terms.some(t => tokens.includes(normalize(t)))) {
+      mapping.keywords.forEach(k => expandedTokens.add(normalize(k)))
+    }
+  }
 
   const scored = measures.map((m) => {
     const normName = normalize(m.measureName)
     let score = 0
-    for (const token of tokens) {
+    for (const token of expandedTokens) {
       if (normName.includes(token)) score += 2
       if (normQuery.includes(normName)) score += 3
     }
-    // Correspondência exata parcial
     if (normName.includes(normQuery) || normQuery.includes(normName)) score += 5
     return { m, score }
   })
 
   const relevant = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score)
-  // Retorna as top 10 mais relevantes, ou todas se < 10 relevantes
   return relevant.length > 0
-    ? relevant.slice(0, 10).map((s) => s.m)
-    : measures.slice(0, 30) // fallback: envia as primeiras 30 para o modelo decidir
+    ? relevant.slice(0, 15).map((s) => s.m)
+    : measures.slice(0, 30)
 }
 
 function formatQueryResult(result: { columns: Array<{ name: string }>; rows: Array<Record<string, unknown>> }) {
@@ -381,24 +404,26 @@ ${columnsList}
 Retorne SOMENTE um dos JSONs abaixo:
 - Medida simples: {"type":"measure","measure":"NomeExato"}
 - Medida com filtro de TEXTO: {"type":"filtered","measure":"NomeExato","filter_table":"TabelaDaColuna","filter_col":"NomeDaColuna","filter_val":"valor"}
-- Medida com filtro de DATA: {"type":"date_filter","measure":"NomeExato","filter_table":"TabelaDaColuna","filter_col":"NomeDaColuna","filter_month":1,"filter_year":2025}
+- Medida com filtro de DATA: {"type":"date_filter","measure":"NomeExato","filter_month":3}
   - filter_month: 1=jan, 2=fev, 3=mar, 4=abr, 5=mai, 6=jun, 7=jul, 8=ago, 9=set, 10=out, 11=nov, 12=dez
-  - filter_year: só inclua se o usuário mencionou explicitamente o ano (ex: "janeiro de 2025"). Se não mencionou, OMITA filter_year.
-  - filter_table e filter_col DEVEM ser uma coluna do tipo DateTime/Date da lista COLUNAS acima — nunca use a tabela de medidas
+  - filter_year: inclua SOMENTE se o usuário mencionou o ano explicitamente. Caso contrário, OMITA.
 - Agrupado por dimensão: {"type":"group","measure":"NomeExato","group_table":"Tabela","group_col":"Coluna"}
 - Ranking (top N): {"type":"ranking","measure":"NomeExato","group_table":"Tabela","group_col":"Coluna","top_n":10}
 - Não é dado: {"type":"none"}
 
-REGRAS IMPORTANTES:
-1. Quando a pergunta contiver "por cliente", "por cada cliente", "clientes": use type "group" com a coluna de nome de cliente da lista COLUNAS acima (ex: PCCLIENTE[DESCRICAO]).
-2. Quando a pergunta contiver "por vendedor", "por representante", "por supervisor": use type "group" com a coluna de vendedor/supervisor da lista COLUNAS.
-3. Quando a pergunta contiver "por fornecedor", "por marca", "por divisão": use type "group" com a coluna de fornecedor da lista COLUNAS.
-4. Quando a pergunta contiver "por filial", "por loja", "por unidade": use type "group" com a coluna de filial da lista COLUNAS.
-5. Quando a pergunta contiver "por mês", "mensal", "por período": use type "group" com a coluna de mês/período da lista COLUNAS.
-6. Para filtrar por um nome específico (ex: "do cliente X", "do vendedor Y"): use type "filtered" com filter_val = o nome exato.
-7. Quando a pergunta contiver "top X", "os X maiores", "os X primeiros", "ranking": use type "ranking" com top_n = o número mencionado (padrão 10).
-8. group_table e group_col SEMPRE vêm da lista COLUNAS acima. Nunca invente nomes.
-9. filter_table e filter_col sempre vêm da lista COLUNAS. Nunca invente nomes.`,
+REGRAS DE MAPEAMENTO (aplique sempre):
+1. "faturamento", "faturado", "receita" → procure medida com "Faturado" ou "Venda" no nome
+2. "meta", "objetivo" → procure medida com "Meta" no nome
+3. "pedido", "pedidos" → procure medida com "Pedido" no nome
+4. "lucro", "resultado" → procure medida com "Lucro" ou "Margem" no nome
+5. "por cliente" / "por cada cliente" → group_table="PCCLIENTE", group_col="DESCRICAO"
+6. "por fornecedor" / "por marca" → group_table="PCFORNEC", group_col="FORNECEDOR"
+7. "por filial" / "por loja" → group_table="Nome Filial", group_col="Filial"
+8. "por mês" / "mensal" → group_table="Calendario", group_col="Mês_Ano"
+9. "top X" / "os X maiores" / "ranking" → type="ranking", top_n=X (padrão 10)
+10. "do cliente X" / "do fornecedor Y" → type="filtered", filter_val=nome exato
+11. group_table e group_col SEMPRE vêm da lista COLUNAS. Nunca invente.
+12. Para filtro de data NÃO inclua filter_table nem filter_col — o sistema usa Calendario[Mês] e Calendario[Ano] automaticamente.`,
                 },
                 ...messages,
               ],
