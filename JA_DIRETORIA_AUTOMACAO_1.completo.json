@@ -1,0 +1,3460 @@
+﻿{
+    "source_json":  "D:\\Users\\supor\\Desktop\\Solucao-Inteligente-main\\JA_DIRETORIA_AUTOMACAO_1.pbix.json",
+    "extracted_at":  "2026-04-13T22:58:58.4965749-03:00",
+    "pages":  [
+                  "Meta Fornecedor",
+                  "Meta Vendedor",
+                  "Meta Equipe",
+                  "Inicio"
+              ],
+    "summary":  {
+                    "table_count":  20,
+                    "column_count":  85,
+                    "measure_count":  61,
+                    "item_count":  146
+                },
+    "tables":  [
+                   {
+                       "table":  "Calendario",
+                       "columns":  [
+                                       "Ano",
+                                       "Mês",
+                                       "Mês_Ano"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio"
+                                 ],
+                       "visual_types":  [
+                                            "lineChart",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Calendariod",
+                       "columns":  [
+                                       "Ano",
+                                       "Dia Util",
+                                       "MesAtual",
+                                       "Semana_"
+                                   ],
+                       "measures":  [
+                                        "Semana_"
+                                    ],
+                       "pages":  [
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "cardVisual",
+                                            "gauge",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "CONDVENDA",
+                       "columns":  [
+                                       "CONDVENDA"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "cardVisual",
+                                            "clusteredBarChart",
+                                            "gauge",
+                                            "lineChart",
+                                            "multiRowCard",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "dFiltro Meta Fornecedor",
+                       "columns":  [
+                                       "Tipo"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "dSenha",
+                       "columns":  [
+                                       "Usuario"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "cardVisual",
+                                            "clusteredBarChart",
+                                            "gauge",
+                                            "lineChart",
+                                            "multiRowCard",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Dsenha1",
+                       "columns":  [
+                                       "Dsenha1"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Filtro Fornecedor",
+                       "columns":  [
+                                       "Filtro"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Meta Fornecedor"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "cardVisual",
+                                            "gauge",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Gerente",
+                       "columns":  [
+                                       "Cod/Gerente"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Medidas",
+                       "columns":  [
+                                       "$ Diaria Neces. Pedido",
+                                       "$ Meta Rateio Dia",
+                                       "$ Tendencia",
+                                       "$ Tendencia Ped.",
+                                       "% Bonificacao",
+                                       "% Devolução",
+                                       "% Margem",
+                                       "% Margem Pedidos",
+                                       "% Meta",
+                                       "% Meta Ped.",
+                                       "% Meta Posit.",
+                                       "% Meta Posit. F",
+                                       "% Meta Posit. P",
+                                       "% Tendencia Ped.",
+                                       "% Tendência Posit.",
+                                       "% Tendencia.",
+                                       "Atualizacao Certa",
+                                       "Bonificação",
+                                       "Check",
+                                       "Dias Realizados",
+                                       "Dias Restantes",
+                                       "Dias Úteis",
+                                       "Falta Meta",
+                                       "Falta Meta Posit.",
+                                       "Falta Meta R$",
+                                       "Filtrar Meta",
+                                       "Filtrar Meta P",
+                                       "Gap Ped. R$",
+                                       "Gap Posit. P",
+                                       "Meta",
+                                       "Meta Diaria Necessaria",
+                                       "Meta Diária Nova",
+                                       "Meta Diária Original",
+                                       "Meta Posit.",
+                                       "Meta Posit. F",
+                                       "Ped. Dia",
+                                       "Pedidos Dev.",
+                                       "Pedidos Enviados",
+                                       "Pos. Media",
+                                       "Posit. Dia",
+                                       "Posit. Ped. Dia",
+                                       "Prem Pos",
+                                       "Prem R$",
+                                       "Prem Total",
+                                       "Prem Total Equip.",
+                                       "Qtde Clientes",
+                                       "Qtde Clientes Pedidos",
+                                       "Qtde Pedidos Pedidos",
+                                       "Qtde Produtos",
+                                       "Realizado e Forecast MTD",
+                                       "Sellout Dia",
+                                       "Tendência Posit.",
+                                       "Tiquet Medio Pedidos",
+                                       "Vl Devolução",
+                                       "Vl Faturados",
+                                       "Vl Lucro",
+                                       "Vl Pedidos",
+                                       "Vl Pedidos Medio",
+                                       "Vl Venda Liquida"
+                                   ],
+                       "measures":  [
+                                        "$ Diaria Neces. Pedido",
+                                        "$ Meta Rateio Dia",
+                                        "$ Tendencia",
+                                        "$ Tendencia Ped.",
+                                        "% Bonificacao",
+                                        "% Devolução",
+                                        "% Margem",
+                                        "% Margem Pedidos",
+                                        "% Meta",
+                                        "% Meta Ped.",
+                                        "% Meta Posit.",
+                                        "% Meta Posit. F",
+                                        "% Meta Posit. P",
+                                        "% Tendencia Ped.",
+                                        "% Tendencia Ped. vs Meta MTD",
+                                        "% Tendência Posit.",
+                                        "% Tendencia.",
+                                        "Atualizacao Certa",
+                                        "Bonificação",
+                                        "Check",
+                                        "Dias Realizados",
+                                        "Dias Restantes",
+                                        "Dias Úteis",
+                                        "Falta Meta",
+                                        "Falta Meta Posit.",
+                                        "Falta Meta R$",
+                                        "Filtrar Meta",
+                                        "Filtrar Meta P",
+                                        "Gap Ped. R$",
+                                        "Gap Posit. P",
+                                        "Meta",
+                                        "Meta Diaria Necessaria",
+                                        "Meta Diária Nova",
+                                        "Meta Diária Original",
+                                        "Meta Posit.",
+                                        "Meta Posit. F",
+                                        "Ped. Dia",
+                                        "Pedidos Dev.",
+                                        "Pedidos Enviados",
+                                        "Pos. Media",
+                                        "Posit. Dia",
+                                        "Posit. Ped. Dia",
+                                        "Prem Pos",
+                                        "Prem R$",
+                                        "Prem Total",
+                                        "Prem Total Equip.",
+                                        "Qtde Clientes",
+                                        "Qtde Clientes Pedidos",
+                                        "Qtde Pedidos Pedidos",
+                                        "Qtde Produtos",
+                                        "Realizado e Forecast MTD",
+                                        "Sellout Dia",
+                                        "Tendência Posit.",
+                                        "Tiquet Medio Pedidos",
+                                        "Vl Devolução",
+                                        "Vl Faturados",
+                                        "Vl Lucro",
+                                        "Vl Pedidos",
+                                        "Vl Pedidos Medio",
+                                        "Vl Venda Liquida"
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "cardVisual",
+                                            "clusteredBarChart",
+                                            "gauge",
+                                            "lineChart",
+                                            "multiRowCard",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "META",
+                       "columns":  [
+
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "cardVisual",
+                                            "clusteredBarChart",
+                                            "gauge",
+                                            "lineChart",
+                                            "multiRowCard",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Nome Filial",
+                       "columns":  [
+                                       "Filial"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "PCCLIENTE",
+                       "columns":  [
+                                       "DESCRICAO"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio"
+                                 ],
+                       "visual_types":  [
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "PCFORNEC",
+                       "columns":  [
+                                       "Cod/Forn.",
+                                       "Divisão",
+                                       "FORNECEDOR",
+                                       "Pasta"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "clusteredBarChart",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "PCUSUARI",
+                       "columns":  [
+                                       "Cod/Sup.",
+                                       "Cod/Vend.",
+                                       "Numerica-Ponderada"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Periodos",
+                       "columns":  [
+                                       "Periodo"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "clusteredBarChart",
+                                            "lineChart",
+                                            "multiRowCard",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Psenha1",
+                       "columns":  [
+
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "cardVisual",
+                                            "clusteredBarChart",
+                                            "gauge",
+                                            "lineChart",
+                                            "multiRowCard",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Psenha2",
+                       "columns":  [
+                                       "Psenha2"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "cardVisual",
+                                            "clusteredBarChart",
+                                            "gauge",
+                                            "lineChart",
+                                            "multiRowCard",
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Selec",
+                       "columns":  [
+                                       " a Medida.Selec. a Medida"
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio"
+                                 ],
+                       "visual_types":  [
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Selec. a Medida",
+                       "columns":  [
+
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio"
+                                 ],
+                       "visual_types":  [
+                                            "card",
+                                            "clusteredBarChart",
+                                            "lineChart",
+                                            "multiRowCard",
+                                            "slicer"
+                                        ]
+                   },
+                   {
+                       "table":  "Supervisor",
+                       "columns":  [
+                                       "Cod/Superv."
+                                   ],
+                       "measures":  [
+
+                                    ],
+                       "pages":  [
+                                     "Inicio",
+                                     "Meta Equipe",
+                                     "Meta Fornecedor",
+                                     "Meta Vendedor"
+                                 ],
+                       "visual_types":  [
+                                            "pivotTable",
+                                            "slicer"
+                                        ]
+                   }
+               ],
+    "items":  [
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Falta Meta Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Falta Meta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Filtrar Meta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Falta Meta R$",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Dias Úteis",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Check",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Bonificação",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Dias Restantes",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Dias Realizados",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Meta Diária Original",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Meta Diária Nova",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Meta Posit. F",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Meta Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Meta Diaria Necessaria",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Gap Ped. R$",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Filtrar Meta P",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Meta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Gap Posit. P",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Margem",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Devolução",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Meta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Margem Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Bonificacao",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "$ Meta Rateio Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "$ Diaria Neces. Pedido",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "$ Tendencia Ped.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "$ Tendencia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Tendência Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Tendencia Ped. vs Meta MTD",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Atualizacao Certa",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Tendencia.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Tendencia Ped.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Meta Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Meta Ped.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Meta Posit. P",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "% Meta Posit. F",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Ped. Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "PCCLIENTE",
+                      "type":  "column",
+                      "name":  "DESCRICAO",
+                      "pages":  [
+                                    "Inicio"
+                                ],
+                      "visual_types":  [
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Nome Filial",
+                      "type":  "column",
+                      "name":  "Filial",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "PCFORNEC",
+                      "type":  "column",
+                      "name":  "Divisão",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "clusteredBarChart",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "PCFORNEC",
+                      "type":  "column",
+                      "name":  "Cod/Forn.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "clusteredBarChart",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Vl Venda Liquida",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Vl Lucro",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Vl Faturados",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Vl Pedidos Medio",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Vl Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Psenha2",
+                      "type":  "column",
+                      "name":  "Psenha2",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Periodos",
+                      "type":  "column",
+                      "name":  "Periodo",
+                      "pages":  [
+                                    "Inicio"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "clusteredBarChart",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Supervisor",
+                      "type":  "column",
+                      "name":  "Cod/Superv.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Selec",
+                      "type":  "column",
+                      "name":  " a Medida.Selec. a Medida",
+                      "pages":  [
+                                    "Inicio"
+                                ],
+                      "visual_types":  [
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "PCUSUARI",
+                      "type":  "column",
+                      "name":  "Numerica-Ponderada",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "PCFORNEC",
+                      "type":  "column",
+                      "name":  "Pasta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "clusteredBarChart",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "PCFORNEC",
+                      "type":  "column",
+                      "name":  "FORNECEDOR",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "clusteredBarChart",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "PCUSUARI",
+                      "type":  "column",
+                      "name":  "Cod/Vend.",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "PCUSUARI",
+                      "type":  "column",
+                      "name":  "Cod/Sup.",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Prem R$",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Prem Pos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Prem Total Equip.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Prem Total",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Posit. Ped. Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Pedidos Enviados",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Pedidos Dev.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Posit. Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Pos. Media",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Tendência Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Sellout Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Vl Devolução",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Tiquet Medio Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Realizado e Forecast MTD",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Qtde Clientes Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Qtde Clientes",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Qtde Produtos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "measure",
+                      "name":  "Qtde Pedidos Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Meta Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Meta Ped.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Meta Posit. P",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Meta Posit. F",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Meta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Devolução",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Bonificacao",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Margem Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Margem",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Dias Realizados",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Check",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Dias Úteis",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Dias Restantes",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Bonificação",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Tendência Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Tendencia Ped.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Atualizacao Certa",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "% Tendencia.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Calendariod",
+                      "type":  "column",
+                      "name":  "Semana_",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "gauge",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Calendariod",
+                      "type":  "column",
+                      "name":  "MesAtual",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "gauge",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "CONDVENDA",
+                      "type":  "column",
+                      "name":  "CONDVENDA",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Calendariod",
+                      "type":  "measure",
+                      "name":  "Semana_",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "gauge",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Calendariod",
+                      "type":  "column",
+                      "name":  "Dia Util",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "gauge",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Calendario",
+                      "type":  "column",
+                      "name":  "Mês",
+                      "pages":  [
+                                    "Inicio"
+                                ],
+                      "visual_types":  [
+                                           "lineChart",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Calendario",
+                      "type":  "column",
+                      "name":  "Ano",
+                      "pages":  [
+                                    "Inicio"
+                                ],
+                      "visual_types":  [
+                                           "lineChart",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Calendariod",
+                      "type":  "column",
+                      "name":  "Ano",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "gauge",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Calendario",
+                      "type":  "column",
+                      "name":  "Mês_Ano",
+                      "pages":  [
+                                    "Inicio"
+                                ],
+                      "visual_types":  [
+                                           "lineChart",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "$ Meta Rateio Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "$ Diaria Neces. Pedido",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "$ Tendencia Ped.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "$ Tendencia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Gerente",
+                      "type":  "column",
+                      "name":  "Cod/Gerente",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "dSenha",
+                      "type":  "column",
+                      "name":  "Usuario",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "dFiltro Meta Fornecedor",
+                      "type":  "column",
+                      "name":  "Tipo",
+                      "pages":  [
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Filtro Fornecedor",
+                      "type":  "column",
+                      "name":  "Filtro",
+                      "pages":  [
+                                    "Meta Fornecedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "gauge",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Dsenha1",
+                      "type":  "column",
+                      "name":  "Dsenha1",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Falta Meta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Qtde Pedidos Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Qtde Clientes Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Realizado e Forecast MTD",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Qtde Produtos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Qtde Clientes",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Prem R$",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Prem Pos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Prem Total Equip.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Prem Total",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Vl Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Vl Lucro",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Vl Venda Liquida",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Vl Pedidos Medio",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Vl Faturados",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Tendência Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Sellout Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Vl Devolução",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Tiquet Medio Pedidos",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Meta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Gap Posit. P",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Meta Diária Nova",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Meta Diaria Necessaria",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Gap Ped. R$",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Falta Meta R$",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Falta Meta Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Filtrar Meta P",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Filtrar Meta",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Pos. Media",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Pedidos Enviados",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Posit. Ped. Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Posit. Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Pedidos Dev.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Meta Posit.",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Meta Diária Original",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Ped. Dia",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  },
+                  {
+                      "table":  "Medidas",
+                      "type":  "column",
+                      "name":  "Meta Posit. F",
+                      "pages":  [
+                                    "Inicio",
+                                    "Meta Equipe",
+                                    "Meta Fornecedor",
+                                    "Meta Vendedor"
+                                ],
+                      "visual_types":  [
+                                           "card",
+                                           "cardVisual",
+                                           "clusteredBarChart",
+                                           "gauge",
+                                           "lineChart",
+                                           "multiRowCard",
+                                           "pivotTable",
+                                           "slicer"
+                                       ]
+                  }
+              ]
+}
