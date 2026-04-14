@@ -199,6 +199,11 @@ export async function POST(request: NextRequest) {
   const supabase = createClient()
   const body = await request.json()
   const { schedule_id } = body
+  let insertedLogs:
+    | Array<{
+        id: string
+      }>
+    | null = null
 
   if (!schedule_id) {
     return NextResponse.json({ error: "schedule_id obrigatorio" }, { status: 400 })
@@ -480,10 +485,12 @@ export async function POST(request: NextRequest) {
           export_format: normalizedScheduleExportFormat,
         }))
 
-  const { data: insertedLogs, error: insertLogsError } = await supabase
+  const { data: insertedLogsData, error: insertLogsError } = await supabase
     .from("dispatch_logs")
     .insert(logs)
     .select()
+
+  insertedLogs = insertedLogsData ?? null
 
   if (insertLogsError) {
     return NextResponse.json(
