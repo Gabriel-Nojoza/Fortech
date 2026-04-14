@@ -945,7 +945,7 @@ export default function UsersPage() {
                         checked={formChatEnabled}
                         onCheckedChange={(v) => {
                           setFormChatEnabled(v)
-                          if (!v) setFormChatDatasetId("")
+                          if (!v) setFormChatDatasetIds([])
                         }}
                       />
                     </div>
