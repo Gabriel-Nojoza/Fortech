@@ -386,6 +386,7 @@ Retorne SOMENTE um dos JSONs abaixo:
   - filter_year: só inclua se o usuário mencionou explicitamente o ano (ex: "janeiro de 2025"). Se não mencionou, OMITA filter_year.
   - filter_table e filter_col DEVEM ser uma coluna do tipo DateTime/Date da lista COLUNAS acima — nunca use a tabela de medidas
 - Agrupado por dimensão: {"type":"group","measure":"NomeExato","group_table":"Tabela","group_col":"Coluna"}
+- Ranking (top N): {"type":"ranking","measure":"NomeExato","group_table":"Tabela","group_col":"Coluna","top_n":10}
 - Não é dado: {"type":"none"}
 
 REGRAS IMPORTANTES:
@@ -395,8 +396,9 @@ REGRAS IMPORTANTES:
 4. Quando a pergunta contiver "por filial", "por loja", "por unidade": use type "group" com a coluna de filial da lista COLUNAS.
 5. Quando a pergunta contiver "por mês", "mensal", "por período": use type "group" com a coluna de mês/período da lista COLUNAS.
 6. Para filtrar por um nome específico (ex: "do cliente X", "do vendedor Y"): use type "filtered" com filter_val = o nome exato.
-7. group_table e group_col SEMPRE vêm da lista COLUNAS acima. Nunca invente nomes.
-8. filter_table e filter_col sempre vêm da lista COLUNAS. Nunca invente nomes.`,
+7. Quando a pergunta contiver "top X", "os X maiores", "os X primeiros", "ranking": use type "ranking" com top_n = o número mencionado (padrão 10).
+8. group_table e group_col SEMPRE vêm da lista COLUNAS acima. Nunca invente nomes.
+9. filter_table e filter_col sempre vêm da lista COLUNAS. Nunca invente nomes.`,
                 },
                 ...messages,
               ],
@@ -409,6 +411,7 @@ REGRAS IMPORTANTES:
               filter_table?: string; filter_col?: string; filter_val?: string
               filter_month?: number; filter_year?: number
               group_table?: string; group_col?: string
+              top_n?: number
             }
             const effectivePickBase =
               pick.type === "measure" &&
@@ -444,34 +447,54 @@ REGRAS IMPORTANTES:
               const fm = effectivePick.filter_month
               const fy = effectivePick.filter_year
               if (fm || fy) {
-                // Encontra todas as colunas de data disponíveis
-                const dateCols = columns.filter((c) =>
-                  c.dataType === "DateTime" || c.dataType === "Date" ||
-                  String(c.dataType) === "9" || c.columnName.toLowerCase().includes("data") ||
-                  c.columnName.toLowerCase().includes("date")
+                // Procura colunas de mês e ano já como número inteiro (ex: Calendario[Mês], Calendario[Ano])
+                const mesCol = columns.find((c) =>
+                  c.dataType === "Int64" &&
+                  (c.columnName.toLowerCase() === "mês" || c.columnName.toLowerCase() === "mes" || c.columnName.toLowerCase() === "month")
                 )
-                // Prioriza coluna validada pelo modelo, depois busca por nome
-                const pickedCol = dateCols.find(
-                  (c) => c.tableName === effectivePick.filter_table && c.columnName === effectivePick.filter_col
-                ) ?? dateCols[0]
+                const anoCol = columns.find((c) =>
+                  c.dataType === "Int64" &&
+                  (c.columnName.toLowerCase() === "ano" || c.columnName.toLowerCase() === "year")
+                )
 
-                if (pickedCol) {
-                  const ref = `${pickedCol.tableName}[${pickedCol.columnName}]`
+                if (mesCol || anoCol) {
+                  // Usa colunas numéricas diretas (Calendario[Mês] = 3, Calendario[Ano] = 2026)
                   const conds: string[] = []
-                  if (fm) conds.push(`MONTH(${ref}) = ${fm}`)
-                  if (fy) conds.push(`YEAR(${ref}) = ${fy}`)
-                  // Gera múltiplas queries: CALCULATE com FILTER (mais compatível) e com condição direta
-                  const filterExpr = conds.map(c => `FILTER(ALL(${pickedCol.tableName}), ${c})`).join(", ")
-                  dax = `EVALUATE ROW("Resultado", CALCULATE([${effectivePick.measure}], ${filterExpr}))`
-                  console.log("[CHAT] Filtro de data via FILTER:", ref, "mês:", fm, "ano:", fy)
+                  if (fm && mesCol) conds.push(`${mesCol.tableName}[${mesCol.columnName}] = ${fm}`)
+                  if (fy && anoCol) conds.push(`${anoCol.tableName}[${anoCol.columnName}] = ${fy}`)
+                  dax = `EVALUATE ROW("Resultado", CALCULATE([${effectivePick.measure}], ${conds.join(", ")}))`
+                  console.log("[CHAT] Filtro de data via colunas numéricas:", conds)
                 } else {
-                  dax = `EVALUATE ROW("Resultado", [${effectivePick.measure}])`
+                  // Fallback: usa coluna DateTime com MONTH()/YEAR()
+                  const dateCols = columns.filter((c) =>
+                    c.dataType === "DateTime" || c.dataType === "Date" ||
+                    String(c.dataType) === "9" || c.columnName.toLowerCase().includes("data") ||
+                    c.columnName.toLowerCase().includes("date")
+                  )
+                  const pickedCol = dateCols.find(
+                    (c) => c.tableName === effectivePick.filter_table && c.columnName === effectivePick.filter_col
+                  ) ?? dateCols[0]
+
+                  if (pickedCol) {
+                    const ref = `${pickedCol.tableName}[${pickedCol.columnName}]`
+                    const conds: string[] = []
+                    if (fm) conds.push(`MONTH(${ref}) = ${fm}`)
+                    if (fy) conds.push(`YEAR(${ref}) = ${fy}`)
+                    const filterExpr = conds.map(c => `FILTER(ALL(${pickedCol.tableName}), ${c})`).join(", ")
+                    dax = `EVALUATE ROW("Resultado", CALCULATE([${effectivePick.measure}], ${filterExpr}))`
+                    console.log("[CHAT] Filtro de data via FILTER:", ref, "mês:", fm, "ano:", fy)
+                  } else {
+                    dax = `EVALUATE ROW("Resultado", [${effectivePick.measure}])`
+                  }
                 }
               } else {
                 dax = `EVALUATE ROW("Resultado", [${effectivePick.measure}])`
               }
             } else if (effectivePick.type === "group" && effectivePick.measure && effectivePick.group_table && effectivePick.group_col) {
-              dax = `EVALUATE SUMMARIZECOLUMNS(${effectivePick.group_table}[${effectivePick.group_col}], "Total", [${effectivePick.measure}])`
+              dax = `EVALUATE SUMMARIZECOLUMNS(${effectivePick.group_table}[${effectivePick.group_col}], "Total", [${effectivePick.measure}]) ORDER BY [Total] DESC`
+            } else if (effectivePick.type === "ranking" && effectivePick.measure && effectivePick.group_table && effectivePick.group_col) {
+              const topN = effectivePick.top_n ?? 10
+              dax = `EVALUATE TOPN(${topN}, SUMMARIZECOLUMNS(${effectivePick.group_table}[${effectivePick.group_col}], "Total", [${effectivePick.measure}]), [Total], DESC)`
             }
 
             if (!dax) continue // tenta próximo dataset
