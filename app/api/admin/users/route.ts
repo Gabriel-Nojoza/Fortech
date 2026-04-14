@@ -64,7 +64,7 @@ async function getUserSettingsSnapshot(
       .from("company_settings")
       .select("key, value")
       .eq("company_id", companyId)
-      .in("key", ["powerbi", "n8n"]),
+      .in("key", ["powerbi", "n8n", "general"]),
   ])
 
   if (companyErr) throw companyErr
@@ -74,10 +74,14 @@ async function getUserSettingsSnapshot(
     (settingsRows ?? []).map((row) => [row.key, row.value as Record<string, unknown>])
   )
 
+  const general = settingsMap.get("general")
+
   return {
     company_name: company?.name ?? "",
     powerbi: settingsMap.get("powerbi"),
     n8n: settingsMap.get("n8n"),
+    chat_enabled: Boolean(general?.chat_enabled),
+    chat_dataset_ids: Array.isArray(general?.chat_dataset_ids) ? general.chat_dataset_ids : [],
   }
 }
 
@@ -294,7 +298,7 @@ export async function POST(request: Request) {
     const context = await requireAdminContext()
     const supabase = getAdminClient()
     const body = await request.json()
-    const { email, password, name, role, company_name, powerbi, n8n } = body
+    const { email, password, name, role, company_name, powerbi, n8n, chat_enabled, chat_dataset_ids } = body
     const normalizedEmail = String(email ?? "").trim().toLowerCase()
     const normalizedPassword = String(password ?? "").trim()
     const normalizedName = String(name ?? "").trim()
@@ -388,7 +392,7 @@ export async function POST(request: Request) {
             {
               company_id: targetCompanyId,
               key: "general",
-              value: { app_name: companyName, timezone: "America/Sao_Paulo" },
+              value: { app_name: companyName, timezone: "America/Sao_Paulo", chat_enabled: Boolean(chat_enabled), chat_dataset_ids: Array.isArray(chat_dataset_ids) ? chat_dataset_ids : [] },
               updated_at: new Date().toISOString(),
             },
           ],
@@ -521,6 +525,8 @@ export async function PUT(request: Request) {
       company_name,
       powerbi,
       n8n,
+      chat_enabled,
+      chat_dataset_ids,
       selected_pbi_workspace_ids,
       selected_pbi_dataset_access,
       selected_pbi_dataset_ids,
@@ -647,6 +653,12 @@ export async function PUT(request: Request) {
                 webhook_url: n8nWebhookUrl,
                 callback_secret: n8nCallbackSecret,
               },
+              updated_at: new Date().toISOString(),
+            },
+            {
+              company_id: targetCompanyId,
+              key: "general",
+              value: { app_name: companyName, timezone: "America/Sao_Paulo", chat_enabled: Boolean(chat_enabled), chat_dataset_ids: Array.isArray(chat_dataset_ids) ? chat_dataset_ids : [] },
               updated_at: new Date().toISOString(),
             },
           ],

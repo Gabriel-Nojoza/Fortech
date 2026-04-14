@@ -46,6 +46,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Switch } from "@/components/ui/switch"
 
 interface UserData {
   id: string
@@ -122,6 +123,8 @@ export default function UsersPage() {
   const [formPbiClientSecret, setFormPbiClientSecret] = useState("")
   const [formN8nWebhookUrl, setFormN8nWebhookUrl] = useState("")
   const [formN8nCallbackSecret, setFormN8nCallbackSecret] = useState("")
+  const [formChatEnabled, setFormChatEnabled] = useState(false)
+  const [formChatDatasetIds, setFormChatDatasetIds] = useState<string[]>([])
   const [showPassword, setShowPassword] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -162,6 +165,8 @@ export default function UsersPage() {
     setFormPbiClientSecret("")
     setFormN8nWebhookUrl("")
     setFormN8nCallbackSecret("")
+    setFormChatEnabled(false)
+    setFormChatDatasetIds([])
     setLoadingEditDetails(false)
     setPowerbiPreview(null)
       setPowerbiPreviewError(null)
@@ -184,6 +189,8 @@ export default function UsersPage() {
     setFormPbiClientSecret("")
     setFormN8nWebhookUrl("")
     setFormN8nCallbackSecret("")
+    setFormChatEnabled(false)
+    setFormChatDatasetIds([])
     setPowerbiPreview(null)
     setPowerbiPreviewError(null)
     setWorkspaceOptions([])
@@ -207,6 +214,9 @@ export default function UsersPage() {
       setFormPbiClientSecret(details.powerbi?.client_secret || "")
       setFormN8nWebhookUrl(details.n8n?.webhook_url || "")
       setFormN8nCallbackSecret(details.n8n?.callback_secret || "")
+      const ext = details as UserData & { chat_enabled?: boolean; chat_dataset_ids?: string[] }
+      setFormChatEnabled(Boolean(ext.chat_enabled))
+      setFormChatDatasetIds(Array.isArray(ext.chat_dataset_ids) ? ext.chat_dataset_ids : [])
       setWorkspaceOptions(details.available_workspaces || [])
       setSelectedPbiWorkspaceIds(details.selected_pbi_workspace_ids || [])
       setSelectedPbiDatasetIds(details.selected_pbi_dataset_ids || [])
@@ -399,6 +409,8 @@ export default function UsersPage() {
                 callback_secret: formN8nCallbackSecret,
               }
             : undefined,
+        chat_enabled: formRole === "client" ? formChatEnabled : undefined,
+        chat_dataset_ids: formRole === "client" && formChatEnabled ? formChatDatasetIds : undefined,
         selected_pbi_workspace_ids:
           formRole === "client" && workspaceOptions.length > 0
             ? selectedPbiWorkspaceIds
@@ -919,6 +931,69 @@ export default function UsersPage() {
                         )}
                       </div>
                     </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/60 p-4 md:col-span-2 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-0.5">
+                        <p className="text-sm font-medium">Assistente SIL (Chat IA)</p>
+                        <p className="text-xs text-muted-foreground">
+                          Habilita o botao flutuante de chat com IA para este cliente
+                        </p>
+                      </div>
+                      <Switch
+                        checked={formChatEnabled}
+                        onCheckedChange={(v) => {
+                          setFormChatEnabled(v)
+                          if (!v) setFormChatDatasetId("")
+                        }}
+                      />
+                    </div>
+
+                    {formChatEnabled && (
+                      <div className="flex flex-col gap-2">
+                        <Label className="text-xs text-muted-foreground">
+                          Datasets que o SIL vai consultar
+                          {formChatDatasetIds.length > 0 && (
+                            <span className="ml-2 font-medium text-foreground">
+                              ({formChatDatasetIds.length} selecionado{formChatDatasetIds.length > 1 ? "s" : ""})
+                            </span>
+                          )}
+                        </Label>
+                        {workspaceOptions.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Valide as credenciais do Power BI para carregar os datasets disponíveis.
+                          </p>
+                        ) : (
+                          <div className="max-h-40 overflow-y-auto rounded-md border border-border/60 p-2 space-y-1">
+                            {workspaceOptions.flatMap((ws) =>
+                              (ws.datasets ?? []).map((ds) => {
+                                const checked = formChatDatasetIds.includes(ds.id)
+                                return (
+                                  <label
+                                    key={ds.id}
+                                    className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted/40 transition-colors"
+                                  >
+                                    <Checkbox
+                                      checked={checked}
+                                      onCheckedChange={(v) =>
+                                        setFormChatDatasetIds((prev) =>
+                                          v ? [...prev, ds.id] : prev.filter((id) => id !== ds.id)
+                                        )
+                                      }
+                                    />
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium truncate">{ds.name}</p>
+                                      <p className="text-xs text-muted-foreground">{ws.name}</p>
+                                    </div>
+                                  </label>
+                                )
+                              })
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="rounded-lg border border-border/60 p-3 md:col-span-2">
