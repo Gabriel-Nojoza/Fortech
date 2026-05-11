@@ -14,7 +14,6 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTheme } from "next-themes"
-import { useRouter } from "next/navigation"
 import {
   CurrentUserSummary,
   type CurrentUserSummaryData,
@@ -52,14 +51,11 @@ type AdminSidebarProps = {
 export function AdminSidebar({ currentUser }: AdminSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
-  const router = useRouter()
-
-  const handleLogout = async () => {
+  const handleLogout = () => {
     const supabase = createClient()
-    await supabase.auth.signOut()
     clearTabSessionMarker()
-    router.push("/auth/login")
-    router.refresh()
+    supabase.auth.signOut({ scope: "local" })
+    window.location.href = "/auth/login"
   }
 
   return (
