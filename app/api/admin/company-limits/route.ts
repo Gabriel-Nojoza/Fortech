@@ -82,13 +82,27 @@ export async function PUT(request: NextRequest) {
         .maybeSingle()
 
       const currentFeatures = (existingFeatures?.value ?? {}) as Record<string, unknown>
-      const { error: featuresError } = await supabase
-        .from("company_settings")
-        .upsert(
-          { company_id: companyId, key: "features", value: { ...currentFeatures, report_builder: body.reportBuilderEnabled } },
-          { onConflict: "company_id,key" }
-        )
-      if (featuresError) throw featuresError
+      const newFeaturesValue = { ...currentFeatures, report_builder: body.reportBuilderEnabled }
+
+      let featuresError
+      if (existingFeatures) {
+        const result = await supabase
+          .from("company_settings")
+          .update({ value: newFeaturesValue })
+          .eq("company_id", companyId)
+          .eq("key", "features")
+        featuresError = result.error
+      } else {
+        const result = await supabase
+          .from("company_settings")
+          .insert({ company_id: companyId, key: "features", value: newFeaturesValue })
+        featuresError = result.error
+      }
+
+      if (featuresError) {
+        console.error("Erro ao salvar features:", featuresError)
+        throw featuresError
+      }
     }
 
     return NextResponse.json({ success: true })

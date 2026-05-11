@@ -318,11 +318,23 @@ export default function AdminDashboardPage() {
 
     setSavingLimitFor(companyId)
     try {
-      await fetch("/api/admin/company-limits", {
+      const res = await fetch("/api/admin/company-limits", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyId, ...fields }),
       })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        console.error("Erro ao salvar limite:", res.status, body)
+        // Reverte override se falhou
+        if (fields.reportBuilderEnabled !== undefined) {
+          setBuilderOverrides((prev) => {
+            const next = { ...prev }
+            delete next[companyId]
+            return next
+          })
+        }
+      }
       await mutate("/api/admin/company-stats")
     } finally {
       setSavingLimitFor(null)
