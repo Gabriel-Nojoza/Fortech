@@ -3,7 +3,6 @@ import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getAccessToken, listReports, listWorkspaces } from "@/lib/powerbi"
 import { syncWorkspaceCatalogs } from "@/lib/powerbi-catalog-sync"
 import { getRequestContext } from "@/lib/tenant"
-import { getWorkspaceAccessScope } from "@/lib/workspace-access"
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
@@ -26,18 +25,6 @@ export async function POST() {
     const context = await getRequestContext()
     const { companyId } = context
     const supabase = createClient()
-    const scope = await getWorkspaceAccessScope(supabase, context)
-
-    if (scope.workspaceRestricted || scope.datasetRestricted) {
-      return NextResponse.json(
-        {
-          error:
-            "A importacao completa do Power BI so esta disponivel para usuarios sem restricao de workspace ou dataset.",
-        },
-        { status: 403 }
-      )
-    }
-
     const token = await getAccessToken()
     const syncedAt = new Date().toISOString()
 

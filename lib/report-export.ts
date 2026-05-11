@@ -34,6 +34,9 @@ export interface ReportDocumentInput {
 // Para adicionar uma coluna nova: copie um bloco e ajuste label + aliases
 // Colunas que aparecem primeiro em todos os relatórios, na ordem abaixo
 // aliases: variações do nome que podem vir do Power BI (sem espaços/acentos na comparação)
+// Colunas que nunca aparecem no PDF mesmo que selecionadas
+const HIDDEN_PDF_COLUMNS = ["condvenda"]
+
 // Para adicionar mais: copie um bloco { label, aliases } e insira na posição desejada
 const FIXED_PDF_COLUMNS = [
   { label: "Cod/Gerente",   aliases: ["gerente[cod/gerente]", "gerente.cod/gerente", "cod/gerente", "cod/sup.", "pcusuari[cod/vend.]"] },
@@ -300,8 +303,12 @@ function getPercentIndicatorHtml(value: unknown): string {
 function resolvePdfColumns(columns: ReportColumn[]): ResolvedPdfColumn[] {
   const usedColumnNames = new Set<string>()
 
+  const visibleColumns = columns.filter(
+    (column) => !HIDDEN_PDF_COLUMNS.some((h) => normalizeMetricName(column.name).includes(h))
+  )
+
   const fixedColumns = FIXED_PDF_COLUMNS.map((fixedColumn) => {
-    const match = columns.find((column) =>
+    const match = visibleColumns.find((column) =>
       fixedColumn.aliases.some(
         (alias) => normalizeMetricName(alias) === normalizeMetricName(column.name)
       )
@@ -317,7 +324,7 @@ function resolvePdfColumns(columns: ReportColumn[]): ResolvedPdfColumn[] {
     }
   })
 
-  const extraColumns = columns
+  const extraColumns = visibleColumns
     .filter((column) => !usedColumnNames.has(column.name))
     .map((column) => ({
       name: column.name,
@@ -371,7 +378,7 @@ export function buildHtmlReport({
   title,
   subtitle,
   generatedAt,
-  selectedItems,
+  selectedItems: _selectedItems,
   filters = [],
   brandLogoUrl = BRAND_LOGO_PATH,
   summaryCards = [],
@@ -428,11 +435,6 @@ export function buildHtmlReport({
   ]
     .filter(Boolean)
     .join("")
-
-  const selectedBadges =
-    selectedItems && selectedItems.length > 0
-      ? selectedItems.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")
-      : ""
 
   const orderedColumns = resolvePdfColumns(columns)
 
@@ -818,15 +820,6 @@ export function buildHtmlReport({
         <div class="summary-grid">${summaryCardsHtml}</div>
         <div class="info-ribbon">${infoChips}</div>
       </section>
-
-      ${
-        selectedBadges
-          ? `<section class="selected">
-        <span class="label">Itens selecionados</span>
-        <div class="pill-list">${selectedBadges}</div>
-      </section>`
-          : ""
-      }
 
       <section class="content">
         <div class="section-title">${escapeHtml(title)}</div>

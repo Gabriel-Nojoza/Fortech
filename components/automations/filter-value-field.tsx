@@ -67,49 +67,43 @@ export function FilterValueField({
   const [open, setOpen] = useState(false)
   const canLoadOptions = Boolean(datasetId) && !isDateLikeDataType(filter.dataType)
   const optionsUrl = useMemo(() => {
-    if (!canLoadOptions) {
-      return null
-    }
-
+    if (!canLoadOptions) return null
     const params = new URLSearchParams({
       datasetId,
       tableName: filter.tableName,
       columnName: filter.columnName,
       dataType: filter.dataType,
     })
-
-    if (executionDatasetId) {
-      params.set("executionDatasetId", executionDatasetId)
-    }
-
-    if (executionWorkspaceId) {
-      params.set("executionWorkspaceId", executionWorkspaceId)
-    }
-
+    if (executionDatasetId) params.set("executionDatasetId", executionDatasetId)
+    if (executionWorkspaceId) params.set("executionWorkspaceId", executionWorkspaceId)
     return `/api/powerbi/filter-options?${params.toString()}`
   }, [
-    canLoadOptions,
-    datasetId,
-    executionDatasetId,
-    executionWorkspaceId,
-    filter.columnName,
-    filter.dataType,
-    filter.tableName,
+    canLoadOptions, datasetId, executionDatasetId, executionWorkspaceId,
+    filter.columnName, filter.dataType, filter.tableName,
   ])
-  const { data, error, isLoading } = useSWR(optionsUrl, fetcher, {
-    revalidateOnFocus: false,
-  })
+
+  const { data, error, isLoading } = useSWR(optionsUrl, fetcher, { revalidateOnFocus: false })
 
   useEffect(() => {
-    if (!autoOpenSignal || !canLoadOptions) {
-      return
-    }
-
+    if (!autoOpenSignal || !canLoadOptions) return
     setOpen(true)
   }, [autoOpenSignal, canLoadOptions])
 
   const options = data?.options ?? []
   const showOptionsPicker = canLoadOptions && (isLoading || options.length > 0)
+
+  // Valores selecionados (suporte multi-select via vírgula)
+  const selectedValues = useMemo(
+    () => filter.value ? filter.value.split(",").map((v) => v.trim()).filter(Boolean) : [],
+    [filter.value]
+  )
+
+  function toggleOption(option: string) {
+    const next = selectedValues.includes(option)
+      ? selectedValues.filter((v) => v !== option)
+      : [...selectedValues, option]
+    onUpdateFilter(filter.id, "value", next.join(","))
+  }
 
   if (!showOptionsPicker) {
     return (
@@ -130,6 +124,14 @@ export function FilterValueField({
     )
   }
 
+  const triggerLabel = isLoading
+    ? "Carregando opcoes..."
+    : selectedValues.length === 0
+      ? "Selecionar opcao"
+      : selectedValues.length === 1
+        ? selectedValues[0]
+        : `${selectedValues.length} selecionados`
+
   return (
     <div className="space-y-2">
       <Popover open={open} onOpenChange={setOpen}>
@@ -141,9 +143,7 @@ export function FilterValueField({
             aria-expanded={open}
             className="h-8 w-full justify-between px-2 text-xs font-normal"
           >
-            <span className="truncate text-left">
-              {filter.value || (isLoading ? "Carregando opcoes..." : "Selecionar opcao")}
-            </span>
+            <span className="truncate text-left">{triggerLabel}</span>
             {isLoading ? (
               <Loader2 className="ml-2 size-3.5 shrink-0 animate-spin text-muted-foreground" />
             ) : (
@@ -168,15 +168,12 @@ export function FilterValueField({
                       <CommandItem
                         key={option}
                         value={option}
-                        onSelect={() => {
-                          onUpdateFilter(filter.id, "value", option)
-                          setOpen(false)
-                        }}
+                        onSelect={() => toggleOption(option)}
                       >
                         <Check
                           className={cn(
                             "size-3.5",
-                            filter.value === option ? "opacity-100" : "opacity-0"
+                            selectedValues.includes(option) ? "opacity-100" : "opacity-0"
                           )}
                         />
                         <span className="truncate">{option}</span>
@@ -187,6 +184,16 @@ export function FilterValueField({
               )}
             </CommandList>
           </Command>
+          {selectedValues.length > 0 && (
+            <div className="border-t border-border px-3 py-2">
+              <button
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => onUpdateFilter(filter.id, "value", "")}
+              >
+                Limpar seleção ({selectedValues.length})
+              </button>
+            </div>
+          )}
         </PopoverContent>
       </Popover>
 

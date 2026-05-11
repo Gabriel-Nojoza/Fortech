@@ -632,7 +632,6 @@ export async function getDatasetMetadata(
     }))
     .filter((column) => {
       if (!column.tableName || !column.columnName) return false
-      if (column.isHidden) return false
       if (column.tableName.startsWith("DateTableTemplate")) return false
       if (column.tableName.startsWith("LocalDateTable")) return false
       if (column.tableName.startsWith("RowNumber")) return false
@@ -651,7 +650,6 @@ export async function getDatasetMetadata(
     }))
     .filter((measure) => {
       if (!measure.tableName || !measure.measureName) return false
-      if (measure.isHidden) return false
       if (measure.tableName.startsWith("DateTableTemplate")) return false
       if (measure.tableName.startsWith("LocalDateTable")) return false
       if (measure.tableName.startsWith("RowNumber")) return false

@@ -185,6 +185,14 @@ function buildFilterExpression(filter: Filter) {
     }
   }
 
+  // Multi-select: valor com vírgula → IN {v1, v2, ...}
+  const multiValues = rawValue.split(",").map((v) => v.trim()).filter(Boolean)
+  if (multiValues.length > 1 && (filter.operator === "eq" || filter.operator === "neq")) {
+    const inList = multiValues.map((v) => formatDaxValue(v, filter.dataType)).join(", ")
+    if (filter.operator === "neq") return `NOT ${ref} IN {${inList}}`
+    return `${ref} IN {${inList}}`
+  }
+
   const valueRef = formatDaxValue(rawValue, filter.dataType)
 
   switch (filter.operator) {
