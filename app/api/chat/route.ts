@@ -1,602 +1,219 @@
 import { NextResponse } from "next/server"
-import OpenAI from "openai"
-import { createServiceClient } from "@/lib/supabase/server"
-import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
-import { getRequestContext, isAuthContextError } from "@/lib/tenant"
-import { getAccessToken, executeDAXQuery, getDatasetMetadata } from "@/lib/powerbi"
+import { createServiceClient as createClient } from "@/lib/supabase/server"
 import {
-  getWorkspaceAccessScope,
-  isDatasetAllowed,
-  isWorkspaceAllowed,
-} from "@/lib/workspace-access"
+  buildDisabledExpiredChatIASettingsValue,
+  normalizeChatIASettings,
+} from "@/lib/chat-ia-config"
+import { getRequestContext } from "@/lib/tenant"
+import {
+  extractWebhookAnswer,
+  extractWebhookChartPayload,
+  type ChatRequest,
+  type ChatApiResponse,
+} from "@/lib/chat"
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// ─── helpers ─────────────────────────────────────────────────────────────────
 
-type Message = { role: "user" | "assistant"; content: string }
-
-type MeasureRow = { tableName: string; measureName: string; expression: string }
-type ColumnRow = { tableName: string; columnName: string; dataType: string; isHidden: boolean }
-type TableRow = { name?: string; description?: string; isHidden?: boolean }
-type MetadataPayload = {
-  tables: TableRow[]
-  columns: ColumnRow[]
-  measures: MeasureRow[]
-}
-type DatasetCandidate = {
-  sourceDatasetId: string
-  executionDatasetId: string
-  executionWorkspaceId: string | null
-  datasetName: string | null
-}
-type TemporalContext = {
-  month: number | null
-  year: number | null
-}
-
-const MONTH_TOKENS: Array<{ month: number; tokens: string[] }> = [
-  { month: 1, tokens: ["janeiro", "jan"] },
-  { month: 2, tokens: ["fevereiro", "fev"] },
-  { month: 3, tokens: ["marco", "março", "mar"] },
-  { month: 4, tokens: ["abril", "abr"] },
-  { month: 5, tokens: ["maio", "mai"] },
-  { month: 6, tokens: ["junho", "jun"] },
-  { month: 7, tokens: ["julho", "jul"] },
-  { month: 8, tokens: ["agosto", "ago"] },
-  { month: 9, tokens: ["setembro", "set"] },
-  { month: 10, tokens: ["outubro", "out"] },
-  { month: 11, tokens: ["novembro", "nov"] },
-  { month: 12, tokens: ["dezembro", "dez"] },
-]
-
-/** Normaliza texto: minúsculo, sem acento, sem espaço/underscore */
-function normalize(s: string) {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\s_\-]/g, "")
-}
-
-function getBrazilNow() {
+function getCurrentMes(): string {
   const now = new Date()
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-  const parts = formatter.formatToParts(now)
-  const year = Number(parts.find((part) => part.type === "year")?.value ?? now.getFullYear())
-  const month = Number(parts.find((part) => part.type === "month")?.value ?? now.getMonth() + 1)
-  const day = Number(parts.find((part) => part.type === "day")?.value ?? now.getDate())
-  return { year, month, day }
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
 }
 
-function parseTemporalContext(query: string): TemporalContext {
-  const normalized = normalize(query)
-  const now = getBrazilNow()
-  let month: number | null = null
-  let year: number | null = null
-
-  const explicitYearMatch = normalized.match(/(?:^|[^0-9])(20\d{2})(?:[^0-9]|$)/)
-  if (explicitYearMatch) {
-    year = Number(explicitYearMatch[1])
-  }
-
-  for (const entry of MONTH_TOKENS) {
-    if (entry.tokens.some((token) => normalized.includes(normalize(token)))) {
-      month = entry.month
-      break
-    }
-  }
-
-  if (
-    normalized.includes("mesatual") ||
-    normalized.includes("estemes") ||
-    normalized.includes("nomesatual")
-  ) {
-    month = now.month
-    year ??= now.year
-  }
-
-  if (normalized.includes("mespassado") || normalized.includes("ultimomes")) {
-    month = now.month === 1 ? 12 : now.month - 1
-    year ??= now.month === 1 ? now.year - 1 : now.year
-  }
-
-  if (
-    normalized.includes("anoatual") ||
-    normalized.includes("esteano") ||
-    normalized.includes("noanoatual")
-  ) {
-    year = now.year
-  }
-
-  if (normalized.includes("anopassado") || normalized.includes("ultimoano")) {
-    year = now.year - 1
-  }
-
-  if (month !== null && year === null) {
-    year = now.year
-  }
-
-  return { month, year }
+function buildSessionId(userId: string, companyId: string, datasetId: string): string {
+  return `${userId}:${companyId}:${datasetId}`
 }
 
-// Mapeamento semântico: palavras em português → palavras-chave nas medidas
-const SEMANTIC_MAP: Array<{ terms: string[]; keywords: string[] }> = [
-  { terms: ["faturamento", "faturado", "faturados", "receita", "vendido"], keywords: ["faturado", "venda", "vl venda", "receita"] },
-  { terms: ["venda", "vendas", "vendido"], keywords: ["venda", "vendido"] },
-  { terms: ["meta", "objetivo", "target"], keywords: ["meta"] },
-  { terms: ["pedido", "pedidos"], keywords: ["pedido"] },
-  { terms: ["lucro", "resultado"], keywords: ["lucro", "margem"] },
-  { terms: ["margem", "percentual"], keywords: ["margem", "%"] },
-  { terms: ["devolucao", "devolucoes", "devolvido"], keywords: ["devolucao", "devol"] },
-  { terms: ["cliente", "clientes"], keywords: ["cliente"] },
-  { terms: ["produto", "produtos"], keywords: ["produto"] },
-  { terms: ["bonificacao", "bonus"], keywords: ["bonificacao", "bonificac"] },
-  { terms: ["positivacao", "positivado"], keywords: ["posit"] },
-  { terms: ["ticket", "tiquete", "medio"], keywords: ["ticket", "tique", "medio"] },
-  { terms: ["dias", "diasuteis", "diasrealizados"], keywords: ["dia"] },
-  { terms: ["tendencia"], keywords: ["tendencia"] },
-  { terms: ["forecast", "previsao"], keywords: ["forecast", "previsao"] },
-]
-
-/**
- * Retorna as medidas mais relevantes para a pergunta do usuário.
- * Usa correspondência semântica + tokens para encontrar medidas.
- */
-function findRelevantMeasures(query: string, measures: MeasureRow[]): MeasureRow[] {
-  const normQuery = normalize(query)
-  const tokens = normQuery.match(/[a-z0-9]{3,}/g) ?? [normQuery]
-
-  // Expande tokens com sinônimos semânticos
-  const expandedTokens = new Set(tokens)
-  for (const mapping of SEMANTIC_MAP) {
-    if (mapping.terms.some(t => tokens.includes(normalize(t)))) {
-      mapping.keywords.forEach(k => expandedTokens.add(normalize(k)))
-    }
-  }
-
-  const scored = measures.map((m) => {
-    const normName = normalize(m.measureName)
-    let score = 0
-    for (const token of expandedTokens) {
-      if (normName.includes(token)) score += 2
-      if (normQuery.includes(normName)) score += 3
-    }
-    if (normName.includes(normQuery) || normQuery.includes(normName)) score += 5
-    return { m, score }
-  })
-
-  const relevant = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score)
-  return relevant.length > 0
-    ? relevant.slice(0, 15).map((s) => s.m)
-    : measures.slice(0, 30)
-}
-
-function formatQueryResult(result: { columns: Array<{ name: string }>; rows: Array<Record<string, unknown>> }) {
-  if (result.rows.length === 0) return "Nenhum dado retornado."
-
-  const header = result.columns.map((c) => c.name).join(" | ")
-  const rows = result.rows
-    .slice(0, 50)
-    .map((row) => result.columns.map((c) => String(row[c.name] ?? "")).join(" | "))
-    .join("\n")
-
-  const extra = result.rows.length > 50 ? `\n... e mais ${result.rows.length - 50} linhas.` : ""
-
-  return `${header}\n${rows}${extra}`
-}
-
-function toUniqueNonEmptyStrings(values: Array<string | null | undefined>) {
-  return Array.from(
-    new Set(
-      values
-        .map((value) => (typeof value === "string" ? value.trim() : ""))
-        .filter(Boolean)
-    )
-  )
-}
-
-async function resolveChatDatasetCandidates(input: {
-  supabase: ReturnType<typeof createServiceClient>
-  companyId: string
-  context: Awaited<ReturnType<typeof getRequestContext>>
-}) {
-  const { supabase, companyId, context } = input
-  const scope = await getWorkspaceAccessScope(supabase, context)
-  const catalogs = await getCatalogMap(companyId)
-
-  const { data: generalSetting } = await supabase
-    .from("company_settings")
-    .select("value")
-    .eq("company_id", companyId)
-    .eq("key", "general")
-    .maybeSingle()
-
-  const generalVal = generalSetting?.value as Record<string, unknown> | null
-  const configuredChatDatasetIds = Array.isArray(generalVal?.chat_dataset_ids)
-    ? generalVal.chat_dataset_ids.filter((value): value is string => typeof value === "string")
-    : []
-
-  const fallbackDatasetIds =
-    configuredChatDatasetIds.length > 0
-      ? configuredChatDatasetIds
-      : context.selectedPbiDatasetIds.length > 0
-        ? context.selectedPbiDatasetIds
-        : scope.datasetIds.length > 0
-          ? scope.datasetIds
-          : []
-
-  let datasetIds = toUniqueNonEmptyStrings(fallbackDatasetIds)
-
-  if (datasetIds.length === 0) {
-    const { data: reports } = await supabase
-      .from("reports")
-      .select("dataset_id")
-      .eq("company_id", companyId)
-      .eq("is_active", true)
-      .not("dataset_id", "is", null)
-
-    datasetIds = toUniqueNonEmptyStrings(
-      (reports ?? []).map((report) =>
-        typeof report.dataset_id === "string" ? report.dataset_id : null
-      )
-    )
-  }
-
-  const allowedDatasetIds = datasetIds.filter((datasetId) =>
-    isDatasetAllowed(scope, datasetId)
-  )
-
-  return allowedDatasetIds.flatMap((datasetId) => {
-    const executionTarget = getExecutionTarget(catalogs[datasetId], datasetId)
-
-    if (!isDatasetAllowed(scope, executionTarget.datasetId)) {
-      return []
-    }
-
-    if (
-      executionTarget.workspaceId &&
-      !isWorkspaceAllowed(scope, { pbiWorkspaceId: executionTarget.workspaceId })
-    ) {
-      return []
-    }
-
-    return [
-      {
-        sourceDatasetId: datasetId,
-        executionDatasetId: executionTarget.datasetId,
-        executionWorkspaceId: executionTarget.workspaceId,
-        datasetName: executionTarget.datasetName,
-      },
-    ]
-  })
-}
-
-async function loadDatasetMetadata(input: {
-  companyId: string
-  token: string
-  sourceDatasetId: string
-}) {
-  const catalogs = await getCatalogMap(input.companyId)
-  const catalogEntry = catalogs[input.sourceDatasetId]
-
-  if (catalogEntry?.catalog) {
-    return catalogEntry.catalog as MetadataPayload
-  }
-
-  return getDatasetMetadata(input.token, input.sourceDatasetId) as Promise<MetadataPayload>
-}
+// ─── POST /api/chat ───────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
   try {
-    let context
-    try {
-      context = await getRequestContext()
-    } catch (err) {
-      if (isAuthContextError(err)) {
-        return NextResponse.json({ error: "Não autorizado" }, { status: 401 })
-      }
-      throw err
+    const context = await getRequestContext()
+    const { companyId, userId } = context
+    const supabase = createClient()
+
+    const body = (await request.json()) as ChatRequest
+    const { question, datasetId, workspaceId } = body
+
+    if (!question?.trim()) {
+      return NextResponse.json<ChatApiResponse>(
+        { answer: "Por favor, faça uma pergunta.", data: null, daxQuery: null, confidence: "low" },
+        { status: 400 }
+      )
     }
 
-    const { companyId } = context
-    const supabase = createServiceClient()
-    const { messages }: { messages: Message[] } = await request.json()
+    // ── Carregar settings ──
+    const { data: settingsRows } = await supabase
+      .from("company_settings")
+      .select("key, value")
+      .eq("company_id", companyId)
+      .in("key", ["chat_ia", "usage_limits", "n8n"])
 
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json({ error: "Mensagens inválidas" }, { status: 400 })
-    }
-
-    const datasetCandidates = await resolveChatDatasetCandidates({
-      supabase,
-      companyId,
-      context,
-    })
-
-    console.log(
-      "[CHAT] Datasets para consulta:",
-      datasetCandidates.map((candidate) => ({
-        sourceDatasetId: candidate.sourceDatasetId,
-        executionDatasetId: candidate.executionDatasetId,
-        executionWorkspaceId: candidate.executionWorkspaceId,
-      }))
+    const settingsMap = new Map(
+      (settingsRows ?? []).map((row) => [row.key, row.value as Record<string, unknown> | null])
     )
 
-    // --- Busca schema do dataset ---
-    let dataResult = ""
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")?.content ?? ""
-    const temporalContext = parseTemporalContext(lastUserMsg)
-    const isListRequest = /o que (você|vc) sabe|o que (você|vc) (pode|consegue)|quais dados|que dados|me mostra|listar medidas|o que posso perguntar/i.test(lastUserMsg)
+    const chatSettingsRaw = settingsMap.get("chat_ia")
+    const chatSettings = normalizeChatIASettings(chatSettingsRaw)
+    const chatIAIsManaged =
+      chatSettings.enabled ||
+      !!chatSettings.workspaceId ||
+      !!chatSettings.datasetId ||
+      !!chatSettings.webhookUrl ||
+      chatSettings.trialDays !== null ||
+      !!chatSettings.trialEndsAt
 
-    if (datasetCandidates.length > 0) {
-      try {
-        const token = await getAccessToken(companyId)
+    // ── Expiração ──
+    if (chatSettings.isExpired && chatSettings.enabled) {
+      await supabase
+        .from("company_settings")
+        .update({
+          value: buildDisabledExpiredChatIASettingsValue(chatSettingsRaw),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("company_id", companyId)
+        .eq("key", "chat_ia")
+    }
 
-        // Comando especial: listar medidas disponíveis
-        if (isListRequest) {
-          const allMeasures: string[] = []
-          for (const candidate of datasetCandidates) {
-            try {
-              const metadata = await loadDatasetMetadata({
-                companyId,
-                token,
-                sourceDatasetId: candidate.sourceDatasetId,
-              })
-              const measures = metadata.measures
-              allMeasures.push(...measures.map((m) => m.measureName))
-            } catch { /* ignora dataset com erro */ }
-          }
-          const unique = [...new Set(allMeasures)]
-          if (unique.length > 0) {
-            const lista = unique.map((n) => `- ${n}`).join("\n")
-            dataResult = `\nDADOS RETORNADOS DO DATASET:\nMEDIDAS DISPONÍVEIS:\n${lista}\n`
-          }
-        }
+    if (chatIAIsManaged && !chatSettings.effectiveEnabled) {
+      const answer = chatSettings.isExpired
+        ? "O periodo de teste do Chat IA expirou. Fale com o administrador para renovar o acesso."
+        : "O Chat IA esta desativado para esta empresa."
+      return NextResponse.json<ChatApiResponse>(
+        { answer, data: null, daxQuery: null, confidence: "low", error: answer },
+        { status: 403 }
+      )
+    }
 
-        // Tenta cada dataset até encontrar dados
-        if (!dataResult) for (const candidate of datasetCandidates) {
-          try {
-            const metadata = await loadDatasetMetadata({
-              companyId,
-              token,
-              sourceDatasetId: candidate.sourceDatasetId,
-            })
-            const measures = metadata.measures
-            const columns = metadata.columns.filter((c) => !c.isHidden)
+    // ── Limite mensal ──
+    const limitsValue = settingsMap.get("usage_limits") as Record<string, unknown> | null
+    const chatLimit = typeof limitsValue?.chat_limit === "number" ? limitsValue.chat_limit : null
+    const chatExcessPrice = typeof limitsValue?.chat_excess_price === "number" ? limitsValue.chat_excess_price : null
 
-            const relevantMeasures = findRelevantMeasures(lastUserMsg, measures)
-            const measuresList = relevantMeasures
-              .map((m) => `"${m.measureName}" (tabela: ${m.tableName})`)
-              .join("\n")
-            const columnsList = columns
-              .slice(0, 120)
-              .map((c) => `${c.tableName}[${c.columnName}] (${c.dataType})`)
-              .join("\n")
+    if (chatLimit !== null && chatLimit > 0) {
+      const startOfMonth = new Date()
+      startOfMonth.setDate(1)
+      startOfMonth.setHours(0, 0, 0, 0)
 
-            console.log(
-              "[CHAT] Dataset:",
-              candidate.sourceDatasetId,
-              "| Execucao:",
-              candidate.executionDatasetId,
-              "| Medidas candidatas:",
-              relevantMeasures.map((m) => m.measureName)
-            )
+      const { count } = await supabase
+        .from("chat_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("company_id", companyId)
+        .gte("created_at", startOfMonth.toISOString())
 
-            // Passo 1: modelo identifica a medida pelo nome exato
-            const pickResponse = await openai.chat.completions.create({
-              model: "gpt-4o-mini",
-              response_format: { type: "json_object" },
-              max_tokens: 256,
-              messages: [
-                {
-                  role: "system",
-                  content: `Você identifica qual medida do dataset responde à pergunta do usuário.
-
-MEDIDAS DISPONÍVEIS (use o nome EXATO, incluindo espaços e maiúsculas):
-${measuresList}
-
-COLUNAS DISPONÍVEIS PARA FILTROS E AGRUPAMENTOS (use exatamente como está):
-${columnsList}
-
-Retorne SOMENTE um dos JSONs abaixo:
-- Medida simples: {"type":"measure","measure":"NomeExato"}
-- Medida com filtro de TEXTO: {"type":"filtered","measure":"NomeExato","filter_table":"TabelaDaColuna","filter_col":"NomeDaColuna","filter_val":"valor"}
-- Medida com filtro de DATA: {"type":"date_filter","measure":"NomeExato","filter_month":3}
-  - filter_month: 1=jan, 2=fev, 3=mar, 4=abr, 5=mai, 6=jun, 7=jul, 8=ago, 9=set, 10=out, 11=nov, 12=dez
-  - filter_year: inclua SOMENTE se o usuário mencionou o ano explicitamente. Caso contrário, OMITA.
-- Agrupado por dimensão: {"type":"group","measure":"NomeExato","group_table":"Tabela","group_col":"Coluna"}
-- Ranking (top N): {"type":"ranking","measure":"NomeExato","group_table":"Tabela","group_col":"Coluna","top_n":10}
-- Não é dado: {"type":"none"}
-
-REGRAS DE MAPEAMENTO (aplique sempre):
-1. "faturamento", "faturado", "receita" → procure medida com "Faturado" ou "Venda" no nome
-2. "meta", "objetivo" → procure medida com "Meta" no nome
-3. "pedido", "pedidos" → procure medida com "Pedido" no nome
-4. "lucro", "resultado" → procure medida com "Lucro" ou "Margem" no nome
-5. "por cliente" / "por cada cliente" → group_table="PCCLIENTE", group_col="DESCRICAO"
-6. "por fornecedor" / "por marca" → group_table="PCFORNEC", group_col="FORNECEDOR"
-7. "por filial" / "por loja" → group_table="Nome Filial", group_col="Filial"
-8. "por mês" / "mensal" → group_table="Calendario", group_col="Mês_Ano"
-9. "top X" / "os X maiores" / "ranking" → type="ranking", top_n=X (padrão 10)
-10. "do cliente X" / "do fornecedor Y" → type="filtered", filter_val=nome exato
-11. group_table e group_col SEMPRE vêm da lista COLUNAS. Nunca invente.
-12. Para filtro de data NÃO inclua filter_table nem filter_col — o sistema usa Calendario[Mês] e Calendario[Ano] automaticamente.`,
-                },
-                ...messages,
-              ],
-            })
-
-            const pickRaw = pickResponse.choices[0]?.message?.content ?? "{}"
-            console.log("[CHAT] Seleção:", pickRaw)
-            const pick = JSON.parse(pickRaw) as {
-              type: string; measure?: string; table?: string
-              filter_table?: string; filter_col?: string; filter_val?: string
-              filter_month?: number; filter_year?: number
-              group_table?: string; group_col?: string
-              top_n?: number
-            }
-            const effectivePickBase =
-              pick.type === "measure" &&
-              pick.measure &&
-              (temporalContext.month !== null || temporalContext.year !== null)
-                ? {
-                    ...pick,
-                    type: "date_filter",
-                    filter_month: temporalContext.month ?? undefined,
-                    filter_year: temporalContext.year ?? undefined,
-                  }
-                : pick
-            const effectivePick =
-              effectivePickBase.type === "date_filter"
-                ? {
-                    ...effectivePickBase,
-                    filter_month:
-                      effectivePickBase.filter_month ?? temporalContext.month ?? undefined,
-                    filter_year:
-                      effectivePickBase.filter_year ??
-                      temporalContext.year ??
-                      (effectivePickBase.filter_month ? getBrazilNow().year : undefined),
-                  }
-                : effectivePickBase
-
-            // Passo 2: constrói o DAX com nomes exatos
-            let dax: string | null = null
-            if (effectivePick.type === "measure" && effectivePick.measure) {
-              dax = `EVALUATE ROW("Resultado", [${effectivePick.measure}])`
-            } else if (effectivePick.type === "filtered" && effectivePick.measure && effectivePick.filter_table && effectivePick.filter_col) {
-              dax = `EVALUATE ROW("Resultado", CALCULATE([${effectivePick.measure}], ${effectivePick.filter_table}[${effectivePick.filter_col}] = "${effectivePick.filter_val ?? ""}"))`
-            } else if (effectivePick.type === "date_filter" && effectivePick.measure) {
-              const fm = effectivePick.filter_month
-              const fy = effectivePick.filter_year
-              if (fm || fy) {
-                // Procura colunas de mês e ano já como número inteiro (ex: Calendario[Mês], Calendario[Ano])
-                const mesCol = columns.find((c) =>
-                  c.dataType === "Int64" &&
-                  (c.columnName.toLowerCase() === "mês" || c.columnName.toLowerCase() === "mes" || c.columnName.toLowerCase() === "month")
-                )
-                const anoCol = columns.find((c) =>
-                  c.dataType === "Int64" &&
-                  (c.columnName.toLowerCase() === "ano" || c.columnName.toLowerCase() === "year")
-                )
-
-                if (mesCol || anoCol) {
-                  // Usa colunas numéricas diretas (Calendario[Mês] = 3, Calendario[Ano] = 2026)
-                  const conds: string[] = []
-                  if (fm && mesCol) conds.push(`${mesCol.tableName}[${mesCol.columnName}] = ${fm}`)
-                  if (fy && anoCol) conds.push(`${anoCol.tableName}[${anoCol.columnName}] = ${fy}`)
-                  dax = `EVALUATE ROW("Resultado", CALCULATE([${effectivePick.measure}], ${conds.join(", ")}))`
-                  console.log("[CHAT] Filtro de data via colunas numéricas:", conds)
-                } else {
-                  // Fallback: usa coluna DateTime com MONTH()/YEAR()
-                  const dateCols = columns.filter((c) =>
-                    c.dataType === "DateTime" || c.dataType === "Date" ||
-                    String(c.dataType) === "9" || c.columnName.toLowerCase().includes("data") ||
-                    c.columnName.toLowerCase().includes("date")
-                  )
-                  const pickedCol = dateCols.find(
-                    (c) => c.tableName === effectivePick.filter_table && c.columnName === effectivePick.filter_col
-                  ) ?? dateCols[0]
-
-                  if (pickedCol) {
-                    const ref = `${pickedCol.tableName}[${pickedCol.columnName}]`
-                    const conds: string[] = []
-                    if (fm) conds.push(`MONTH(${ref}) = ${fm}`)
-                    if (fy) conds.push(`YEAR(${ref}) = ${fy}`)
-                    const filterExpr = conds.map(c => `FILTER(ALL(${pickedCol.tableName}), ${c})`).join(", ")
-                    dax = `EVALUATE ROW("Resultado", CALCULATE([${effectivePick.measure}], ${filterExpr}))`
-                    console.log("[CHAT] Filtro de data via FILTER:", ref, "mês:", fm, "ano:", fy)
-                  } else {
-                    dax = `EVALUATE ROW("Resultado", [${effectivePick.measure}])`
-                  }
-                }
-              } else {
-                dax = `EVALUATE ROW("Resultado", [${effectivePick.measure}])`
-              }
-            } else if (effectivePick.type === "group" && effectivePick.measure && effectivePick.group_table && effectivePick.group_col) {
-              dax = `EVALUATE SUMMARIZECOLUMNS(${effectivePick.group_table}[${effectivePick.group_col}], "Total", [${effectivePick.measure}]) ORDER BY [Total] DESC`
-            } else if (effectivePick.type === "ranking" && effectivePick.measure && effectivePick.group_table && effectivePick.group_col) {
-              const topN = effectivePick.top_n ?? 10
-              dax = `EVALUATE TOPN(${topN}, SUMMARIZECOLUMNS(${effectivePick.group_table}[${effectivePick.group_col}], "Total", [${effectivePick.measure}]), [Total], DESC)`
-            }
-
-            if (!dax) continue // tenta próximo dataset
-
-            console.log("[CHAT] DAX construído:", dax)
-
-            // Passo 3: executa
-            const result = await executeDAXQuery(
-              token,
-              candidate.executionDatasetId,
-              dax
-            )
-            console.log("[CHAT] Resultado:", JSON.stringify(result).slice(0, 300))
-
-            if (result.rows.length > 0) {
-              // Verifica se há valor real (não null/blank)
-              const hasValue = result.rows.some((row) =>
-                result.columns.some((col: { name: string }) => row[col.name] !== null && row[col.name] !== undefined && row[col.name] !== "")
-              )
-              if (hasValue) {
-                dataResult = `\nDADOS RETORNADOS DO DATASET:\n${formatQueryResult(result)}\n`
-              } else {
-                // Medida existe mas retornou null — informa o modelo
-                dataResult = `\nMEDIDA_SEM_VALOR: A medida "${effectivePick.measure}" existe no dataset mas retornou vazio. Pode precisar de um filtro de período ou contexto.\n`
-              }
-              break
-            }
-          } catch (err) {
-            console.error(
-              "[CHAT] Erro no dataset",
-              candidate.sourceDatasetId,
-              err instanceof Error ? err.message : err
-            )
-          }
-        }
-
-        if (!dataResult) dataResult = `\nSEM_DADOS\n`
-      } catch (err) {
-        console.error("[CHAT] Erro no token:", err)
-        dataResult = `\nFALHA_NO_SCHEMA: ${err instanceof Error ? err.message : "erro desconhecido"}\n`
+      const used = count ?? 0
+      if (used >= chatLimit) {
+        return NextResponse.json<ChatApiResponse>(
+          {
+            answer: `⚠️ Limite mensal de ${chatLimit} perguntas atingido (${used} utilizadas). Fale com o administrador para aumentar o limite.`,
+            data: null,
+            daxQuery: null,
+            confidence: "low",
+            error: "Limite de perguntas atingido",
+          },
+          { status: 429 }
+        )
       }
     }
 
-    // --- Passo 3: Resposta final ---
-    const hasMedidaSemValor = dataResult.includes("MEDIDA_SEM_VALOR")
-    const hasDadosRetornados = dataResult.includes("DADOS RETORNADOS")
-    const hasMedidasDisponiveis = dataResult.includes("MEDIDAS DISPONÍVEIS")
-    const hasAnyData = hasDadosRetornados || hasMedidaSemValor || hasMedidasDisponiveis
+    // ── Resolver URL do webhook ──
+    const n8nSettings = settingsMap.get("n8n") as Record<string, unknown> | null
+    const webhookUrl =
+      chatSettings.webhookUrl ||
+      (typeof n8nSettings?.chat_webhook_url === "string" && n8nSettings.chat_webhook_url.trim()
+        ? n8nSettings.chat_webhook_url.trim()
+        : null)
 
-    const systemPrompt = `Você é a SIL, assistente de inteligência analítica da Solução Inteligente.
-${hasAnyData ? dataResult : ""}
-**REGRAS ABSOLUTAS — SIGA NESTA ORDEM:**
-1. Se há MEDIDAS DISPONÍVEIS acima: liste-as de forma amigável, agrupando por tema quando possível, e sugira exemplos de perguntas para cada grupo. Seja didático.
-2. Se há DADOS RETORNADOS acima: use-os e responda com os valores reais. Formate números como R$ 1.234,56
-3. Se há MEDIDA_SEM_VALOR acima: diga "A medida existe no dataset mas não retornou valor. Tente especificar um período (ex: 'em março', 'mês atual') ou um contexto (ex: nome do vendedor, filial)." — NADA MAIS
-4. Se nenhuma das situações acima: responda apenas "Não encontrei esse dado no momento. Tente reformular a pergunta." — NADA MAIS
-- Responda SEMPRE em português brasileiro
-- PROIBIDO gerar qualquer código, fórmula, expressão DAX, SQL ou similar
-- PROIBIDO explicar como calcular, como criar medidas ou como buscar dados
-- PROIBIDO descrever tabelas, colunas ou estrutura do dataset
-- Seja direto: responda o dado solicitado ou diga que não encontrou`
+    if (!webhookUrl) {
+      return NextResponse.json<ChatApiResponse>(
+        {
+          answer: "Nenhum webhook de chat configurado. Configure a URL do webhook nas configurações.",
+          data: null,
+          daxQuery: null,
+          confidence: "low",
+          error: "Webhook não configurado",
+        },
+        { status: 503 }
+      )
+    }
 
-    const finalResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 1024,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
+    // ── Chamar webhook n8n ──
+    const sessionId = buildSessionId(userId, companyId, datasetId ?? "")
+
+    const webhookRes = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chatInput: question,
+        sessionId,
+        datasetId: datasetId ?? null,
+        workspaceId: workspaceId ?? null,
+      }),
     })
 
-    const text = finalResponse.choices[0]?.message?.content ?? ""
-    return NextResponse.json({ message: text })
+    if (!webhookRes.ok) {
+      const errText = await webhookRes.text().catch(() => "")
+      throw new Error(`Webhook retornou ${webhookRes.status}: ${errText}`)
+    }
+
+    const webhookPayload = await webhookRes.json() as Record<string, unknown>
+    const chartPayload = extractWebhookChartPayload(webhookPayload)
+    const rawAnswer = extractWebhookAnswer(webhookPayload)
+    const answer =
+      chartPayload.data &&
+      (!rawAnswer.trim() || rawAnswer.trim().startsWith("{") || rawAnswer.trim().startsWith("["))
+        ? "Aqui está o gráfico solicitado."
+        : rawAnswer
+
+    // ── Registrar uso ──
+    let warning: string | undefined
+    if (question.trim().split(/\s+/).length >= 2) {
+      await supabase
+        .from("chat_logs")
+        .insert({ company_id: companyId, intencao: question.slice(0, 500), mes: getCurrentMes() })
+
+      if (chatLimit !== null && chatLimit > 0) {
+        const startOfMonth = new Date()
+        startOfMonth.setDate(1)
+        startOfMonth.setHours(0, 0, 0, 0)
+
+        const { count } = await supabase
+          .from("chat_logs")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", companyId)
+          .gte("created_at", startOfMonth.toISOString())
+
+        const used = count ?? 0
+        const percent = Math.round((used / chatLimit) * 100)
+
+        if (percent >= 100) {
+          const overage = used - chatLimit
+          warning = chatExcessPrice !== null
+            ? `⚠️ Você ultrapassou seu limite de ${chatLimit} perguntas. Cada pergunta adicional custa R$ ${chatExcessPrice.toFixed(2).replace(".", ",")} (${overage} pergunta${overage !== 1 ? "s" : ""} excedente${overage !== 1 ? "s" : ""} até agora). Caso precise de mais, fale com o administrador.`
+            : `⚠️ Você ultrapassou seu limite de ${chatLimit} perguntas este mês. Caso precise de mais, fale com o administrador.`
+        } else if (percent >= 80) {
+          warning = `Você atingiu ${percent}% do seu limite de perguntas (${used}/${chatLimit}). Ao atingir 100%${chatExcessPrice !== null ? `, perguntas adicionais serão cobradas a R$ ${chatExcessPrice.toFixed(2).replace(".", ",")} cada` : ""}. Caso precise de mais, fale com o administrador.`
+        }
+      }
+    }
+
+    return NextResponse.json<ChatApiResponse>({
+      answer,
+      data: chartPayload.data,
+      daxQuery: null,
+      confidence: "high",
+      chartType: chartPayload.chartType,
+      warning,
+    })
   } catch (error) {
-    console.error("Chat API error:", error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Erro ao processar mensagem" },
+    const message = error instanceof Error ? error.message : "Erro desconhecido"
+    return NextResponse.json<ChatApiResponse>(
+      {
+        answer: `Ocorreu um erro ao processar sua pergunta: ${message}`,
+        data: null,
+        daxQuery: null,
+        confidence: "low",
+        error: message,
+      },
       { status: 500 }
     )
   }

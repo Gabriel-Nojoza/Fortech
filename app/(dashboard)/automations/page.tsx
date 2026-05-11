@@ -62,8 +62,10 @@ const fetcher = async (url: string) => {
   return data
 }
 
+
 export default function AutomationsPage() {
   const lastExecutedSignatureRef = useRef("")
+  const defaultFiltersAppliedRef = useRef<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState("builder")
   const [selectedWorkspace, setSelectedWorkspace] = useState("")
@@ -79,6 +81,7 @@ export default function AutomationsPage() {
   const [reportHtml, setReportHtml] = useState<string | null>(null)
   const [isExecuting, setIsExecuting] = useState(false)
   const [savingExecutionDataset, setSavingExecutionDataset] = useState(false)
+  const [importingAllPowerBi, setImportingAllPowerBi] = useState(false)
   const [importingScannerCatalog, setImportingScannerCatalog] = useState(false)
   const [importingWorkspaceScannerCatalog, setImportingWorkspaceScannerCatalog] =
     useState(false)
@@ -89,7 +92,11 @@ export default function AutomationsPage() {
 
   const { data: rawWorkspaces } = useSWR("/api/workspaces", fetcher)
   const { data: rawContacts } = useSWR("/api/contacts", fetcher)
-  const { data: stats } = useSWR<{ n8nConfigured?: boolean }>("/api/stats", fetcher)
+  const { data: stats } = useSWR<{
+    n8nConfigured?: boolean
+    canSyncAllPowerBi?: boolean
+    canImportWorkspaceCatalogInBulk?: boolean
+  }>("/api/stats", fetcher)
   const { data: botQrConfig } = useSWR<{
     status?: "starting" | "awaiting_qr" | "connected" | "reconnecting" | "offline" | "error"
   }>("/api/bot/qr", fetcher)
@@ -114,7 +121,6 @@ export default function AutomationsPage() {
 
   const {
     data: fixedCatalogPayload,
-    isLoading: loadingFixedCatalog,
     mutate: mutateFixedCatalog,
   } = useSWR<{
     catalog: {
@@ -131,46 +137,32 @@ export default function AutomationsPage() {
     fetcher
   )
 
-  const fixedCatalog = fixedCatalogPayload?.catalog ?? null
-  const hasFixedCatalogData = !!(
-    fixedCatalog &&
-    ((fixedCatalog.tables?.length ?? 0) > 0 ||
-      (fixedCatalog.columns?.length ?? 0) > 0 ||
-      (fixedCatalog.measures?.length ?? 0) > 0)
-  )
-
   const {
     data: metadata,
     isLoading: loadingMetadata,
     error: metadataError,
+    mutate: mutateMetadata,
   } = useSWR<{
     tables: DatasetTable[]
     columns: DatasetColumn[]
     measures: DatasetMeasure[]
   }>(
-    selectedDataset &&
-      pbiWorkspaceId &&
-      fixedCatalogPayload !== undefined &&
-      !hasFixedCatalogData
-      ? `/api/powerbi/metadata?datasetId=${selectedDataset}&workspaceId=${pbiWorkspaceId}`
+    selectedDataset && pbiWorkspaceId
+      ? `/api/powerbi/metadata?datasetId=${selectedDataset}&workspaceId=${pbiWorkspaceId}&refresh=1`
       : null,
     fetcher
   )
 
-  const effectiveMetadata = hasFixedCatalogData ? fixedCatalog : metadata
+  const isLoadingSchema = !!selectedDataset && loadingMetadata
 
-  const isLoadingSchema =
-    !!selectedDataset && (loadingFixedCatalog || (!hasFixedCatalogData && loadingMetadata))
-
-  const schemaError =
-    !hasFixedCatalogData && !loadingFixedCatalog ? metadataError : null
+  const schemaError = metadataError ?? null
 
   const tables = useMemo(() => {
-    if (effectiveMetadata?.tables?.length) return effectiveMetadata.tables
+    if (metadata?.tables?.length) return metadata.tables
 
     const tableMap = new Map<string, DatasetTable>()
 
-    for (const column of effectiveMetadata?.columns || []) {
+    for (const column of metadata?.columns || []) {
       if (!column.tableName || tableMap.has(column.tableName)) continue
       tableMap.set(column.tableName, {
         name: column.tableName,
@@ -178,7 +170,7 @@ export default function AutomationsPage() {
       })
     }
 
-    for (const measure of effectiveMetadata?.measures || []) {
+    for (const measure of metadata?.measures || []) {
       if (!measure.tableName || tableMap.has(measure.tableName)) continue
       tableMap.set(measure.tableName, {
         name: measure.tableName,
@@ -187,10 +179,10 @@ export default function AutomationsPage() {
     }
 
     return [...tableMap.values()]
-  }, [effectiveMetadata])
+  }, [metadata])
 
-  const columns = effectiveMetadata?.columns || []
-  const measures = effectiveMetadata?.measures || []
+  const columns = metadata?.columns || []
+  const measures = metadata?.measures || []
 
   const linkedTableNames = useMemo(() => {
     const fromColumns = selectedColumns.map((column) => column.tableName)
@@ -216,9 +208,34 @@ export default function AutomationsPage() {
     )
   }, [selectedDataset, fixedCatalogPayload?.execution_dataset_id])
 
+  useEffect(() => {
+    if (!columns.length || !selectedDataset) return
+    if (defaultFiltersAppliedRef.current === selectedDataset) return
+    defaultFiltersAppliedRef.current = selectedDataset
+
+    const norm = (s: string) =>
+      s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+
+    const condvendaCol =
+      columns.find((col) => norm(col.tableName).includes("condvenda") && norm(col.columnName).includes("condvenda")) ??
+      columns.find((col) => norm(col.columnName).includes("condvenda"))
+
+    if (condvendaCol) {
+      setSelectedColumns((prev) => {
+        const alreadySelected = prev.some(
+          (c) => c.tableName === condvendaCol.tableName && c.columnName === condvendaCol.columnName
+        )
+        if (alreadySelected) return prev
+        return [...prev, { tableName: condvendaCol.tableName, columnName: condvendaCol.columnName }]
+      })
+    }
+  }, [selectedDataset, columns])
+
   const quickFilters = useMemo(() => {
-    return buildQuickFilters(columns, filters)
-  }, [columns, filters])
+    return buildQuickFilters(columns, filters, {
+      preferredTableNames: linkedTableNames,
+    }).filter((item) => item.key === "date")
+  }, [columns, filters, linkedTableNames])
 
   const daxQuery = useMemo(
     () =>
@@ -347,29 +364,69 @@ export default function AutomationsPage() {
       setIsExecuting(true)
 
       try {
-        const res = await fetch("/api/powerbi/execute-query", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            datasetId: selectedDataset,
-            executionDatasetId: selectedExecutionDataset || selectedDataset,
-            executionWorkspaceId: pbiWorkspaceId || "",
-            query: daxQuery,
-            filters,
-            selectedColumns,
-            selectedMeasures,
-            limit: 100,
-            reportTitle: "Resultado da Query",
-            selectedItems: [
-              ...selectedColumns.map(
-                (column) => `${column.tableName}.${column.columnName}`
-              ),
-              ...selectedMeasures.map((measure) => measure.measureName),
-            ],
-          }),
-        })
+        const requestExecution = async (
+          query: string,
+          columnsToExecute: SelectedColumn[],
+          measuresToExecute: SelectedMeasure[]
+        ) => {
+          const response = await fetch("/api/powerbi/execute-query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              datasetId: selectedDataset,
+              executionDatasetId: selectedExecutionDataset || selectedDataset,
+              executionWorkspaceId: pbiWorkspaceId || "",
+              query,
+              filters,
+              selectedColumns: columnsToExecute,
+              selectedMeasures: measuresToExecute,
+              limit: 100,
+              reportTitle: "Resultado da Query",
+              selectedItems: [
+                ...columnsToExecute.map(
+                  (column) => `${column.tableName}.${column.columnName}`
+                ),
+                ...measuresToExecute.map((measure) => measure.measureName),
+              ],
+            }),
+          })
 
-        const data = await res.json()
+          const data = await response.json()
+
+          return { response, data }
+        }
+
+        let { response: res, data } = await requestExecution(
+          daxQuery,
+          selectedColumns,
+          selectedMeasures
+        )
+
+        if (
+          !res.ok &&
+          options?.silent &&
+          data?.code === "INVALID_MEASURE_CONTEXT" &&
+          selectedColumns.length > 0 &&
+          selectedMeasures.length > 0
+        ) {
+          const previewQuery = buildDAXQuery({
+            columns: selectedColumns,
+            measures: [],
+            filters,
+            limit: 100,
+          })
+
+          const previewExecution = await requestExecution(
+            previewQuery,
+            selectedColumns,
+            []
+          )
+
+          if (previewExecution.response.ok) {
+            res = previewExecution.response
+            data = previewExecution.data
+          }
+        }
 
         if (!res.ok) {
           throw new Error(data.error)
@@ -387,7 +444,10 @@ export default function AutomationsPage() {
         }
       } catch (error) {
         setReportHtml(null)
-        toast.error(error instanceof Error ? error.message : "Erro ao executar query")
+
+        if (!options?.silent) {
+          toast.error(error instanceof Error ? error.message : "Erro ao executar query")
+        }
       } finally {
         setIsExecuting(false)
       }
@@ -434,6 +494,7 @@ export default function AutomationsPage() {
         }
 
         await mutateFixedCatalog()
+        await mutateMetadata()
 
         toast.success(
           executionDatasetId === selectedDataset
@@ -502,6 +563,27 @@ export default function AutomationsPage() {
     }
 
     printWindow.onload = triggerPrint
+  }, [reportHtml])
+
+  const handlePreviewHtml = useCallback(() => {
+    if (!reportHtml) {
+      toast.error("Execute uma query com resultado antes de visualizar o HTML")
+      return
+    }
+
+    const blob = new Blob([reportHtml], { type: "text/html;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const previewWindow = window.open(url, "_blank", "width=1400,height=900")
+
+    if (!previewWindow) {
+      URL.revokeObjectURL(url)
+      toast.error(
+        "Nao foi possivel abrir a janela de visualizacao. Verifique se o navegador bloqueou pop-up."
+      )
+      return
+    }
+
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000)
   }, [reportHtml])
 
   const handleSave = async (saveData: {
@@ -608,6 +690,7 @@ export default function AutomationsPage() {
       }
 
       await mutateFixedCatalog()
+      await mutateMetadata()
 
       toast.success(
         `Catalogo importado: ${data.table_count ?? 0} tabelas, ${data.column_count ?? 0
@@ -619,6 +702,47 @@ export default function AutomationsPage() {
       )
     } finally {
       setImportingScannerCatalog(false)
+    }
+  }
+
+  const importAllFromPowerBi = async () => {
+    setImportingAllPowerBi(true)
+
+    try {
+      const res = await fetch("/api/powerbi/sync", {
+        method: "POST",
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "Falha ao importar tudo do Power BI")
+      }
+
+      await globalMutate("/api/workspaces")
+      await globalMutate("/api/stats")
+
+      if (pbiWorkspaceId) {
+        await globalMutate(`/api/powerbi/datasets?workspaceId=${pbiWorkspaceId}`)
+      }
+
+      if (selectedDataset) {
+        await mutateFixedCatalog()
+        await mutateMetadata()
+      }
+
+      const warningsCount = Array.isArray(data.warnings) ? data.warnings.length : 0
+      const warningsSuffix = warningsCount > 0 ? ` com ${warningsCount} aviso(s)` : ""
+
+      toast.success(
+        `Importacao completa concluida: ${data.workspaces ?? 0} workspaces, ${data.reports ?? 0} relatorios e ${data.datasets ?? 0} datasets${warningsSuffix}`
+      )
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Erro ao importar tudo do Power BI"
+      )
+    } finally {
+      setImportingAllPowerBi(false)
     }
   }
 
@@ -644,6 +768,7 @@ export default function AutomationsPage() {
       }
 
       await mutateFixedCatalog()
+      await mutateMetadata()
 
       toast.success(
         `Importacao em lote concluida: ${data.imported_datasets ?? 0} datasets atualizados`
@@ -683,8 +808,8 @@ export default function AutomationsPage() {
             onClick={() => setActiveTab("builder")}
           >
             <Database className="size-3" />
-            <span className="hidden sm:inline">Query Builder</span>
-            <span className="sm:hidden">Builder</span>
+            <span className="hidden sm:inline">Construtor de Relatorios</span>
+            <span className="sm:hidden">Relatorio</span>
           </Button>
 
           <Button
@@ -806,9 +931,7 @@ export default function AutomationsPage() {
             {isLoadingSchema && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="size-3 animate-spin" />
-                {loadingFixedCatalog
-                  ? "Carregando catalogo salvo..."
-                  : "Carregando metadados..."}
+                Atualizando metadados direto do Power BI...
               </div>
             )}
 
@@ -820,41 +943,61 @@ export default function AutomationsPage() {
                 </span>
               )}
 
-            {selectedDataset && (
-              <>
-                <div className="ml-auto" />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={importCatalogFromScanner}
-                  disabled={importingScannerCatalog}
-                >
-                  {importingScannerCatalog ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <Database className="size-3" />
-                  )}
-                  Importar Scanner API
-                </Button>
-              </>
-            )}
-
-            {selectedWorkspace && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-xs"
-                onClick={importWorkspaceCatalogsFromScanner}
-                disabled={importingWorkspaceScannerCatalog}
-              >
-                {importingWorkspaceScannerCatalog ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <Database className="size-3" />
+            {(stats?.canSyncAllPowerBi ||
+              selectedDataset ||
+              (selectedWorkspace && stats?.canImportWorkspaceCatalogInBulk)) && (
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {stats?.canSyncAllPowerBi && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={importAllFromPowerBi}
+                    disabled={importingAllPowerBi}
+                  >
+                    {importingAllPowerBi ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <Database className="size-3" />
+                    )}
+                    Importar Tudo do Power BI
+                  </Button>
                 )}
-                Importar Todos do Workspace
-              </Button>
+
+                {selectedDataset && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={importCatalogFromScanner}
+                    disabled={importingScannerCatalog}
+                  >
+                    {importingScannerCatalog ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <Database className="size-3" />
+                    )}
+                    Importar Scanner API
+                  </Button>
+                )}
+
+                {selectedWorkspace && stats?.canImportWorkspaceCatalogInBulk && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={importWorkspaceCatalogsFromScanner}
+                    disabled={importingWorkspaceScannerCatalog}
+                  >
+                    {importingWorkspaceScannerCatalog ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <Database className="size-3" />
+                    )}
+                    Importar Todos do Workspace
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
@@ -862,7 +1005,9 @@ export default function AutomationsPage() {
             <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
               <Database className="size-12 opacity-20" />
               <p className="text-sm font-medium">Selecione um workspace e dataset para comecar</p>
-              <p className="text-xs">Escolha os campos que deseja consultar e crie sua automacao</p>
+              <p className="text-xs">
+                Monte seu relatorio escolhendo tabelas, medidas e filtros.
+              </p>
             </div>
           ) : datasetsError ? (
             <div className="flex flex-1 flex-col items-center justify-center text-muted-foreground">
@@ -932,6 +1077,7 @@ export default function AutomationsPage() {
                   reportHtml={reportHtml}
                   isExecuting={isExecuting}
                   onExecute={executeQuery}
+                  onPreviewHtml={handlePreviewHtml}
                   onGeneratePdf={handleGeneratePdf}
                   onRemoveColumn={toggleColumn}
                   onRemoveMeasure={toggleMeasure}
@@ -996,6 +1142,7 @@ export default function AutomationsPage() {
                     reportHtml={reportHtml}
                     isExecuting={isExecuting}
                     onExecute={executeQuery}
+                    onPreviewHtml={handlePreviewHtml}
                     onGeneratePdf={handleGeneratePdf}
                     onRemoveColumn={toggleColumn}
                     onRemoveMeasure={toggleMeasure}

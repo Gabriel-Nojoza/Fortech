@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
 import { BRAND_NAME } from "@/lib/branding"
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
@@ -39,7 +38,6 @@ export default function SettingsPage() {
   // General
   const [appName, setAppName] = useState(BRAND_NAME)
   const [timezone, setTimezone] = useState("America/Sao_Paulo")
-  const [chatEnabled, setChatEnabled] = useState(true)
 
   const [saving, setSaving] = useState("")
 
@@ -57,7 +55,6 @@ export default function SettingsPage() {
       if (settings.general) {
         setAppName(settings.general.app_name ?? BRAND_NAME)
         setTimezone(settings.general.timezone ?? "America/Sao_Paulo")
-        setChatEnabled(settings.general.chat_enabled !== false)
       }
       if (settings.powerbi_sync) {
         const hours = settings.powerbi_sync.hours
@@ -381,24 +378,9 @@ export default function SettingsPage() {
                     placeholder="America/Sao_Paulo"
                   />
                 </div>
-                <div className="flex items-center justify-between rounded-lg border p-4">
-                  <div className="flex flex-col gap-0.5">
-                    <Label htmlFor="chat-enabled" className="text-sm font-medium">
-                      Assistente de Chat (SIL)
-                    </Label>
-                    <span className="text-xs text-muted-foreground">
-                      Habilita o botão flutuante de chat com IA para os usuários
-                    </span>
-                  </div>
-                  <Switch
-                    id="chat-enabled"
-                    checked={chatEnabled}
-                    onCheckedChange={setChatEnabled}
-                  />
-                </div>
                 <Button
                   onClick={() =>
-                    saveSetting("general", { app_name: appName, timezone, chat_enabled: chatEnabled })
+                    saveSetting("general", { app_name: appName, timezone })
                   }
                   disabled={saving === "general"}
                 >

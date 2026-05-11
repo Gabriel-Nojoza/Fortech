@@ -1,8 +1,74 @@
 import { createServiceClient as createClient } from "@/lib/supabase/server"
+import { withCustomChatMeasures } from "@/lib/chat"
 import type { PowerBIConfig } from "@/lib/types"
 import { getRequestContext } from "@/lib/tenant"
 
 const PBI_API_BASE = "https://api.powerbi.com/v1.0/myorg"
+
+type EmbedTokenCacheEntry = {
+  token: string
+  expiresAt: number
+}
+
+type CachedValue<T> = {
+  value: T
+  expiresAt: number
+}
+
+type DatasetMetadataSnapshot = {
+  tables: Array<{ name: string; description: string; isHidden: boolean }>
+  columns: Array<{
+    tableName: string
+    columnName: string
+    dataType: string
+    isHidden: boolean
+    expression?: string
+  }>
+  measures: Array<{
+    tableName: string
+    measureName: string
+    expression: string
+    dataType?: string
+    isHidden: boolean
+  }>
+}
+
+function applyCustomChatMeasuresToSnapshot(
+  metadata: DatasetMetadataSnapshot
+): DatasetMetadataSnapshot {
+  const enrichedMetadata = withCustomChatMeasures(metadata)
+
+  return {
+    tables: metadata.tables.map((table) => ({
+      name: table.name,
+      description: table.description,
+      isHidden: table.isHidden,
+    })),
+    columns: metadata.columns.map((column) => ({
+      tableName: column.tableName,
+      columnName: column.columnName,
+      dataType: column.dataType,
+      isHidden: column.isHidden,
+      expression: column.expression,
+    })),
+    measures: enrichedMetadata.measures.map((measure) => ({
+      tableName: measure.tableName,
+      measureName: measure.measureName,
+      expression: measure.expression,
+      dataType: measure.dataType,
+      isHidden: Boolean(measure.isHidden),
+    })),
+  }
+}
+
+const embedTokenCache = new Map<string, EmbedTokenCacheEntry>()
+const accessTokenCache = new Map<string, EmbedTokenCacheEntry>()
+const powerBiConfigCache = new Map<string, CachedValue<PowerBIConfig>>()
+const datasetMetadataCache = new Map<string, CachedValue<DatasetMetadataSnapshot>>()
+const datasetMetadataRequestCache = new Map<string, Promise<DatasetMetadataSnapshot>>()
+
+const POWERBI_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000
+const DATASET_METADATA_CACHE_TTL_MS = 10 * 60 * 1000
 
 type ParsedPowerBiError = {
   code: string | null
@@ -130,6 +196,11 @@ async function getConfig(): Promise<PowerBIConfig> {
 }
 
 async function getConfigForCompany(companyId: string): Promise<PowerBIConfig> {
+  const cached = powerBiConfigCache.get(companyId)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value
+  }
+
   const supabase = await createClient()
 
   const { data } = await supabase
@@ -143,7 +214,14 @@ async function getConfigForCompany(companyId: string): Promise<PowerBIConfig> {
     throw new Error("Configuracoes do Power BI nao encontradas")
   }
 
-  return data.value as unknown as PowerBIConfig
+  const config = data.value as unknown as PowerBIConfig
+
+  powerBiConfigCache.set(companyId, {
+    value: config,
+    expiresAt: Date.now() + POWERBI_CONFIG_CACHE_TTL_MS,
+  })
+
+  return config
 }
 
 export async function getAccessToken(companyId?: string): Promise<string> {
@@ -155,6 +233,14 @@ export async function getAccessToken(companyId?: string): Promise<string> {
     throw new Error(
       "Credenciais do Power BI incompletas. Configure em Configuracoes."
     )
+  }
+
+  const cacheKey = `${config.tenant_id}:${config.client_id}`
+  const SAFETY_MARGIN_MS = 5 * 60 * 1000
+
+  const cached = accessTokenCache.get(cacheKey)
+  if (cached && cached.expiresAt - SAFETY_MARGIN_MS > Date.now()) {
+    return cached.token
   }
 
   const tokenUrl = `https://login.microsoftonline.com/${config.tenant_id}/oauth2/v2.0/token`
@@ -178,7 +264,13 @@ export async function getAccessToken(companyId?: string): Promise<string> {
   }
 
   const json = await res.json()
-  return json.access_token
+  const accessToken = String(json.access_token ?? "")
+  const expiresIn = typeof json.expires_in === "number" ? json.expires_in : 3600
+  const expiresAt = Date.now() + expiresIn * 1000
+
+  accessTokenCache.set(cacheKey, { token: accessToken, expiresAt })
+
+  return accessToken
 }
 
 export async function listWorkspaces(token: string) {
@@ -245,6 +337,19 @@ export async function generateReportEmbedToken(
   workspaceId: string,
   reportId: string
 ) {
+  const cacheKey = `${workspaceId}:${reportId}`
+  const SAFETY_MARGIN_MS = 5 * 60 * 1000
+
+  const cached = embedTokenCache.get(cacheKey)
+  if (cached && cached.expiresAt - SAFETY_MARGIN_MS > Date.now()) {
+    return cached.token
+  }
+
+  const body: Record<string, unknown> = {
+    accessLevel: "View",
+    allowSaveAs: false,
+  }
+
   const response = await fetch(
     `${PBI_API_BASE}/groups/${workspaceId}/reports/${reportId}/GenerateToken`,
     {
@@ -253,10 +358,7 @@ export async function generateReportEmbedToken(
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        accessLevel: "View",
-        allowSaveAs: false,
-      }),
+      body: JSON.stringify(body),
     }
   )
 
@@ -264,12 +366,18 @@ export async function generateReportEmbedToken(
     await throwPowerBiApiError("Falha ao gerar token de exibicao do Power BI", response)
   }
 
-  const data = (await response.json()) as { token?: string | null }
+  const data = (await response.json()) as { token?: string | null; expiration?: string | null }
   const embedToken = typeof data.token === "string" ? data.token.trim() : ""
 
   if (!embedToken) {
     throw new Error("Power BI nao retornou token de exibicao para o relatorio")
   }
+
+  const expiresAt = data.expiration
+    ? Date.parse(data.expiration)
+    : Date.now() + 60 * 60 * 1000
+
+  embedTokenCache.set(cacheKey, { token: embedToken, expiresAt })
 
   return embedToken
 }
@@ -461,7 +569,33 @@ export async function executeDAXQuery(
   }
 }
 
-export async function getDatasetMetadata(token: string, datasetId: string) {
+export async function getDatasetMetadata(
+  token: string,
+  datasetId: string,
+  options?: { forceRefresh?: boolean; includeCustomChatMeasures?: boolean }
+): Promise<DatasetMetadataSnapshot> {
+  const forceRefresh = options?.forceRefresh === true
+  const includeCustomChatMeasures = options?.includeCustomChatMeasures !== false
+
+  if (!forceRefresh) {
+    const cached = datasetMetadataCache.get(datasetId)
+    if (cached && cached.expiresAt > Date.now()) {
+      return includeCustomChatMeasures
+        ? applyCustomChatMeasuresToSnapshot(cached.value)
+        : cached.value
+    }
+  }
+
+  const requestCacheKey = forceRefresh ? `${datasetId}:force` : datasetId
+  const pendingRequest = datasetMetadataRequestCache.get(requestCacheKey)
+  if (pendingRequest) {
+    const metadata = await pendingRequest
+    return includeCustomChatMeasures
+      ? applyCustomChatMeasuresToSnapshot(metadata)
+      : metadata
+  }
+
+  const request = (async () => {
   const [tablesResult, columnsResult, measuresResult] = await Promise.all([
     executeDAXQuery(token, datasetId, "EVALUATE INFO.VIEW.TABLES()"),
     executeDAXQuery(token, datasetId, "EVALUATE INFO.VIEW.COLUMNS()"),
@@ -524,7 +658,46 @@ export async function getDatasetMetadata(token: string, datasetId: string) {
       return true
     })
 
-  return { tables, columns, measures }
+    const rawMetadata: DatasetMetadataSnapshot = {
+      tables: tables.map((table) => ({
+        name: table.name,
+        description: table.description,
+        isHidden: table.isHidden,
+      })),
+      columns: columns.map((column) => ({
+        tableName: column.tableName,
+        columnName: column.columnName,
+        dataType: column.dataType,
+        isHidden: column.isHidden,
+        expression: column.expression,
+      })),
+      measures: measures.map((measure) => ({
+        tableName: measure.tableName,
+        measureName: measure.measureName,
+        expression: measure.expression,
+        dataType: measure.dataType,
+        isHidden: Boolean(measure.isHidden),
+      })),
+    }
+
+    datasetMetadataCache.set(datasetId, {
+      value: rawMetadata,
+      expiresAt: Date.now() + DATASET_METADATA_CACHE_TTL_MS,
+    })
+
+    return rawMetadata
+  })()
+
+  datasetMetadataRequestCache.set(requestCacheKey, request)
+
+  try {
+    const metadata = await request
+    return includeCustomChatMeasures
+      ? applyCustomChatMeasuresToSnapshot(metadata)
+      : metadata
+  } finally {
+    datasetMetadataRequestCache.delete(requestCacheKey)
+  }
 }
 
 type WorkspaceScanStatus = "NotStarted" | "Running" | "Succeeded" | "Failed"

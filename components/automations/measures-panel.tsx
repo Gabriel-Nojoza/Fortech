@@ -5,7 +5,6 @@ import { Calculator, Search, Info, Link2, ListTree } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
@@ -28,8 +27,6 @@ export function MeasuresPanel({
   onToggleMeasure,
 }: MeasuresPanelProps) {
   const [search, setSearch] = useState("")
-  const [showAllMeasures, setShowAllMeasures] = useState(false)
-
   const normalizedLinkedTables = useMemo(
     () => [...new Set(linkedTableNames.filter(Boolean))],
     [linkedTableNames]
@@ -67,14 +64,8 @@ export function MeasuresPanel({
       return left.measureName.localeCompare(right.measureName)
     })
 
-    if (showAllMeasures || normalizedLinkedTables.length === 0) {
-      return sortedMeasures
-    }
-
-    return sortedMeasures.filter((measure) =>
-      normalizedLinkedTables.includes(measure.tableName)
-    )
-  }, [filteredMeasures, normalizedLinkedTables, search, showAllMeasures])
+    return sortedMeasures
+  }, [filteredMeasures, normalizedLinkedTables, search])
 
   const connectedMeasuresCount = filteredMeasures.filter((measure) =>
     normalizedLinkedTables.includes(measure.tableName)
@@ -99,20 +90,9 @@ export function MeasuresPanel({
 
         {normalizedLinkedTables.length > 0 ? (
           <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 p-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-primary">
-                <Link2 className="size-3" />
-                Medidas conectadas a tabela
-              </div>
-              <Button
-                type="button"
-                variant={showAllMeasures ? "outline" : "secondary"}
-                size="sm"
-                className="h-6 px-2 text-[10px]"
-                onClick={() => setShowAllMeasures((prev) => !prev)}
-              >
-                {showAllMeasures ? "Mostrar conectadas" : "Mostrar todas"}
-              </Button>
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-primary">
+              <Link2 className="size-3" />
+              Medidas conectadas em destaque
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {normalizedLinkedTables.map((tableName) => (
@@ -125,9 +105,8 @@ export function MeasuresPanel({
               ))}
             </div>
             <p className="mt-2 text-[10px] text-muted-foreground">
-              {showAllMeasures
-                ? `${connectedMeasuresCount} medida(s) conectada(s) em ${filteredMeasures.length} total.`
-                : `${connectedMeasuresCount} medida(s) conectada(s) disponivel(is).`}
+              {connectedMeasuresCount} medida(s) conectada(s) aparecem primeiro, mas
+              todas continuam disponiveis na lista.
             </p>
           </div>
         ) : (

@@ -71,22 +71,78 @@ function isDateType(dataType?: string) {
   return normalized.includes("date") || normalized.includes("time")
 }
 
-function parseDateValue(value: string) {
-  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) return null
-
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-
-  if (!year || month < 1 || month > 12 || day < 1 || day > 31) {
-    return null
-  }
-
-  return { year, month, day }
+type ParsedDate = {
+  year: number
+  month: number
+  day: number
 }
 
-function formatDaxDate(date: { year: number; month: number; day: number }) {
+type ParsedDateRange = {
+  start: ParsedDate
+  end: ParsedDate
+}
+
+function getDaysInMonth(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate()
+}
+
+function parseDateValue(value: string): ParsedDateRange | null {
+  const trimmed = String(value).trim()
+  if (!trimmed) return null
+
+  const fullDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (fullDateMatch) {
+    const year = Number(fullDateMatch[1])
+    const month = Number(fullDateMatch[2])
+    const day = Number(fullDateMatch[3])
+
+    if (!year || month < 1 || month > 12) {
+      return null
+    }
+
+    const maxDay = getDaysInMonth(year, month)
+    if (day < 1 || day > maxDay) {
+      return null
+    }
+
+    return {
+      start: { year, month, day },
+      end: { year, month, day },
+    }
+  }
+
+  const monthMatch = trimmed.match(/^(\d{4})-(\d{2})$/)
+  if (monthMatch) {
+    const year = Number(monthMatch[1])
+    const month = Number(monthMatch[2])
+
+    if (!year || month < 1 || month > 12) {
+      return null
+    }
+
+    return {
+      start: { year, month, day: 1 },
+      end: { year, month, day: getDaysInMonth(year, month) },
+    }
+  }
+
+  const yearMatch = trimmed.match(/^(\d{4})$/)
+  if (yearMatch) {
+    const year = Number(yearMatch[1])
+    if (!year) {
+      return null
+    }
+
+    return {
+      start: { year, month: 1, day: 1 },
+      end: { year, month: 12, day: 31 },
+    }
+  }
+
+  return null
+}
+
+function formatDaxDate(date: ParsedDate) {
   return `DATE(${date.year}, ${date.month}, ${date.day})`
 }
 
@@ -98,7 +154,7 @@ function formatDaxValue(value: string, dataType?: string) {
   if (isDateType(dataType)) {
     const parsed = parseDateValue(value)
     if (parsed) {
-      return formatDaxDate(parsed)
+      return formatDaxDate(parsed.start)
     }
   }
 
@@ -117,15 +173,15 @@ function buildFilterExpression(filter: Filter) {
     const endDate = rawValueTo ? parseDateValue(rawValueTo) : null
 
     if (startDate && endDate) {
-      return `${ref} >= ${formatDaxDate(startDate)} && ${ref} <= ${formatDaxDate(endDate)}`
+      return `${ref} >= ${formatDaxDate(startDate.start)} && ${ref} <= ${formatDaxDate(endDate.end)}`
     }
 
     if (startDate) {
-      return `${ref} >= ${formatDaxDate(startDate)}`
+      return `${ref} >= ${formatDaxDate(startDate.start)}`
     }
 
     if (endDate) {
-      return `${ref} <= ${formatDaxDate(endDate)}`
+      return `${ref} <= ${formatDaxDate(endDate.end)}`
     }
   }
 

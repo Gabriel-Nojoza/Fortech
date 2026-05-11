@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
-import { getRequestContext } from "@/lib/tenant"
+import { getRequestContext, isAuthContextError } from "@/lib/tenant"
 import {
   getScheduleAccessMaps,
   isScheduleAccessible,
@@ -14,6 +14,7 @@ import {
 } from "@/lib/schedule-report-configs"
 import { normalizeSchedulePageNames } from "@/lib/schedule-pages"
 import { getWorkspaceAccessScope } from "@/lib/workspace-access"
+import { normalizeDispatchSettings } from "@/lib/dispatch-config"
 import {
   getCompanyWhatsAppBotInstance,
   isMissingBotInstanceIdColumnError,
@@ -140,94 +141,136 @@ const scheduleUpdateSchema = baseScheduleSchema
   })
   .superRefine(validateScheduleReports)
 
-export async function GET() {
-  const context = await getRequestContext()
-  const { companyId } = context
-  const supabase = createClient()
-  const scope = await getWorkspaceAccessScope(supabase, context)
-
-  if (scope.datasetRestricted && scope.datasetIds.length === 0) {
-    return NextResponse.json([])
-  }
-
-  const { data: schedules, error } = await supabase
-    .from("schedules")
-    .select("*")
+async function checkDispatchExpiry(supabase: ReturnType<typeof createClient>, companyId: string) {
+  const { data } = await supabase
+    .from("company_settings")
+    .select("value")
     .eq("company_id", companyId)
-    .order("created_at", { ascending: false })
+    .eq("key", "dispatch_settings")
+    .maybeSingle()
+  if (!data?.value) return false
+  const cfg = normalizeDispatchSettings(data.value)
+  return cfg.enabled && cfg.isExpired
+}
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+export async function GET() {
+  try {
+    const context = await getRequestContext()
+    const { companyId } = context
+    const supabase = createClient()
 
-  const accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
-  const visibleSchedules = (schedules ?? []).filter((schedule) =>
-    isScheduleAccessible(schedule, accessMaps)
-  )
+    if (await checkDispatchExpiry(supabase, companyId)) {
+      return NextResponse.json(
+        { error: "O periodo de teste para envio de relatorios expirou." },
+        { status: 403 }
+      )
+    }
 
-  const enriched = await Promise.all(
-    visibleSchedules.map(async (schedule) => {
-      const { data: scContacts } = await supabase
-        .from("schedule_contacts")
-        .select("contact_id")
-        .eq("schedule_id", schedule.id)
+    const scope = await getWorkspaceAccessScope(supabase, context)
 
-      const contactIds = (scContacts ?? []).map((sc) => sc.contact_id)
+    if (scope.datasetRestricted && scope.datasetIds.length === 0) {
+      return NextResponse.json([])
+    }
 
-      let contacts: Array<{ id: string; name: string }> = []
+    const { data: schedules, error } = await supabase
+      .from("schedules")
+      .select("*")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false })
 
-      if (contactIds.length > 0) {
-        const { data } = await supabase
-          .from("contacts")
-          .select("id, name")
-          .eq("company_id", companyId)
-          .in("id", contactIds)
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
 
-        contacts = data ?? []
-      }
+    const accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
+    const visibleSchedules = (schedules ?? []).filter((schedule) =>
+      isScheduleAccessible(schedule, accessMaps)
+    )
 
-      const reportConfigs = resolveScheduleReportConfigs(schedule).map((reportConfig) => {
-        const reportName =
-          accessMaps.reportNames.get(reportConfig.report_id) ??
-          accessMaps.automationNames.get(reportConfig.report_id) ??
-          "Desconhecido"
-        const reportSource = accessMaps.reportNames.has(reportConfig.report_id)
-          ? "powerbi"
-          : accessMaps.automationNames.has(reportConfig.report_id)
-            ? "created"
-            : "unknown"
+    const enriched = await Promise.all(
+      visibleSchedules.map(async (schedule) => {
+        const { data: scContacts } = await supabase
+          .from("schedule_contacts")
+          .select("contact_id")
+          .eq("schedule_id", schedule.id)
+
+        const contactIds = (scContacts ?? []).map((sc) => sc.contact_id)
+
+        let contacts: Array<{ id: string; name: string }> = []
+
+        if (contactIds.length > 0) {
+          const { data } = await supabase
+            .from("contacts")
+            .select("id, name")
+            .eq("company_id", companyId)
+            .in("id", contactIds)
+
+          contacts = data ?? []
+        }
+
+        const reportConfigs = resolveScheduleReportConfigs(schedule).map((reportConfig) => {
+          const reportName =
+            accessMaps.reportNames.get(reportConfig.report_id) ??
+            accessMaps.automationNames.get(reportConfig.report_id) ??
+            "Desconhecido"
+          const reportSource = accessMaps.reportNames.has(reportConfig.report_id)
+            ? "powerbi"
+            : accessMaps.automationNames.has(reportConfig.report_id)
+              ? "created"
+              : "unknown"
+
+          return {
+            ...reportConfig,
+            report_name: reportName,
+            report_source: reportSource,
+          }
+        })
+
+        const reportNames = reportConfigs.map((reportConfig) => reportConfig.report_name)
+        const primaryReportName = reportNames[0] ?? "Desconhecido"
 
         return {
-          ...reportConfig,
-          report_name: reportName,
-          report_source: reportSource,
+          ...schedule,
+          report_configs: reportConfigs,
+          report_names: reportNames,
+          report_name:
+            reportNames.length > 1
+              ? `${primaryReportName} +${reportNames.length - 1}`
+              : primaryReportName,
+          report_source: reportConfigs[0]?.report_source ?? "unknown",
+          contacts,
         }
       })
+    )
 
-      const reportNames = reportConfigs.map((reportConfig) => reportConfig.report_name)
-      const primaryReportName = reportNames[0] ?? "Desconhecido"
+    return NextResponse.json(enriched)
+  } catch (error) {
+    if (isAuthContextError(error)) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Nao autenticado" },
+        { status: 401 }
+      )
+    }
 
-      return {
-        ...schedule,
-        report_configs: reportConfigs,
-        report_names: reportNames,
-        report_name:
-          reportNames.length > 1
-            ? `${primaryReportName} +${reportNames.length - 1}`
-            : primaryReportName,
-        report_source: reportConfigs[0]?.report_source ?? "unknown",
-        contacts,
-      }
-    })
-  )
-
-  return NextResponse.json(enriched)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erro interno inesperado" },
+      { status: 500 }
+    )
+  }
 }
 
 export async function POST(request: NextRequest) {
   const context = await getRequestContext()
   const { companyId } = context
   const supabase = createClient()
+
+  if (await checkDispatchExpiry(supabase, companyId)) {
+    return NextResponse.json(
+      { error: "O periodo de teste para envio de relatorios expirou." },
+      { status: 403 }
+    )
+  }
+
   const scope = await getWorkspaceAccessScope(supabase, context)
   const accessMaps = await getScheduleAccessMaps(supabase, companyId, scope)
   const body = await request.json()

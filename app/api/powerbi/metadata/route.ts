@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getAccessToken, getDatasetMetadata, listDatasets } from "@/lib/powerbi"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
+import { saveCatalogEntry } from "@/lib/automation-catalog"
 import { getRequestContext } from "@/lib/tenant"
 import {
   getWorkspaceAccessScope,
@@ -17,6 +18,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const datasetId = searchParams.get("datasetId")?.trim()
     const workspaceId = searchParams.get("workspaceId")?.trim()
+    const refresh = ["1", "true", "yes"].includes(
+      String(searchParams.get("refresh") ?? "").trim().toLowerCase()
+    )
 
     if (!datasetId) {
       return NextResponse.json(
@@ -71,7 +75,21 @@ export async function GET(request: Request) {
       )
     }
 
-    const metadata = await getDatasetMetadata(token, datasetId)
+    const metadata = await getDatasetMetadata(token, datasetId, {
+      forceRefresh: refresh,
+    })
+
+    if (refresh) {
+      await saveCatalogEntry(companyId, datasetId, {
+        workspace_id: workspaceId,
+        updated_at: new Date().toISOString(),
+        catalog: {
+          tables: metadata.tables,
+          columns: metadata.columns,
+          measures: metadata.measures,
+        },
+      })
+    }
 
     return NextResponse.json(metadata)
   } catch (error) {

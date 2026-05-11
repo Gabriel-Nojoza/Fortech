@@ -11,6 +11,10 @@ export type QuickFilterOption = {
   columnName: string | null
 }
 
+type QuickFilterBuildOptions = {
+  preferredTableNames?: string[]
+}
+
 const QUICK_FILTER_SPECS = [
   {
     key: "status",
@@ -29,6 +33,18 @@ const QUICK_FILTER_SPECS = [
     label: "Data",
     description: "Filtrar por data",
     keywords: ["data", "dt_", "date", "emissao", "emissão"],
+  },
+  {
+    key: "sale_condition",
+    label: "Cond. Venda",
+    description: "Filtrar por condicao de venda",
+    keywords: ["condvenda", "cond venda", "cond_venda"],
+  },
+  {
+    key: "goal_type",
+    label: "Tipo Meta",
+    description: "Filtrar por tipo de meta",
+    keywords: ["tipometa", "tipo meta", "tipo_meta"],
   },
   {
     key: "report_type",
@@ -70,15 +86,77 @@ export function getDefaultFilterValueTo(dataType: string) {
   return isDateLikeDataType(dataType) ? getDefaultFilterValue(dataType) : ""
 }
 
+function normalizeName(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase()
+}
+
+function isCalendarLikeTableName(tableName: string) {
+  const normalized = normalizeName(tableName)
+  return (
+    normalized.includes("calendar") ||
+    normalized.includes("calend") ||
+    normalized.includes("calendario")
+  )
+}
+
+function scoreQuickFilterMatch(
+  specKey: string,
+  column: Pick<DatasetColumn, "tableName" | "columnName" | "dataType">,
+  preferredTableNames: Set<string>
+) {
+  let score = 0
+  const normalizedTableName = normalizeName(column.tableName)
+  const normalizedColumnName = normalizeName(column.columnName)
+
+  if (preferredTableNames.has(normalizedTableName)) {
+    score += 100
+  }
+
+  if (specKey === "date") {
+    if (isDateLikeDataType(column.dataType)) {
+      score += 50
+    }
+
+    if (isCalendarLikeTableName(column.tableName)) {
+      score += 80
+    }
+
+    if (normalizedColumnName === "data" || normalizedColumnName.startsWith("data")) {
+      score += 20
+    }
+  }
+
+  return score
+}
+
 export function buildQuickFilters(
   columns: Array<Pick<DatasetColumn, "tableName" | "columnName" | "dataType">>,
-  filters: QueryFilter[]
+  filters: QueryFilter[],
+  options?: QuickFilterBuildOptions
 ): QuickFilterOption[] {
+  const preferredTableNames = new Set(
+    (options?.preferredTableNames ?? []).map((tableName) => normalizeName(tableName))
+  )
+
   return QUICK_FILTER_SPECS.map((spec) => {
-    const match = columns.find((column) => {
-      const haystack = `${column.tableName} ${column.columnName}`.toLowerCase()
-      return spec.keywords.some((keyword) => haystack.includes(keyword))
-    })
+    const match = columns
+      .filter((column) => {
+        const haystack = `${column.tableName} ${column.columnName}`.toLowerCase()
+        return spec.keywords.some((keyword) => haystack.includes(keyword))
+      })
+      .sort((left, right) => {
+        const scoreDiff =
+          scoreQuickFilterMatch(spec.key, right, preferredTableNames) -
+          scoreQuickFilterMatch(spec.key, left, preferredTableNames)
+
+        if (scoreDiff !== 0) {
+          return scoreDiff
+        }
+
+        return `${left.tableName}.${left.columnName}`.localeCompare(
+          `${right.tableName}.${right.columnName}`
+        )
+      })[0]
 
     const activeCount = match
       ? filters.filter(

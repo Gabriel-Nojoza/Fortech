@@ -1,5 +1,14 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import {
+  buildChatIASettingsValue,
+  buildDisabledExpiredChatIASettingsValue,
+  normalizeChatIASettings,
+} from "@/lib/chat-ia-config"
+import {
+  buildDispatchSettingsValue,
+  normalizeDispatchSettings,
+} from "@/lib/dispatch-config"
 import { requireAdminContext } from "@/lib/tenant"
 import { listDatasets, listReports, listWorkspaces } from "@/lib/powerbi"
 import {
@@ -64,7 +73,7 @@ async function getUserSettingsSnapshot(
       .from("company_settings")
       .select("key, value")
       .eq("company_id", companyId)
-      .in("key", ["powerbi", "n8n", "general"]),
+      .in("key", ["powerbi", "n8n", "chat_ia", "dispatch_settings"]),
   ])
 
   if (companyErr) throw companyErr
@@ -74,14 +83,33 @@ async function getUserSettingsSnapshot(
     (settingsRows ?? []).map((row) => [row.key, row.value as Record<string, unknown>])
   )
 
-  const general = settingsMap.get("general")
+  const rawChatIA = settingsMap.get("chat_ia")
+  const chatIAConfig = normalizeChatIASettings(rawChatIA)
+
+  if (chatIAConfig.isExpired && chatIAConfig.enabled) {
+    const disabledChatIA = buildDisabledExpiredChatIASettingsValue(rawChatIA)
+
+    await supabase
+      .from("company_settings")
+      .update({
+        value: disabledChatIA,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("company_id", companyId)
+      .eq("key", "chat_ia")
+
+    settingsMap.set("chat_ia", disabledChatIA)
+  }
+
+  const rawDispatch = settingsMap.get("dispatch_settings")
+  const dispatchConfig = normalizeDispatchSettings(rawDispatch)
 
   return {
     company_name: company?.name ?? "",
     powerbi: settingsMap.get("powerbi"),
     n8n: settingsMap.get("n8n"),
-    chat_enabled: Boolean(general?.chat_enabled),
-    chat_dataset_ids: Array.isArray(general?.chat_dataset_ids) ? general.chat_dataset_ids : [],
+    chat_ia: settingsMap.get("chat_ia"),
+    dispatch_settings: rawDispatch ?? dispatchConfig,
   }
 }
 
@@ -298,7 +326,7 @@ export async function POST(request: Request) {
     const context = await requireAdminContext()
     const supabase = getAdminClient()
     const body = await request.json()
-    const { email, password, name, role, company_name, powerbi, n8n, chat_enabled, chat_dataset_ids } = body
+    const { email, password, name, role, company_name, powerbi, n8n, chat_ia, dispatch_settings } = body
     const normalizedEmail = String(email ?? "").trim().toLowerCase()
     const normalizedPassword = String(password ?? "").trim()
     const normalizedName = String(name ?? "").trim()
@@ -386,13 +414,26 @@ export async function POST(request: Request) {
               value: {
                 webhook_url: n8nWebhookUrl,
                 callback_secret: n8nCallbackSecret,
+                chat_webhook_url: String(n8n?.chat_webhook_url ?? "").trim(),
               },
               updated_at: new Date().toISOString(),
             },
             {
               company_id: targetCompanyId,
               key: "general",
-              value: { app_name: companyName, timezone: "America/Sao_Paulo", chat_enabled: Boolean(chat_enabled), chat_dataset_ids: Array.isArray(chat_dataset_ids) ? chat_dataset_ids : [] },
+              value: { app_name: companyName, timezone: "America/Sao_Paulo" },
+              updated_at: new Date().toISOString(),
+            },
+            {
+              company_id: targetCompanyId,
+              key: "chat_ia",
+              value: buildChatIASettingsValue(chat_ia),
+              updated_at: new Date().toISOString(),
+            },
+            {
+              company_id: targetCompanyId,
+              key: "dispatch_settings",
+              value: buildDispatchSettingsValue(dispatch_settings),
               updated_at: new Date().toISOString(),
             },
           ],
@@ -525,8 +566,8 @@ export async function PUT(request: Request) {
       company_name,
       powerbi,
       n8n,
-      chat_enabled,
-      chat_dataset_ids,
+      chat_ia,
+      dispatch_settings,
       selected_pbi_workspace_ids,
       selected_pbi_dataset_access,
       selected_pbi_dataset_ids,
@@ -632,6 +673,21 @@ export async function PUT(request: Request) {
         return NextResponse.json({ error: message }, { status: 400 })
       }
 
+      const [{ data: existingChatIA }, { data: existingDispatch }] = await Promise.all([
+        supabase
+          .from("company_settings")
+          .select("value")
+          .eq("company_id", targetCompanyId)
+          .eq("key", "chat_ia")
+          .maybeSingle(),
+        supabase
+          .from("company_settings")
+          .select("value")
+          .eq("company_id", targetCompanyId)
+          .eq("key", "dispatch_settings")
+          .maybeSingle(),
+      ])
+
       const { error: settingsErr } = await supabase
         .from("company_settings")
         .upsert(
@@ -652,13 +708,20 @@ export async function PUT(request: Request) {
               value: {
                 webhook_url: n8nWebhookUrl,
                 callback_secret: n8nCallbackSecret,
+                chat_webhook_url: String(n8n?.chat_webhook_url ?? "").trim(),
               },
               updated_at: new Date().toISOString(),
             },
             {
               company_id: targetCompanyId,
-              key: "general",
-              value: { app_name: companyName, timezone: "America/Sao_Paulo", chat_enabled: Boolean(chat_enabled), chat_dataset_ids: Array.isArray(chat_dataset_ids) ? chat_dataset_ids : [] },
+              key: "chat_ia",
+              value: buildChatIASettingsValue(chat_ia, existingChatIA?.value),
+              updated_at: new Date().toISOString(),
+            },
+            {
+              company_id: targetCompanyId,
+              key: "dispatch_settings",
+              value: buildDispatchSettingsValue(dispatch_settings, existingDispatch?.value),
               updated_at: new Date().toISOString(),
             },
           ],
@@ -781,6 +844,12 @@ export async function DELETE(request: Request) {
     const { error } = await supabase.auth.admin.deleteUser(id)
 
     if (error) throw error
+
+    const companyId = getUserCompanyId(current)
+    if (companyId) {
+      await supabase.from("company_settings").delete().eq("company_id", companyId)
+      await supabase.from("companies").delete().eq("id", companyId)
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

@@ -52,17 +52,6 @@ export async function executeWithQueryFallback(params: {
 
   pushCandidate(params.query, params.filters)
 
-  if (params.filters.length > 0) {
-    pushCandidate(
-      buildDAXQuery({
-        columns: params.selectedColumns,
-        measures: params.selectedMeasures,
-        filters: [],
-      }),
-      []
-    )
-  }
-
   if (params.selectedColumns.length > 0 && params.selectedMeasures.length > 0) {
     pushCandidate(
       buildDAXQuery({
@@ -72,17 +61,6 @@ export async function executeWithQueryFallback(params: {
       }),
       params.filters
     )
-
-    if (params.filters.length > 0) {
-      pushCandidate(
-        buildDAXQuery({
-          columns: [],
-          measures: params.selectedMeasures,
-          filters: [],
-        }),
-        []
-      )
-    }
   }
 
   let firstError: unknown = null

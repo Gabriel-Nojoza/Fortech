@@ -52,6 +52,11 @@ function formatFilterDateValue(value: string) {
   const trimmed = value.trim()
   if (!trimmed) return null
 
+  const yearMatch = trimmed.match(/^(\d{4})$/)
+  if (yearMatch) {
+    return yearMatch[1]
+  }
+
   const isoDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (isoDateMatch) {
     return `${isoDateMatch[3]}/${isoDateMatch[2]}/${isoDateMatch[1]}`

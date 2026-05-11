@@ -9,6 +9,7 @@ import {
   Users,
   Clock,
   ScrollText,
+  Activity,
   Workflow,
   Moon,
   Sun,
@@ -34,7 +35,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { Button } from "@/components/ui/button"
 import { clearTabSessionMarker } from "@/lib/supabase/tab-session"
 
 const mainNav = [
@@ -45,6 +45,8 @@ const mainNav = [
 ]
 
 const automationNav = [
+  { title: "Construtor de Relatorios", href: "/automations", icon: Workflow },
+  { title: "Resumo operacional", href: "/operational-summary", icon: Activity },
   { title: "Rotinas de Disparo", href: "/schedules", icon: Clock },
   { title: "Logs", href: "/logs", icon: ScrollText },
 ]
@@ -53,9 +55,10 @@ const automationNav = [
 
 type AppSidebarProps = {
   currentUser: CurrentUserSummaryData | null
+  reportBuilderEnabled?: boolean
 }
 
-export function AppSidebar({ currentUser }: AppSidebarProps) {
+export function AppSidebar({ currentUser, reportBuilderEnabled = false }: AppSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const router = useRouter()
@@ -113,20 +116,22 @@ export function AppSidebar({ currentUser }: AppSidebarProps) {
           <SidebarGroupLabel>Automacao</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {automationNav.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname.startsWith(item.href)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.href}>
-                      <item.icon className="size-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {automationNav
+                .filter((item) => item.href !== "/automations" || reportBuilderEnabled)
+                .map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith(item.href)}
+                      tooltip={item.title}
+                    >
+                      <Link href={item.href}>
+                        <item.icon className="size-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

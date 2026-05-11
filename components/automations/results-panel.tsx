@@ -6,6 +6,7 @@ import {
   Copy,
   Play,
   FileDown,
+  Eye,
   ChevronDown,
   ChevronRight,
   TableIcon,
@@ -13,7 +14,6 @@ import {
   X,
   Terminal,
 } from "lucide-react"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -39,13 +39,146 @@ interface ResultsPanelProps {
   reportHtml: string | null
   isExecuting: boolean
   onExecute: () => void
+  onPreviewHtml: () => void
   onGeneratePdf: () => void
   onRemoveColumn: (tableName: string, columnName: string) => void
   onRemoveMeasure: (tableName: string, measureName: string) => void
 }
 
-function formatCellValue(value: unknown) {
+function isNumericLikeType(dataType: string) {
+  const normalized = dataType.toLowerCase()
+  return (
+    normalized.includes("int") ||
+    normalized.includes("double") ||
+    normalized.includes("decimal") ||
+    normalized.includes("number") ||
+    normalized.includes("currency") ||
+    normalized.includes("real")
+  )
+}
+
+function isDateLikeType(dataType: string) {
+  const normalized = dataType.toLowerCase()
+  return normalized.includes("date") || normalized.includes("time")
+}
+
+function normalizeMetricName(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+}
+
+function isCurrencyMetricName(columnName: string) {
+  const normalized = normalizeMetricName(columnName)
+
+  if (normalized.includes("%")) {
+    return false
+  }
+
+  const negativeHints = [
+    "qtde",
+    "qtd",
+    "quant",
+    "condvenda",
+    "cliente",
+    "status",
+    "ano",
+    "mes",
+    "semana",
+    "cod",
+    "sync",
+  ]
+
+  if (negativeHints.some((hint) => normalized.includes(hint))) {
+    return false
+  }
+
+  const positiveHints = [
+    "r$",
+    "$",
+    "valor",
+    "venda",
+    "fatur",
+    "ticket",
+    "lucro",
+    "devolu",
+    "meta",
+    "gap",
+    "prem",
+    "forecast",
+    "tendencia",
+    "pedidos enviados",
+  ]
+
+  return positiveHints.some((hint) => normalized.includes(hint))
+}
+
+function formatNumericValue(
+  value: number,
+  columnName: string,
+  options?: { treatAsCurrency?: boolean }
+) {
+  if (columnName.includes("%")) {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "percent",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  }
+
+  if (options?.treatAsCurrency) {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  }
+
+  const roundedToInteger = Math.round(value)
+  const isEffectivelyInteger = Math.abs(value - roundedToInteger) < 0.0000001
+
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: isEffectivelyInteger ? 0 : 2,
+    maximumFractionDigits: isEffectivelyInteger ? 0 : 2,
+  }).format(isEffectivelyInteger ? roundedToInteger : value)
+}
+
+function formatDateValue(value: string) {
+  const parsed = new Date(value)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  const hasTime =
+    parsed.getHours() !== 0 ||
+    parsed.getMinutes() !== 0 ||
+    parsed.getSeconds() !== 0
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    ...(hasTime ? { timeStyle: "short" as const } : {}),
+  }).format(parsed)
+}
+
+function formatCellValue(
+  value: unknown,
+  column: { name: string; dataType: string },
+  options?: { treatAsCurrency?: boolean }
+) {
   if (value === null || value === undefined) return ""
+
+  if (typeof value === "number" && isNumericLikeType(column.dataType)) {
+    return formatNumericValue(value, column.name, options)
+  }
+
+  if (typeof value === "string" && isDateLikeType(column.dataType)) {
+    return formatDateValue(value)
+  }
+
   if (typeof value === "object") {
     try {
       return JSON.stringify(value)
@@ -64,12 +197,17 @@ export function ResultsPanel({
   reportHtml,
   isExecuting,
   onExecute,
+  onPreviewHtml,
   onGeneratePdf,
   onRemoveColumn,
   onRemoveMeasure,
 }: ResultsPanelProps) {
   const [showDax, setShowDax] = useState(true)
   const totalItems = selectedColumns.length + selectedMeasures.length
+  const selectedMeasureNames = useMemo(
+    () => new Set(selectedMeasures.map((measure) => normalizeMetricName(measure.measureName))),
+    [selectedMeasures]
+  )
 
   const normalizedColumns = useMemo(() => {
     if (result?.columns?.length) return result.columns
@@ -81,6 +219,20 @@ export function ResultsPanel({
     }
     return []
   }, [result])
+
+  const isNumericColumn = (column: { name: string; dataType: string }) =>
+    isNumericLikeType(column.dataType)
+
+  const isCurrencyColumn = (column: { name: string; dataType: string }) => {
+    if (column.dataType.toLowerCase().includes("currency")) {
+      return true
+    }
+
+    return (
+      selectedMeasureNames.has(normalizeMetricName(column.name)) &&
+      isCurrencyMetricName(column.name)
+    )
+  }
 
   const copyDax = async () => {
     try {
@@ -171,7 +323,7 @@ export function ResultsPanel({
               disabled={!daxQuery || daxQuery.startsWith("--")}
             >
               <Copy className="size-3" />
-              COPY
+              COPIAR
             </Button>
           </div>
         </div>
@@ -203,6 +355,17 @@ export function ResultsPanel({
         <Button
           size="sm"
           variant="outline"
+          onClick={onPreviewHtml}
+          disabled={!reportHtml || !result || result.rows.length === 0}
+          className="h-7 gap-1.5 text-xs"
+        >
+          <Eye className="size-3" />
+          Visualizar HTML
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
           onClick={onGeneratePdf}
           disabled={!reportHtml || !result || result.rows.length === 0}
           className="h-7 gap-1.5 text-xs"
@@ -218,7 +381,7 @@ export function ResultsPanel({
         )}
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex items-center gap-2 px-3 py-2">
           <TableIcon className="size-4 text-primary" />
           <h3 className="text-sm font-semibold">RESULTADOS</h3>
@@ -226,15 +389,17 @@ export function ResultsPanel({
 
         {result ? (
           result.rows.length > 0 ? (
-            <ScrollArea className="flex-1">
-              <div className="px-1 pb-2">
+            <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
+              <div className="min-w-full">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       {normalizedColumns.map((col) => (
                         <TableHead
                           key={col.name}
-                          className="h-8 whitespace-nowrap text-xs font-semibold"
+                          className={`h-8 whitespace-nowrap text-xs font-semibold ${
+                            isNumericColumn(col) ? "text-right tabular-nums" : ""
+                          }`}
                         >
                           {col.name}
                         </TableHead>
@@ -247,9 +412,13 @@ export function ResultsPanel({
                         {normalizedColumns.map((col) => (
                           <TableCell
                             key={col.name}
-                            className="h-7 whitespace-nowrap text-xs"
+                            className={`h-7 whitespace-nowrap text-xs ${
+                              isNumericColumn(col) ? "text-right tabular-nums" : ""
+                            }`}
                           >
-                            {formatCellValue(row[col.name])}
+                            {formatCellValue(row[col.name], col, {
+                              treatAsCurrency: isCurrencyColumn(col),
+                            })}
                           </TableCell>
                         ))}
                       </TableRow>
@@ -263,7 +432,7 @@ export function ResultsPanel({
                   </p>
                 )}
               </div>
-            </ScrollArea>
+            </div>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center text-muted-foreground">
               <TableIcon className="mb-2 size-10 opacity-30" />
@@ -276,7 +445,7 @@ export function ResultsPanel({
           <div className="flex flex-1 flex-col items-center justify-center text-muted-foreground">
             <Terminal className="mb-2 size-10 opacity-30" />
             <p className="text-xs font-medium uppercase tracking-wider">
-              No Data / Waiting Execution
+              Aguardando execucao
             </p>
           </div>
         )}

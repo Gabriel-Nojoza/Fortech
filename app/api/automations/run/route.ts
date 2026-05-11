@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
-import { getAccessToken, executeDAXQuery } from "@/lib/powerbi"
+import { getAccessToken, executeDAXQuery, getDatasetMetadata } from "@/lib/powerbi"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
 import { buildCsvContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
+import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
 import { buildDAXQuery } from "@/lib/dax-builder"
 import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
@@ -380,6 +381,9 @@ export async function POST(request: Request) {
     }
 
     const token = await getAccessToken()
+    const executionMetadata = await getDatasetMetadata(token, executionDatasetId, {
+      includeCustomChatMeasures: false,
+    })
     const execution = await executeWithQueryFallback({
       runQuery: (nextQuery) => executeDAXQuery(token, executionDatasetId, nextQuery),
       query,
@@ -393,6 +397,11 @@ export async function POST(request: Request) {
     const reportTitle = automationName
     const csvContent = buildCsvContent(result)
     const textReport = buildTextReport(result)
+    const summaryCards = await fetchReportSummaryCards({
+      availableMeasures: executionMetadata.measures,
+      filters: execution.appliedFilters,
+      runQuery: (summaryQuery) => executeDAXQuery(token, executionDatasetId, summaryQuery),
+    }).catch(() => [])
     const htmlReport = buildHtmlReport({
       title: reportTitle,
       subtitle:
@@ -403,6 +412,7 @@ export async function POST(request: Request) {
       selectedItems,
       filters: execution.appliedFilters,
       brandLogoUrl: new URL(BRAND_LOGO_PATH, request.url).toString(),
+      summaryCards,
       result,
     })
 

@@ -1,0 +1,312 @@
+﻿{
+    "extracted_at":  "2026-04-13T22:56:53.4694911-03:00",
+    "tables":  [
+                   {
+                       "table":  "Calendario",
+                       "columns":  [
+                                       "Ano",
+                                       "Mês",
+                                       "Mês_Ano"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Calendariod",
+                       "columns":  [
+                                       "Ano",
+                                       "Dia Util",
+                                       "MesAtual",
+                                       "Semana_"
+                                   ],
+                       "measures":  [
+                                        "Semana_"
+                                    ]
+                   },
+                   {
+                       "table":  "CONDVENDA",
+                       "columns":  [
+                                       "CONDVENDA"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "dFiltro Meta Fornecedor",
+                       "columns":  [
+                                       "Tipo"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "dSenha",
+                       "columns":  [
+                                       "Usuario"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Dsenha1",
+                       "columns":  [
+                                       "Dsenha1"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Filtro Fornecedor",
+                       "columns":  [
+                                       "Filtro"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Gerente",
+                       "columns":  [
+                                       "Cod/Gerente"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Medidas",
+                       "columns":  [
+                                       "$ Diaria Neces. Pedido",
+                                       "$ Meta Rateio Dia",
+                                       "$ Tendencia",
+                                       "$ Tendencia Ped.",
+                                       "% Bonificacao",
+                                       "% Devolução",
+                                       "% Margem",
+                                       "% Margem Pedidos",
+                                       "% Meta",
+                                       "% Meta Ped.",
+                                       "% Meta Posit.",
+                                       "% Meta Posit. F",
+                                       "% Meta Posit. P",
+                                       "% Tendencia Ped.",
+                                       "% Tendência Posit.",
+                                       "% Tendencia.",
+                                       "Atualizacao Certa",
+                                       "Bonificação",
+                                       "Check",
+                                       "Dias Realizados",
+                                       "Dias Restantes",
+                                       "Dias Úteis",
+                                       "Falta Meta",
+                                       "Falta Meta Posit.",
+                                       "Falta Meta R$",
+                                       "Filtrar Meta",
+                                       "Filtrar Meta P",
+                                       "Gap Ped. R$",
+                                       "Gap Posit. P",
+                                       "Meta",
+                                       "Meta Diaria Necessaria",
+                                       "Meta Diária Nova",
+                                       "Meta Diária Original",
+                                       "Meta Posit.",
+                                       "Meta Posit. F",
+                                       "Ped. Dia",
+                                       "Pedidos Dev.",
+                                       "Pedidos Enviados",
+                                       "Pos. Media",
+                                       "Posit. Dia",
+                                       "Posit. Ped. Dia",
+                                       "Prem Pos",
+                                       "Prem R$",
+                                       "Prem Total",
+                                       "Prem Total Equip.",
+                                       "Qtde Clientes",
+                                       "Qtde Clientes Pedidos",
+                                       "Qtde Pedidos Pedidos",
+                                       "Qtde Produtos",
+                                       "Realizado e Forecast MTD",
+                                       "Sellout Dia",
+                                       "Tendência Posit.",
+                                       "Tiquet Medio Pedidos",
+                                       "Vl Devolução",
+                                       "Vl Faturados",
+                                       "Vl Lucro",
+                                       "Vl Pedidos",
+                                       "Vl Pedidos Medio",
+                                       "Vl Venda Liquida"
+                                   ],
+                       "measures":  [
+                                        "$ Diaria Neces. Pedido",
+                                        "$ Meta Rateio Dia",
+                                        "$ Tendencia",
+                                        "$ Tendencia Ped.",
+                                        "% Bonificacao",
+                                        "% Devolução",
+                                        "% Margem",
+                                        "% Margem Pedidos",
+                                        "% Meta",
+                                        "% Meta Ped.",
+                                        "% Meta Posit.",
+                                        "% Meta Posit. F",
+                                        "% Meta Posit. P",
+                                        "% Tendencia Ped.",
+                                        "% Tendencia Ped. vs Meta MTD",
+                                        "% Tendência Posit.",
+                                        "% Tendencia.",
+                                        "Atualizacao Certa",
+                                        "Bonificação",
+                                        "Check",
+                                        "Dias Realizados",
+                                        "Dias Restantes",
+                                        "Dias Úteis",
+                                        "Falta Meta",
+                                        "Falta Meta Posit.",
+                                        "Falta Meta R$",
+                                        "Filtrar Meta",
+                                        "Filtrar Meta P",
+                                        "Gap Ped. R$",
+                                        "Gap Posit. P",
+                                        "Meta",
+                                        "Meta Diaria Necessaria",
+                                        "Meta Diária Nova",
+                                        "Meta Diária Original",
+                                        "Meta Posit.",
+                                        "Meta Posit. F",
+                                        "Ped. Dia",
+                                        "Pedidos Dev.",
+                                        "Pedidos Enviados",
+                                        "Pos. Media",
+                                        "Posit. Dia",
+                                        "Posit. Ped. Dia",
+                                        "Prem Pos",
+                                        "Prem R$",
+                                        "Prem Total",
+                                        "Prem Total Equip.",
+                                        "Qtde Clientes",
+                                        "Qtde Clientes Pedidos",
+                                        "Qtde Pedidos Pedidos",
+                                        "Qtde Produtos",
+                                        "Realizado e Forecast MTD",
+                                        "Sellout Dia",
+                                        "Tendência Posit.",
+                                        "Tiquet Medio Pedidos",
+                                        "Vl Devolução",
+                                        "Vl Faturados",
+                                        "Vl Lucro",
+                                        "Vl Pedidos",
+                                        "Vl Pedidos Medio",
+                                        "Vl Venda Liquida"
+                                    ]
+                   },
+                   {
+                       "table":  "META",
+                       "columns":  [
+
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Nome Filial",
+                       "columns":  [
+                                       "Filial"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "PCCLIENTE",
+                       "columns":  [
+                                       "DESCRICAO"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "PCFORNEC",
+                       "columns":  [
+                                       "Cod/Forn.",
+                                       "Divisão",
+                                       "FORNECEDOR",
+                                       "Pasta"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "PCUSUARI",
+                       "columns":  [
+                                       "Cod/Sup.",
+                                       "Cod/Vend.",
+                                       "Numerica-Ponderada"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Periodos",
+                       "columns":  [
+                                       "Periodo"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Psenha1",
+                       "columns":  [
+
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Psenha2",
+                       "columns":  [
+                                       "Psenha2"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Selec",
+                       "columns":  [
+                                       " a Medida.Selec. a Medida"
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Selec. a Medida",
+                       "columns":  [
+
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   },
+                   {
+                       "table":  "Supervisor",
+                       "columns":  [
+                                       "Cod/Superv."
+                                   ],
+                       "measures":  [
+
+                                    ]
+                   }
+               ]
+}

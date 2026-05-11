@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { Filter, X, FilterX, Plus, Search, Sparkles } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -7,6 +8,199 @@ import { Input } from "@/components/ui/input"
 import { FilterValueField } from "@/components/automations/filter-value-field"
 import { isDateLikeDataType } from "@/lib/quick-filters"
 import type { QueryFilter } from "@/lib/types"
+
+type DateFilterMode = "day" | "month" | "year"
+
+function inferDateFilterMode(...values: Array<string | undefined>) {
+  const normalizedValues = values
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+
+  if (normalizedValues.some((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))) {
+    return "day" satisfies DateFilterMode
+  }
+
+  if (normalizedValues.some((value) => /^\d{4}-\d{2}$/.test(value))) {
+    return "month" satisfies DateFilterMode
+  }
+
+  if (normalizedValues.some((value) => /^\d{4}$/.test(value))) {
+    return "year" satisfies DateFilterMode
+  }
+
+  return "day" satisfies DateFilterMode
+}
+
+function normalizeDateFilterValueForMode(value: string, mode: DateFilterMode) {
+  const trimmed = value.trim()
+  if (!trimmed) return ""
+
+  switch (mode) {
+    case "year":
+      if (/^\d{4}$/.test(trimmed)) return trimmed
+      if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 4)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 4)
+      return ""
+    case "month":
+      if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 7)
+      if (/^\d{4}$/.test(trimmed)) return `${trimmed}-01`
+      return ""
+    case "day":
+    default:
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+      if (/^\d{4}-\d{2}$/.test(trimmed)) return `${trimmed}-01`
+      if (/^\d{4}$/.test(trimmed)) return `${trimmed}-01-01`
+      return ""
+  }
+}
+
+function sanitizeYearInput(value: string) {
+  return value.replace(/\D/g, "").slice(0, 4)
+}
+
+function DateFilterInputs({
+  filter,
+  onUpdateFilter,
+}: {
+  filter: QueryFilter
+  onUpdateFilter: (id: string, field: string, value: string) => void
+}) {
+  const [mode, setMode] = useState<DateFilterMode>(() =>
+    inferDateFilterMode(filter.value, filter.valueTo)
+  )
+
+  const displayedValueTo = filter.valueTo ?? filter.value
+  const shouldSyncEndWithStart =
+    filter.valueTo === undefined || filter.valueTo === filter.value
+
+  const handleModeChange = (nextMode: DateFilterMode) => {
+    if (nextMode === mode) return
+
+    setMode(nextMode)
+    onUpdateFilter(
+      filter.id,
+      "value",
+      normalizeDateFilterValueForMode(filter.value, nextMode)
+    )
+    onUpdateFilter(
+      filter.id,
+      "valueTo",
+      normalizeDateFilterValueForMode(displayedValueTo, nextMode)
+    )
+  }
+
+  const handleStartChange = (nextValue: string) => {
+    onUpdateFilter(filter.id, "value", nextValue)
+
+    if (shouldSyncEndWithStart) {
+      onUpdateFilter(filter.id, "valueTo", nextValue)
+    }
+  }
+
+  const handleEndChange = (nextValue: string) => {
+    onUpdateFilter(filter.id, "valueTo", nextValue)
+  }
+
+  const labels =
+    mode === "year"
+      ? { start: "Ano inicial", end: "Ano final" }
+      : mode === "month"
+        ? { start: "Mes inicial", end: "Mes final" }
+        : { start: "Data inicial", end: "Data final" }
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/20 p-1">
+        <Button
+          type="button"
+          variant={mode === "day" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 text-[10px]"
+          onClick={() => handleModeChange("day")}
+        >
+          Dia
+        </Button>
+        <Button
+          type="button"
+          variant={mode === "month" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 text-[10px]"
+          onClick={() => handleModeChange("month")}
+        >
+          Mes
+        </Button>
+        <Button
+          type="button"
+          variant={mode === "year" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 text-[10px]"
+          onClick={() => handleModeChange("year")}
+        >
+          Ano
+        </Button>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-1">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {labels.start}
+          </span>
+          {mode === "year" ? (
+            <Input
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              value={filter.value}
+              onChange={(e) => handleStartChange(sanitizeYearInput(e.target.value))}
+              placeholder="2026"
+              className="h-8 text-xs"
+            />
+          ) : (
+            <Input
+              type={mode === "month" ? "month" : "date"}
+              value={filter.value}
+              onChange={(e) => handleStartChange(e.target.value)}
+              className="h-8 text-xs"
+            />
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {labels.end}
+          </span>
+          {mode === "year" ? (
+            <Input
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              value={displayedValueTo}
+              onChange={(e) => handleEndChange(sanitizeYearInput(e.target.value))}
+              placeholder="2026"
+              className="h-8 text-xs"
+            />
+          ) : (
+            <Input
+              type={mode === "month" ? "month" : "date"}
+              value={displayedValueTo}
+              onChange={(e) => handleEndChange(e.target.value)}
+              className="h-8 text-xs"
+            />
+          )}
+        </div>
+      </div>
+
+      <p className="text-[10px] text-muted-foreground">
+        {mode === "year"
+          ? "Informe somente o ano. Deixe o final vazio para usar intervalo aberto."
+          : mode === "month"
+            ? "Use mes e ano sem precisar informar o dia. Deixe o final vazio para usar intervalo aberto."
+            : "Deixe a data final vazia para usar intervalo aberto."}
+      </p>
+    </div>
+  )
+}
 
 interface FiltersPanelProps {
   quickFilters: Array<{
@@ -181,41 +375,10 @@ export function FiltersPanel({
                       </div>
 
                       {isDateFilter ? (
-                        <div className="space-y-2">
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <div className="space-y-1">
-                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                Data inicial
-                              </span>
-                              <Input
-                                type="date"
-                                value={filter.value}
-                                onChange={(e) =>
-                                  onUpdateFilter(filter.id, "value", e.target.value)
-                                }
-                                className="h-8 text-xs"
-                              />
-                            </div>
-
-                            <div className="space-y-1">
-                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                Data final
-                              </span>
-                              <Input
-                                type="date"
-                                value={filter.valueTo ?? filter.value}
-                                onChange={(e) =>
-                                  onUpdateFilter(filter.id, "valueTo", e.target.value)
-                                }
-                                className="h-8 text-xs"
-                              />
-                            </div>
-                          </div>
-
-                          <p className="text-[10px] text-muted-foreground">
-                            Deixe uma das datas vazia para usar intervalo aberto.
-                          </p>
-                        </div>
+                        <DateFilterInputs
+                          filter={filter}
+                          onUpdateFilter={onUpdateFilter}
+                        />
                       ) : (
                         <div className="flex gap-1.5">
                           <FilterValueField
@@ -233,11 +396,6 @@ export function FiltersPanel({
                         </div>
                       )}
 
-                      <div className="mt-2 flex items-center justify-between">
-                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Tipo: {filter.dataType}
-                        </div>
-                      </div>
                     </div>
                   )
                 })}

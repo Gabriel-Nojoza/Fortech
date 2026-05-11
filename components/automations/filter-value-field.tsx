@@ -190,13 +190,15 @@ export function FilterValueField({
         </PopoverContent>
       </Popover>
 
-      <Input
-        type={getInputType(filter.dataType)}
-        value={filter.value}
-        onChange={(e) => onUpdateFilter(filter.id, "value", e.target.value)}
-        placeholder="Ou digite manualmente"
-        className="h-8 flex-1 text-xs"
-      />
+      {!options.length && !isLoading && (
+        <Input
+          type={getInputType(filter.dataType)}
+          value={filter.value}
+          onChange={(e) => onUpdateFilter(filter.id, "value", e.target.value)}
+          placeholder="Ou digite manualmente"
+          className="h-8 flex-1 text-xs"
+        />
+      )}
 
       {data?.truncated ? (
         <p className="text-[10px] text-muted-foreground">

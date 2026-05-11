@@ -24,15 +24,13 @@ import {
   exportPowerBIReportDocument,
   sanitizeFileName,
 } from "@/lib/powerbi-report-pdf"
-import {
-  exportReport,
-  getAccessToken,
-  getExportFile,
-  getExportStatus,
-} from "@/lib/powerbi"
+import { getAccessToken } from "@/lib/powerbi"
 import { getWorkspaceAccessScope } from "@/lib/workspace-access"
+import { normalizeDispatchSettings } from "@/lib/dispatch-config"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 import { getCompanyWhatsAppBotInstance } from "@/lib/whatsapp-bot-instances"
+
+const EXPORT_DELAY_MS = Number(process.env.EXPORT_DELAY_MS || "8000")
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -101,109 +99,11 @@ function applyMessageTemplate(template: string | null | undefined, reportName: s
   })
 }
 
-async function exportPdfFromPowerBi(input: {
-  token: string
-  workspaceId: string
-  reportId: string
-  pageNames?: string[] | null
-  pageName?: string | null
-}) {
-  const exportJob = await exportReport(
-    input.token,
-    input.workspaceId,
-    input.reportId,
-    "PDF",
-    {
-      pageNames: input.pageNames ?? null,
-      pageName: input.pageName ?? null,
-    }
-  )
-
-  let finalStatus: Awaited<ReturnType<typeof getExportStatus>> | null = null
-
-  for (let attempt = 0; attempt < 30; attempt++) {
-    await sleep(2000)
-
-    const status = await getExportStatus(
-      input.token,
-      input.workspaceId,
-      input.reportId,
-      exportJob.id
-    )
-
-    if (status.status === "Succeeded") {
-      finalStatus = status
-      break
-    }
-
-    if (status.status === "Failed") {
-      throw new Error("Falha ao exportar relatorio no Power BI")
-    }
-  }
-
-  if (!finalStatus) {
-    throw new Error("Tempo limite ao exportar relatorio")
-  }
-
-  const fileBuffer = await getExportFile(
-    input.token,
-    input.workspaceId,
-    input.reportId,
-    exportJob.id
-  )
-
-  return {
-    buffer: Buffer.from(fileBuffer),
-    contentType: "application/pdf",
-    extension: "pdf",
-  }
-}
-
-async function exportReportPdfInternally(input: {
-  token: string
-  workspaceId: string
-  reportId: string
-  reportName: string
-  embedUrl?: string | null
-  pageNames?: string[] | null
-  pageName?: string | null
-}) {
-  try {
-    return await exportPdfFromPowerBi({
-      token: input.token,
-      workspaceId: input.workspaceId,
-      reportId: input.reportId,
-      pageNames: input.pageNames ?? null,
-      pageName: input.pageName ?? null,
-    })
-  } catch (nativeExportError) {
-    console.error(
-      "[dispatch] native Power BI PDF export failed, falling back to browser capture",
-      nativeExportError
-    )
-
-    return exportPowerBIReportDocument({
-      token: input.token,
-      workspaceId: input.workspaceId,
-      reportId: input.reportId,
-      reportName: input.reportName,
-      embedUrl: input.embedUrl ?? null,
-      pageNames: input.pageNames ?? null,
-      pageName: input.pageName ?? null,
-    })
-  }
-}
-
 
 export async function POST(request: NextRequest) {
   const supabase = createClient()
   const body = await request.json()
   const { schedule_id } = body
-  let insertedLogs:
-    | Array<{
-        id: string
-      }>
-    | null = null
 
   if (!schedule_id) {
     return NextResponse.json({ error: "schedule_id obrigatorio" }, { status: 400 })
@@ -252,6 +152,25 @@ export async function POST(request: NextRequest) {
     }
   }
 
+
+  // Verificar se o periodo de teste de disparos expirou
+  const { data: dispatchSettingsRow } = await supabase
+    .from("company_settings")
+    .select("value")
+    .eq("company_id", companyId)
+    .eq("key", "dispatch_settings")
+    .maybeSingle()
+
+  if (dispatchSettingsRow?.value) {
+    const dispatchConfig = normalizeDispatchSettings(dispatchSettingsRow.value)
+    if (dispatchConfig.enabled && dispatchConfig.isExpired) {
+      return NextResponse.json(
+        { error: "O periodo de teste para envio de relatorios expirou. Entre em contato com o administrador." },
+        { status: 403 }
+      )
+    }
+  }
+
   const { data: schedule } = await supabase
     .from("schedules")
     .select("*")
@@ -274,6 +193,41 @@ export async function POST(request: NextRequest) {
   ).catch(() => null)
   if (resolvedBotInstance) {
     schedule.bot_instance_id = resolvedBotInstance.id
+  }
+
+  // ── Verificar limite mensal de relatórios ──
+  const { data: limitsRow } = await supabase
+    .from("company_settings")
+    .select("value")
+    .eq("company_id", companyId)
+    .eq("key", "usage_limits")
+    .maybeSingle()
+
+  const limitsValue = limitsRow?.value as Record<string, unknown> | null
+  const reportLimit = typeof limitsValue?.report_limit === "number" ? limitsValue.report_limit : null
+
+  if (reportLimit !== null && reportLimit > 0) {
+    const startOfMonth = new Date()
+    startOfMonth.setDate(1)
+    startOfMonth.setHours(0, 0, 0, 0)
+
+    const { count: usedThisMonth } = await supabase
+      .from("dispatch_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .in("status", ["delivered", "failed"])
+      .gte("created_at", startOfMonth.toISOString())
+
+    const used = usedThisMonth ?? 0
+    if (used >= reportLimit) {
+      return NextResponse.json(
+        {
+          error: `Limite mensal de ${reportLimit} relatórios atingido (${used} enviados). Fale com o administrador para aumentar o limite.`,
+          limitReached: true,
+        },
+        { status: 429 }
+      )
+    }
   }
 
   const scheduleReportConfigs = resolveScheduleReportConfigs(schedule)
@@ -485,12 +439,10 @@ export async function POST(request: NextRequest) {
           export_format: normalizedScheduleExportFormat,
         }))
 
-  const { data: insertedLogsData, error: insertLogsError } = await supabase
+  const { data: insertedLogs, error: insertLogsError } = await supabase
     .from("dispatch_logs")
     .insert(logs)
     .select()
-
-  insertedLogs = insertedLogsData ?? null
 
   if (insertLogsError) {
     return NextResponse.json(
@@ -544,6 +496,7 @@ export async function POST(request: NextRequest) {
 
     if (directPdfTargets.length > 0) {
       const pbiToken = await getAccessToken(companyId)
+      let exportCount = 0
 
       for (const [contactIndex, contact] of normalizedContacts.entries()) {
         for (const [reportIndex, target] of directPdfTargets.entries()) {
@@ -581,8 +534,11 @@ export async function POST(request: NextRequest) {
                 pageName,
                 pageIndex,
               })
-
-              const exportedFile = await exportReportPdfInternally({
+              if (exportCount > 0) {
+                  await sleep(EXPORT_DELAY_MS)
+                }
+                exportCount++
+              const exportedFile = await exportPowerBIReportDocument({
                 token: pbiToken,
                 workspaceId: pbiWorkspaceId,
                 reportId: pbiReportId,
@@ -601,7 +557,7 @@ export async function POST(request: NextRequest) {
                   target.report.name,
                   pageName,
                   pageIndex,
-                  "pdf"
+                  exportedFile.extension
                 ),
                 contentType: exportedFile.contentType,
                 byteLength: exportedFile.buffer.byteLength,
@@ -617,7 +573,7 @@ export async function POST(request: NextRequest) {
                   target.report.name,
                   pageName,
                   pageIndex,
-                  "pdf"
+                  exportedFile.extension
                 ),
                 mimetype: exportedFile.contentType,
               })
@@ -631,7 +587,7 @@ export async function POST(request: NextRequest) {
               selectedPageNames,
               pageName: target.config.pbi_page_name,
             })
-
+            
             const exportedFile = await exportPowerBIReportDocument({
               token: pbiToken,
               workspaceId: pbiWorkspaceId,

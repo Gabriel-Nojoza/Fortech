@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
+    "dev:turbo": "next dev",
     "dev:all": "concurrently -n APP,BOT -c blue,green \"pnpm dev\" \"pnpm --dir services/whatsapp-bot dev\"",
     "build": "next build",
     "start": "next start",
@@ -53,7 +54,6 @@
     "lucide-react": "^0.564.0",
     "next": "16.1.6",
     "next-themes": "^0.4.6",
-    "openai": "^6.34.0",
     "react": "19.2.4",
     "react-day-picker": "9.13.2",
     "react-dom": "19.2.4",

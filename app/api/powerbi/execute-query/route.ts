@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server"
-import { getAccessToken, executeDAXQuery, listDatasets } from "@/lib/powerbi"
+import {
+  getAccessToken,
+  executeDAXQuery,
+  getDatasetMetadata,
+  listDatasets,
+} from "@/lib/powerbi"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
+import { injectCustomMeasuresIntoDax } from "@/lib/chat"
 import { buildCsvContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
+import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
 import { executeWithQueryFallback } from "@/lib/query-execution-fallback"
 import { normalizeFilters } from "@/lib/query-filters"
@@ -187,8 +194,16 @@ export async function POST(request: Request) {
       }
     }
 
+    const executionMetadata = await getDatasetMetadata(token, effectiveExecutionDatasetId, {
+      includeCustomChatMeasures: false,
+    })
     const execution = await executeWithQueryFallback({
-      runQuery: (nextQuery) => executeDAXQuery(token, effectiveExecutionDatasetId, nextQuery),
+      runQuery: (nextQuery) =>
+        executeDAXQuery(
+          token,
+          effectiveExecutionDatasetId,
+          injectCustomMeasuresIntoDax(nextQuery, executionMetadata)
+        ),
       query,
       filters,
       selectedColumns,
@@ -200,6 +215,16 @@ export async function POST(request: Request) {
     const selectedItems = Array.isArray(body?.selectedItems)
       ? body.selectedItems.filter((item: unknown): item is string => typeof item === "string")
       : []
+    const summaryCards = await fetchReportSummaryCards({
+      availableMeasures: executionMetadata.measures,
+      filters: execution.appliedFilters,
+      runQuery: (summaryQuery) =>
+        executeDAXQuery(
+          token,
+          effectiveExecutionDatasetId,
+          injectCustomMeasuresIntoDax(summaryQuery, executionMetadata)
+        ),
+    }).catch(() => [])
     const reportHtml = buildHtmlReport({
       title: reportTitle,
       subtitle:
@@ -210,6 +235,7 @@ export async function POST(request: Request) {
       selectedItems,
       filters: execution.appliedFilters,
       brandLogoUrl: new URL(BRAND_LOGO_PATH, request.url).toString(),
+      summaryCards,
       result,
     })
 

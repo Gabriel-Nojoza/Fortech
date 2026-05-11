@@ -119,23 +119,6 @@ function detectPdfProfile(
     : "desktop"
 }
 
-function detectPreferNativePowerBiExport(value: unknown) {
-  if (typeof value === "boolean") {
-    return value
-  }
-
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase()
-    return normalized === "true" || normalized === "1" || normalized === "yes"
-  }
-
-  if (typeof value === "number") {
-    return value === 1
-  }
-
-  return false
-}
-
 async function exportFileFromPowerBi(input: {
   token: string
   workspaceId: string
@@ -216,9 +199,6 @@ export async function POST(request: NextRequest) {
       body?.pdf_profile,
       request.headers.get("user-agent")
     )
-    const preferNativePowerBiExport = detectPreferNativePowerBiExport(
-      body?.prefer_native_export
-    )
 
     console.log("[reports/export] request received", {
       requestUrl: request.url,
@@ -228,9 +208,11 @@ export async function POST(request: NextRequest) {
       format,
       pbiPageNames,
       pdfProfile,
-      preferNativePowerBiExport,
       companyId,
     })
+
+    // Forcando o uso da captura de navegador para que as edicoes feitas entrem em efeito
+    const preferNativePowerBiExport = false
 
     if (!reportId) {
       return new Response(JSON.stringify({ error: "report_id obrigatorio" }), {

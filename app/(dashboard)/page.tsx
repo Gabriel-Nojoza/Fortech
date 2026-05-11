@@ -4,9 +4,10 @@ import useSWR from "swr"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { StatsCards } from "@/components/dashboard/stats-cards"
 import { DispatchChart } from "@/components/dashboard/dispatch-chart"
-import { DispatchCalendar } from "@/components/dashboard/dispatch-calendar"
 import { DispatchStatusPie } from "@/components/dashboard/dispatch-status-pie"
 import { RecentDispatches } from "@/components/dashboard/recent-dispatches"
+import { UpcomingDispatches } from "@/components/dashboard/upcoming-dispatches"
+import { DispatchCalendar } from "@/components/dashboard/dispatch-calendar"
 import { Skeleton } from "@/components/ui/skeleton"
 
 type FetchError = Error & { status?: number }
@@ -37,11 +38,10 @@ export default function DashboardPage() {
 
   const { data: stats, isLoading: statsLoading } = useSWR("/api/stats", fetcher, swrOptions)
   const { data: logsData, isLoading: logsLoading } = useSWR(
-    "/api/logs?limit=10",
+    "/api/logs?limit=20",
     fetcher,
     swrOptions
   )
-
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader
@@ -87,17 +87,19 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {statsLoading ? (
-          <Skeleton className="h-[540px] rounded-xl" />
+        {statsLoading || logsLoading ? (
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Skeleton className="h-[420px] rounded-xl" />
+            <Skeleton className="h-[420px] rounded-xl" />
+          </div>
         ) : (
-          <DispatchCalendar data={stats?.calendarData ?? []} />
+          <div className="grid gap-4 xl:grid-cols-2">
+            <RecentDispatches logs={logsData?.data ?? []} mode="table" />
+            <UpcomingDispatches items={stats?.nextDispatches ?? []} />
+          </div>
         )}
 
-        {logsLoading ? (
-          <Skeleton className="h-[300px] rounded-xl" />
-        ) : (
-          <RecentDispatches logs={logsData?.data ?? []} />
-        )}
+        <DispatchCalendar />
       </div>
     </div>
   )

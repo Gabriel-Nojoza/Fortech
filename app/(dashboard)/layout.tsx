@@ -4,7 +4,7 @@ import { TabSessionGuard } from "@/components/auth/tab-session-guard"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/server"
 import { PowerBIAutoSyncWatcher } from "@/components/powerbi/auto-sync-watcher"
-import { MiniChat } from "@/components/chat/mini-chat"
+import { FloatingChatLauncher } from "@/components/chat/floating-chat-launcher"
 
 export default async function DashboardLayout({
   children,
@@ -15,25 +15,6 @@ export default async function DashboardLayout({
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
-  // Verifica se o chat está habilitado para a empresa
-  const companyId =
-    (user?.app_metadata?.company_id as string) ??
-    (user?.user_metadata?.company_id as string) ??
-    null
-
-  let chatEnabled = false
-  if (companyId) {
-    const serviceClient = createServiceClient()
-    const { data: setting } = await serviceClient
-      .from("company_settings")
-      .select("value")
-      .eq("company_id", companyId)
-      .eq("key", "general")
-      .maybeSingle()
-    const val = setting?.value as Record<string, unknown> | null
-    chatEnabled = Boolean(val?.chat_enabled)
-  }
 
   const currentUser = user
     ? {
@@ -51,14 +32,40 @@ export default async function DashboardLayout({
       }
     : null
 
+  // Busca feature flag do construtor de relatórios
+  let reportBuilderEnabled = false
+  const companyId =
+    typeof user?.app_metadata?.company_id === "string"
+      ? user.app_metadata.company_id
+      : typeof user?.user_metadata?.company_id === "string"
+        ? user.user_metadata.company_id
+        : null
+
+  if (companyId) {
+    try {
+      const service = createServiceClient()
+      const { data } = await service
+        .from("company_settings")
+        .select("value")
+        .eq("company_id", companyId)
+        .eq("key", "features")
+        .maybeSingle()
+      reportBuilderEnabled = (data?.value as Record<string, unknown>)?.report_builder === true
+    } catch {
+      // silently fallback
+    }
+  }
+
   return (
     <TabSessionGuard>
       <PowerBIAutoSyncWatcher />
       <SidebarProvider>
-        <AppSidebar currentUser={currentUser} />
-        <SidebarInset>{children}</SidebarInset>
+        <AppSidebar currentUser={currentUser} reportBuilderEnabled={reportBuilderEnabled} />
+        <SidebarInset className="min-w-0 overflow-x-hidden">
+          {children}
+          <FloatingChatLauncher />
+        </SidebarInset>
       </SidebarProvider>
-      {chatEnabled && <MiniChat />}
     </TabSessionGuard>
   )
 }

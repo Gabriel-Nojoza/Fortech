@@ -2,9 +2,11 @@
 
 import { useState } from "react"
 import useSWR, { mutate } from "swr"
-import { Plus, Pencil, Trash2, Shield, User, Loader2, Eye, EyeOff, Database, AlertCircle } from "lucide-react"
+import { Plus, Pencil, Trash2, Shield, User, Loader2, Eye, EyeOff, Database, AlertCircle, Bot } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { calculateChatIATrialEndsAt } from "@/lib/chat-ia-config"
+import { calculateDispatchTrialEndsAt } from "@/lib/dispatch-config"
 import { formatDatePtBr } from "@/lib/datetime"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -14,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
@@ -46,7 +49,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Switch } from "@/components/ui/switch"
 
 interface UserData {
   id: string
@@ -63,6 +65,23 @@ interface UserData {
   n8n?: {
     webhook_url?: string
     callback_secret?: string
+    chat_webhook_url?: string
+  }
+  chat_ia?: {
+    enabled?: boolean
+    workspace_id?: string
+    dataset_id?: string
+    dataset_name?: string
+    webhook_url?: string
+    trial_days?: number | null
+    trial_started_at?: string
+    trial_ends_at?: string
+  }
+  dispatch_settings?: {
+    enabled?: boolean
+    trial_days?: number | null
+    trial_started_at?: string
+    trial_ends_at?: string
   }
   workspace_access_configured?: boolean
   dataset_access_configured?: boolean
@@ -105,6 +124,20 @@ interface WorkspaceOption {
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
+function formatDateTimePtBr(value: string) {
+  if (!value) return ""
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return ""
+  }
+
+  return parsed.toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  })
+}
+
 export default function UsersPage() {
   const { data: users, isLoading } = useSWR<UserData[]>("/api/admin/users", fetcher)
   
@@ -123,9 +156,19 @@ export default function UsersPage() {
   const [formPbiClientSecret, setFormPbiClientSecret] = useState("")
   const [formN8nWebhookUrl, setFormN8nWebhookUrl] = useState("")
   const [formN8nCallbackSecret, setFormN8nCallbackSecret] = useState("")
-  const [formChatEnabled, setFormChatEnabled] = useState(false)
-  const [formChatDatasetIds, setFormChatDatasetIds] = useState<string[]>([])
+  const [formN8nChatWebhookUrl, setFormN8nChatWebhookUrl] = useState("")
+  const [formChatIaEnabled, setFormChatIaEnabled] = useState(false)
+  const [formChatIaWorkspaceId, setFormChatIaWorkspaceId] = useState("")
+  const [formChatIaDatasetId, setFormChatIaDatasetId] = useState("")
+  const [formChatIaDatasetName, setFormChatIaDatasetName] = useState("")
+  const [formChatIaWebhookUrl, setFormChatIaWebhookUrl] = useState("")
+  const [formChatIaTrialDays, setFormChatIaTrialDays] = useState("")
+  const [formChatIaTrialEndsAt, setFormChatIaTrialEndsAt] = useState("")
+  const [formDispatchEnabled, setFormDispatchEnabled] = useState(false)
+  const [formDispatchTrialDays, setFormDispatchTrialDays] = useState("")
+  const [formDispatchTrialEndsAt, setFormDispatchTrialEndsAt] = useState("")
   const [showPassword, setShowPassword] = useState(false)
+  const [showN8nCallbackSecret, setShowN8nCallbackSecret] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [loadingEditDetails, setLoadingEditDetails] = useState(false)
@@ -140,6 +183,25 @@ export default function UsersPage() {
       count + (Array.isArray(workspace.datasets) ? workspace.datasets.length : 0),
     0
   )
+  const parsedChatIaTrialDays = formChatIaTrialDays.trim()
+    ? Number.parseInt(formChatIaTrialDays.trim(), 10)
+    : null
+  const chatIaTrialEndsAtLabel = formatDateTimePtBr(formChatIaTrialEndsAt)
+  const chatIaTrialExpired = formChatIaTrialEndsAt
+    ? Date.parse(formChatIaTrialEndsAt) <= Date.now()
+    : false
+  const showChatIaDetails =
+    formChatIaEnabled ||
+    !!formChatIaWebhookUrl ||
+    !!formChatIaTrialDays.trim() ||
+    !!formChatIaTrialEndsAt
+  const parsedDispatchTrialDays = formDispatchTrialDays.trim()
+    ? Number.parseInt(formDispatchTrialDays.trim(), 10)
+    : null
+  const dispatchTrialEndsAtLabel = formatDateTimePtBr(formDispatchTrialEndsAt)
+  const dispatchTrialExpired = formDispatchTrialEndsAt
+    ? Date.parse(formDispatchTrialEndsAt) <= Date.now()
+    : false
 
   function notifySuccess(message: string) {
     window.setTimeout(() => {
@@ -165,9 +227,20 @@ export default function UsersPage() {
     setFormPbiClientSecret("")
     setFormN8nWebhookUrl("")
     setFormN8nCallbackSecret("")
-    setFormChatEnabled(false)
-    setFormChatDatasetIds([])
+    setFormN8nChatWebhookUrl("")
+    setFormChatIaEnabled(false)
+    setFormChatIaWorkspaceId("")
+    setFormChatIaDatasetId("")
+    setFormChatIaDatasetName("")
+    setFormChatIaWebhookUrl("")
+    setFormChatIaTrialDays("")
+    setFormChatIaTrialEndsAt("")
+    setFormDispatchEnabled(false)
+    setFormDispatchTrialDays("")
+    setFormDispatchTrialEndsAt("")
     setLoadingEditDetails(false)
+    setShowPassword(false)
+    setShowN8nCallbackSecret(false)
     setPowerbiPreview(null)
       setPowerbiPreviewError(null)
       setWorkspaceOptions([])
@@ -189,8 +262,19 @@ export default function UsersPage() {
     setFormPbiClientSecret("")
     setFormN8nWebhookUrl("")
     setFormN8nCallbackSecret("")
-    setFormChatEnabled(false)
-    setFormChatDatasetIds([])
+    setFormN8nChatWebhookUrl("")
+    setFormChatIaEnabled(false)
+    setFormChatIaWorkspaceId("")
+    setFormChatIaDatasetId("")
+    setFormChatIaDatasetName("")
+    setFormChatIaWebhookUrl("")
+    setFormChatIaTrialDays("")
+    setFormChatIaTrialEndsAt("")
+    setFormDispatchEnabled(false)
+    setFormDispatchTrialDays("")
+    setFormDispatchTrialEndsAt("")
+    setShowPassword(false)
+    setShowN8nCallbackSecret(false)
     setPowerbiPreview(null)
     setPowerbiPreviewError(null)
     setWorkspaceOptions([])
@@ -214,9 +298,21 @@ export default function UsersPage() {
       setFormPbiClientSecret(details.powerbi?.client_secret || "")
       setFormN8nWebhookUrl(details.n8n?.webhook_url || "")
       setFormN8nCallbackSecret(details.n8n?.callback_secret || "")
-      const ext = details as UserData & { chat_enabled?: boolean; chat_dataset_ids?: string[] }
-      setFormChatEnabled(Boolean(ext.chat_enabled))
-      setFormChatDatasetIds(Array.isArray(ext.chat_dataset_ids) ? ext.chat_dataset_ids : [])
+      setFormN8nChatWebhookUrl(details.n8n?.chat_webhook_url || "")
+      setFormChatIaEnabled(details.chat_ia?.enabled ?? false)
+      setFormChatIaWorkspaceId(details.chat_ia?.workspace_id ?? "")
+      setFormChatIaDatasetId(details.chat_ia?.dataset_id ?? "")
+      setFormChatIaDatasetName(details.chat_ia?.dataset_name ?? "")
+      setFormChatIaWebhookUrl(details.chat_ia?.webhook_url ?? "")
+      setFormChatIaTrialDays(
+        details.chat_ia?.trial_days ? String(details.chat_ia.trial_days) : ""
+      )
+      setFormChatIaTrialEndsAt(details.chat_ia?.trial_ends_at ?? "")
+      setFormDispatchEnabled(details.dispatch_settings?.enabled ?? false)
+      setFormDispatchTrialDays(
+        details.dispatch_settings?.trial_days ? String(details.dispatch_settings.trial_days) : ""
+      )
+      setFormDispatchTrialEndsAt(details.dispatch_settings?.trial_ends_at ?? "")
       setWorkspaceOptions(details.available_workspaces || [])
       setSelectedPbiWorkspaceIds(details.selected_pbi_workspace_ids || [])
       setSelectedPbiDatasetIds(details.selected_pbi_dataset_ids || [])
@@ -366,6 +462,30 @@ export default function UsersPage() {
       notifyError("Para cliente, preencha empresa e credenciais Power BI")
       return
     }
+    if (
+      formRole === "client" &&
+      formChatIaTrialDays.trim() &&
+      (
+        parsedChatIaTrialDays === null ||
+        !Number.isInteger(parsedChatIaTrialDays) ||
+        parsedChatIaTrialDays <= 0
+      )
+    ) {
+      notifyError("Dias de teste do Chat IA deve ser um numero inteiro maior que zero")
+      return
+    }
+    if (
+      formRole === "client" &&
+      formDispatchTrialDays.trim() &&
+      (
+        parsedDispatchTrialDays === null ||
+        !Number.isInteger(parsedDispatchTrialDays) ||
+        parsedDispatchTrialDays <= 0
+      )
+    ) {
+      notifyError("Dias de teste de Envios deve ser um numero inteiro maior que zero")
+      return
+    }
 
     setSaving(true)
     try {
@@ -407,10 +527,21 @@ export default function UsersPage() {
             ? {
                 webhook_url: formN8nWebhookUrl,
                 callback_secret: formN8nCallbackSecret,
+                chat_webhook_url: formN8nChatWebhookUrl,
               }
             : undefined,
-        chat_enabled: formRole === "client" ? formChatEnabled : undefined,
-        chat_dataset_ids: formRole === "client" && formChatEnabled ? formChatDatasetIds : undefined,
+        chat_ia:
+          formRole === "client"
+            ? {
+                enabled: formChatIaEnabled,
+                webhook_url: formChatIaWebhookUrl,
+                trial_days: formChatIaTrialDays.trim() || null,
+              }
+            : undefined,
+        dispatch_settings:
+          formRole === "client"
+            ? { enabled: formDispatchEnabled, trial_days: formDispatchTrialDays.trim() || null }
+            : undefined,
         selected_pbi_workspace_ids:
           formRole === "client" && workspaceOptions.length > 0
             ? selectedPbiWorkspaceIds
@@ -933,69 +1064,6 @@ export default function UsersPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-border/60 p-4 md:col-span-2 flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex flex-col gap-0.5">
-                        <p className="text-sm font-medium">Assistente SIL (Chat IA)</p>
-                        <p className="text-xs text-muted-foreground">
-                          Habilita o botao flutuante de chat com IA para este cliente
-                        </p>
-                      </div>
-                      <Switch
-                        checked={formChatEnabled}
-                        onCheckedChange={(v) => {
-                          setFormChatEnabled(v)
-                          if (!v) setFormChatDatasetIds([])
-                        }}
-                      />
-                    </div>
-
-                    {formChatEnabled && (
-                      <div className="flex flex-col gap-2">
-                        <Label className="text-xs text-muted-foreground">
-                          Datasets que o SIL vai consultar
-                          {formChatDatasetIds.length > 0 && (
-                            <span className="ml-2 font-medium text-foreground">
-                              ({formChatDatasetIds.length} selecionado{formChatDatasetIds.length > 1 ? "s" : ""})
-                            </span>
-                          )}
-                        </Label>
-                        {workspaceOptions.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            Valide as credenciais do Power BI para carregar os datasets disponíveis.
-                          </p>
-                        ) : (
-                          <div className="max-h-40 overflow-y-auto rounded-md border border-border/60 p-2 space-y-1">
-                            {workspaceOptions.flatMap((ws) =>
-                              (ws.datasets ?? []).map((ds) => {
-                                const checked = formChatDatasetIds.includes(ds.id)
-                                return (
-                                  <label
-                                    key={ds.id}
-                                    className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 hover:bg-muted/40 transition-colors"
-                                  >
-                                    <Checkbox
-                                      checked={checked}
-                                      onCheckedChange={(v) =>
-                                        setFormChatDatasetIds((prev) =>
-                                          v ? [...prev, ds.id] : prev.filter((id) => id !== ds.id)
-                                        )
-                                      }
-                                    />
-                                    <div className="min-w-0">
-                                      <p className="text-sm font-medium truncate">{ds.name}</p>
-                                      <p className="text-xs text-muted-foreground">{ws.name}</p>
-                                    </div>
-                                  </label>
-                                )
-                              })
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
                   <div className="rounded-lg border border-border/60 p-3 md:col-span-2">
                     <p className="mb-3 text-sm font-medium">N8N (Cliente)</p>
                     <div className="flex flex-col gap-3">
@@ -1009,14 +1077,210 @@ export default function UsersPage() {
                       </div>
                       <div className="flex flex-col gap-2">
                         <Label>Callback Secret (obrigatorio com webhook)</Label>
+                        <div className="relative">
+                          <Input
+                            type={showN8nCallbackSecret ? "text" : "password"}
+                            value={formN8nCallbackSecret}
+                            onChange={(e) => setFormN8nCallbackSecret(e.target.value)}
+                            placeholder="Segredo usado pelo n8n para callbacks e envio"
+                            className="pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowN8nCallbackSecret((current) => !current)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                            aria-label={
+                              showN8nCallbackSecret
+                                ? "Ocultar Callback Secret"
+                                : "Mostrar Callback Secret"
+                            }
+                          >
+                            {showN8nCallbackSecret ? (
+                              <EyeOff className="size-4" />
+                            ) : (
+                              <Eye className="size-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label>Chat IA — Webhook URL</Label>
                         <Input
-                          type="password"
-                          value={formN8nCallbackSecret}
-                          onChange={(e) => setFormN8nCallbackSecret(e.target.value)}
-                          placeholder="Segredo usado pelo n8n para callbacks e envio"
+                          value={formN8nChatWebhookUrl}
+                          onChange={(e) => setFormN8nChatWebhookUrl(e.target.value)}
+                          placeholder="https://n8n.dominio.com/webhook/dashpro-chat"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Deixe vazio para usar OpenAI diretamente via OPENAI_API_KEY.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/60 p-3 md:col-span-2">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Bot className="size-4 text-primary" />
+                        <p className="text-sm font-medium">Chat IA</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="chat-ia-enabled" className="text-xs text-muted-foreground">
+                          {formChatIaEnabled ? "Ativado" : "Desativado"}
+                        </Label>
+                        <Switch
+                          id="chat-ia-enabled"
+                          checked={formChatIaEnabled}
+                          onCheckedChange={setFormChatIaEnabled}
                         />
                       </div>
                     </div>
+
+                    {showChatIaDetails && (
+                      <div className="flex flex-col gap-3">
+                        <p className="text-xs text-muted-foreground">
+                          Configure apenas o webhook do Chat IA. Workspace e dataset serao definidos automaticamente pelo sistema.
+                        </p>
+
+                        <div className="flex flex-col gap-2">
+                          <Label>Webhook URL especifico (opcional)</Label>
+                          <Input
+                            value={formChatIaWebhookUrl}
+                            onChange={(e) => setFormChatIaWebhookUrl(e.target.value)}
+                            placeholder="Deixe vazio para usar o webhook do N8N ou OpenAI"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Sobrescreve o webhook do N8N para este cliente. Deixe vazio para usar o padrao.
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          <Label>Dias de teste (opcional)</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={formChatIaTrialDays}
+                            onChange={(e) => {
+                              const nextValue = e.target.value
+                              const nextTrialDays = nextValue.trim()
+                                ? Number.parseInt(nextValue.trim(), 10)
+                                : null
+
+                              setFormChatIaTrialDays(nextValue)
+                              setFormChatIaTrialEndsAt(
+                                nextTrialDays && Number.isInteger(nextTrialDays) && nextTrialDays > 0
+                                  ? calculateChatIATrialEndsAt(nextTrialDays)
+                                  : ""
+                              )
+                            }}
+                            placeholder="Ex.: 7"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Deixe vazio para manter o Chat IA sem data de expiracao. Ao alterar este campo e salvar, uma nova data final sera calculada automaticamente.
+                          </p>
+                        </div>
+
+                        {(chatIaTrialEndsAtLabel || formChatIaTrialDays.trim()) && (
+                          <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-xs">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {formChatIaTrialDays.trim() ? (
+                                <Badge variant="secondary" className="font-normal">
+                                  {formChatIaTrialDays.trim()} dia(s) de teste
+                                </Badge>
+                              ) : null}
+                              {chatIaTrialEndsAtLabel ? (
+                                <Badge
+                                  variant={chatIaTrialExpired ? "destructive" : "outline"}
+                                  className="font-normal"
+                                >
+                                  {chatIaTrialExpired ? "Teste expirado" : `Expira em ${chatIaTrialEndsAtLabel}`}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="font-normal">
+                                  A data final sera gerada ao salvar
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="mt-2 text-muted-foreground">
+                              Quando a data final chegar, o sistema desabilita o Chat IA automaticamente para este cliente.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Envio de Relatórios — Dias de Teste */}
+                  <div className="rounded-lg border border-border/60 p-3 md:col-span-2">
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-sm font-medium">Envio de Relatorios</p>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="dispatch-enabled" className="text-xs text-muted-foreground">
+                          {formDispatchEnabled ? "Ativado" : "Desativado"}
+                        </Label>
+                        <Switch
+                          id="dispatch-enabled"
+                          checked={formDispatchEnabled}
+                          onCheckedChange={setFormDispatchEnabled}
+                        />
+                      </div>
+                    </div>
+                    {formDispatchEnabled && (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-2">
+                        <Label>Dias de teste (opcional)</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={formDispatchTrialDays}
+                          onChange={(e) => {
+                            const nextValue = e.target.value
+                            const nextTrialDays = nextValue.trim()
+                              ? Number.parseInt(nextValue.trim(), 10)
+                              : null
+                            setFormDispatchTrialDays(nextValue)
+                            setFormDispatchTrialEndsAt(
+                              nextTrialDays && Number.isInteger(nextTrialDays) && nextTrialDays > 0
+                                ? calculateDispatchTrialEndsAt(nextTrialDays)
+                                : ""
+                            )
+                          }}
+                          placeholder="Ex.: 30"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Deixe vazio para nao aplicar limite. Ao salvar, a data final sera calculada automaticamente.
+                        </p>
+                      </div>
+
+                      {(dispatchTrialEndsAtLabel || formDispatchTrialDays.trim()) && (
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-xs">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {formDispatchTrialDays.trim() ? (
+                              <Badge variant="secondary" className="font-normal">
+                                {formDispatchTrialDays.trim()} dia(s) de teste
+                              </Badge>
+                            ) : null}
+                            {dispatchTrialEndsAtLabel ? (
+                              <Badge
+                                variant={dispatchTrialExpired ? "destructive" : "outline"}
+                                className="font-normal"
+                              >
+                                {dispatchTrialExpired ? "Teste expirado" : `Expira em ${dispatchTrialEndsAtLabel}`}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="font-normal">
+                                A data final sera gerada ao salvar
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="mt-2 text-muted-foreground">
+                            Apos a data final, o cliente nao consegue acessar nem disparar relatorios.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                    )}
                   </div>
                 </>
               )}
