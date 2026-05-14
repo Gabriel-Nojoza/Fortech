@@ -385,6 +385,33 @@ export default function SchedulesPage() {
     }
   }
 
+  async function handleDuplicateAutomation(auto: AutomationItem) {
+    try {
+      const { response, data } = await fetchApi("/api/automations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `Copia de ${auto.name}`,
+          dataset_id: auto.dataset_id,
+          workspace_id: auto.workspace_id,
+          selected_columns: auto.selected_columns ?? [],
+          selected_measures: auto.selected_measures ?? [],
+          filters: auto.filters ?? [],
+          dax_query: null,
+          cron_expression: auto.cron_expression,
+          export_format: auto.export_format,
+          message_template: null,
+          contact_ids: auto.contacts?.map((c) => c.id) ?? [],
+        }),
+      })
+      if (!response.ok) throw new Error(extractApiErrorMessage(data) ?? "Erro ao duplicar")
+      toast.success("Automação duplicada!")
+      void mutate("/api/automations")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao duplicar automação")
+    }
+  }
+
   function handleEditInConstructor(auto: AutomationItem) {
     try {
       localStorage.setItem("report-builder-draft", JSON.stringify({
@@ -1290,7 +1317,7 @@ export default function SchedulesPage() {
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div className="flex items-center gap-2">
                 <Workflow className="size-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">Automacoes DAX</h3>
+                <h3 className="text-sm font-semibold">Automações DAX</h3>
                 <span className="text-xs text-muted-foreground">({automationList.length})</span>
               </div>
               <Button
@@ -1378,10 +1405,19 @@ export default function SchedulesPage() {
                               variant="ghost"
                               size="icon"
                               onClick={() => handleOpenEditAutomation(auto)}
-                              title="Editar rotina de disparo"
+                              title="Editar automação"
                             >
                               <Pencil className="size-4" />
                               <span className="sr-only">Editar</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => void handleDuplicateAutomation(auto)}
+                              title="Duplicar automação"
+                            >
+                              <Copy className="size-4" />
+                              <span className="sr-only">Duplicar</span>
                             </Button>
                             <Button
                               variant="ghost"

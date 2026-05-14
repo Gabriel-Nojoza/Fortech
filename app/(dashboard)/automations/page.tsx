@@ -831,7 +831,7 @@ export default function AutomationsPage() {
         <div className="flex items-center gap-2">
           <SidebarTrigger className="-ml-1 sm:hidden" />
           <Workflow className="size-5 text-primary" />
-          <h1 className="text-base font-bold sm:text-lg">Automacoes</h1>
+          <h1 className="text-base font-bold sm:text-lg">Automações</h1>
         </div>
 
         <div className="ml-2 inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-muted/40 p-1">
@@ -855,7 +855,7 @@ export default function AutomationsPage() {
             onClick={() => setActiveTab("saved")}
           >
             <ListFilter className="size-3" />
-            <span className="hidden sm:inline">Automacoes Salvas</span>
+            <span className="hidden sm:inline">Automações Salvas</span>
             <span className="sm:hidden">Salvas</span>
           </Button>
         </div>

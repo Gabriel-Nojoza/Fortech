@@ -353,7 +353,7 @@ export default function ReportsPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Workflow className="size-4 text-primary" />
-                Automacoes DAX ({automationList.length})
+                Automações DAX ({automationList.length})
               </CardTitle>
               <Button variant="outline" size="sm" asChild className="gap-1.5 text-xs">
                 <Link href="/automations">

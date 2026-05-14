@@ -147,7 +147,7 @@ export function SavedAutomationsList() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm">
             <Workflow className="size-4" />
-            Automacoes Salvas
+            Automações Salvas
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -166,7 +166,7 @@ export function SavedAutomationsList() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm">
           <Workflow className="size-4" />
-          Automacoes Salvas ({list.length})
+          Automações Salvas ({list.length})
         </CardTitle>
       </CardHeader>
       <CardContent>
