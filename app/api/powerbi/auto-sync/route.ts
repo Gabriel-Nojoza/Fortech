@@ -201,8 +201,10 @@ export async function POST(_request: NextRequest) {
       ...result,
     })
   } catch (error) {
+    const message = getErrorMessage(error)
+    console.error("[auto-sync] erro:", message)
     return NextResponse.json(
-      { error: getErrorMessage(error) },
+      { error: message },
       { status: 500 }
     )
   }

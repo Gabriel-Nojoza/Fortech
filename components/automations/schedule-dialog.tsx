@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { CalendarClock, Loader2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { CalendarClock, Loader2, Search } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -51,10 +51,16 @@ export function ScheduleDialog({
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState("")
   const [cron, setCron] = useState("0 8 * * 1-5")
-  const [exportFormat, setExportFormat] = useState("csv")
+  const [exportFormat, setExportFormat] = useState("pdf")
   const [message, setMessage] = useState("Segue os dados da automacao {name} em anexo.")
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
+  const [contactSearch, setContactSearch] = useState("")
   const activeContacts = showContacts ? contacts.filter((c) => c.is_active) : []
+  const filteredContacts = useMemo(() => {
+    if (!contactSearch.trim()) return activeContacts
+    const q = contactSearch.trim().toLowerCase()
+    return activeContacts.filter((c) => c.name?.toLowerCase().includes(q) || c.phone?.toLowerCase().includes(q))
+  }, [activeContacts, contactSearch])
 
   useEffect(() => {
     if (!showContacts) {
@@ -179,24 +185,37 @@ export function ScheduleDialog({
                 Nenhum contato ativo. Cadastre na pagina de Contatos.
               </p>
             ) : (
-              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2">
-                {activeContacts.map((contact) => (
-                  <label
-                    key={contact.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent"
-                  >
-                    <Checkbox
-                      checked={selectedContacts.includes(contact.id)}
-                      onCheckedChange={() => toggleContact(contact.id)}
-                    />
-                    <span className="text-sm">{contact.name}</span>
-                    {contact.phone && (
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {contact.phone}
+              <div className="space-y-1.5">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={contactSearch}
+                    onChange={(e) => setContactSearch(e.target.value)}
+                    placeholder="Pesquisar contato ou grupo..."
+                    className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                  {filteredContacts.map((contact) => (
+                    <label
+                      key={contact.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent"
+                    >
+                      <Checkbox
+                        checked={selectedContacts.includes(contact.id)}
+                        onCheckedChange={() => toggleContact(contact.id)}
+                      />
+                      <span className="flex-1 text-sm">{contact.name}</span>
+                      <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {contact.type === "group" ? "Grupo" : "Individual"}
                       </span>
-                    )}
-                  </label>
-                ))}
+                    </label>
+                  ))}
+                  {filteredContacts.length === 0 && (
+                    <p className="py-2 text-center text-xs text-muted-foreground">Nenhum resultado.</p>
+                  )}
+                </div>
               </div>
             )}
           </div>

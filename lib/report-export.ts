@@ -1,6 +1,5 @@
 import { describePrimaryDateFilter } from "@/lib/query-filters"
-import type { QueryFilter } from "@/lib/types"
-import { BRAND_LOGO_PATH, BRAND_NAME } from "@/lib/branding"
+import type { QueryFilter, SelectedColumn } from "@/lib/types"
 
 export interface ReportColumn {
   name: string
@@ -23,10 +22,12 @@ export interface ReportDocumentInput {
   subtitle?: string | null
   generatedAt?: Date
   selectedItems?: string[]
+  selectedColumns?: SelectedColumn[]
   filters?: QueryFilter[]
   brandLogoUrl?: string
   summaryCards?: ReportSummaryCard[]
   result: ReportResult
+  datasetRefreshedAt?: string | null
 }
 
 // Colunas fixas do relatório de gerente — define ordem e label exibido no PDF
@@ -39,7 +40,7 @@ const HIDDEN_PDF_COLUMNS = ["condvenda"]
 
 // Para adicionar mais: copie um bloco { label, aliases } e insira na posição desejada
 const FIXED_PDF_COLUMNS = [
-  { label: "Cod/Gerente",   aliases: ["gerente[cod/gerente]", "gerente.cod/gerente", "cod/gerente", "cod/sup.", "pcusuari[cod/vend.]"] },
+  { label: "Cod/Gerente",   aliases: ["gerente[cod/gerente]", "gerente.cod/gerente", "cod/gerente"] },
   { label: "Meta",          aliases: ["meta"] },
   { label: "Vl Pedidos",    aliases: ["vl pedidos", "vlpedidos"] },
   { label: "% Meta Ped.",   aliases: ["% meta ped.", "%metaped."] },
@@ -289,7 +290,8 @@ const PERCENT_INDICATOR_COLUMNS = ["% meta ped", "tendencia ped", "tend ped"]
 
 function isIndicatorColumn(columnName: string) {
   const n = normalizeMetricName(columnName)
-  return PERCENT_INDICATOR_COLUMNS.some((kw) => n.includes(normalizeMetricName(kw)))
+  return n.includes("%") || n.includes("percent") ||
+    PERCENT_INDICATOR_COLUMNS.some((kw) => n.includes(normalizeMetricName(kw)))
 }
 
 function getPercentIndicatorHtml(value: unknown): string {
@@ -300,40 +302,298 @@ function getPercentIndicatorHtml(value: unknown): string {
   return `<span class="ind-down">▼</span>`
 }
 
-function resolvePdfColumns(columns: ReportColumn[]): ResolvedPdfColumn[] {
-  const usedColumnNames = new Set<string>()
+function isHierarchyColumn(headerName: string): boolean {
+  const n = normalizeMetricName(headerName)
+  return n.includes("gerente") || n.includes("supervisor") || n.includes("cod/sup")
+}
 
+
+function isMetaColumn(name: string): boolean {
+  const n = normalizeMetricName(name)
+  return (
+    n.includes("meta") &&
+    !n.includes("%") &&
+    !n.includes("gap") &&
+    !n.includes("tend") &&
+    !n.includes("metaped") &&
+    !n.includes("jametasup")
+  )
+}
+
+function isVendasColumn(name: string): boolean {
+  const n = normalizeMetricName(name)
+  return n.includes("somavenda") || n.includes("vlpedido") || n.includes("vlvenda")
+}
+
+function filterZeroRows(rows: Array<Record<string, unknown>>, columns: ReportColumn[]): Array<Record<string, unknown>> {
+  const metaCol = columns.find((c) => isMetaColumn(c.name))
+  const vendasCol = columns.find((c) => isVendasColumn(c.name))
+
+  if (metaCol && vendasCol) {
+    return rows.filter((row) => {
+      const meta = Number(row[metaCol.name] ?? 0)
+      const venda = Number(row[vendasCol.name] ?? 0)
+      return meta > 0 && venda > 0
+    })
+  }
+
+  // Sem par meta/vendas — remove linhas onde todas as colunas numéricas são zero
+  const numericCols = columns.filter((c) => isNumericLikeType(c.dataType))
+  if (numericCols.length > 0) {
+    return rows.filter((row) =>
+      numericCols.some((col) => {
+        const v = Number(row[col.name] ?? 0)
+        return Number.isFinite(v) && v !== 0
+      })
+    )
+  }
+
+  return rows
+}
+
+const HIERARCHY_LEVELS = [
+  { rank: 0, hints: ["gerente"] },
+  { rank: 1, hints: ["supervisor", "cod/sup", "codsup"] },
+  { rank: 2, hints: ["cod/vend", "codvend", "vendedor"] },
+] as const
+
+function getHierarchyRank(name: string): number {
+  const n = normalizeMetricName(name)
+  for (const level of HIERARCHY_LEVELS) {
+    if (level.hints.some((h) => n.includes(normalizeMetricName(h)))) return level.rank
+  }
+  return -1
+}
+
+function sortByHierarchy(
+  rows: Array<Record<string, unknown>>,
+  cols: ResolvedPdfColumn[]
+): Array<Record<string, unknown>> {
+  const hierCols = cols
+    .filter((c) => getHierarchyRank(c.name) >= 0)
+    .sort((a, b) => getHierarchyRank(a.name) - getHierarchyRank(b.name))
+
+  if (hierCols.length === 0) return rows
+
+  return [...rows].sort((a, b) => {
+    for (const col of hierCols) {
+      const av = String(a[col.sourceName ?? col.name] ?? "")
+      const bv = String(b[col.sourceName ?? col.name] ?? "")
+      const cmp = av.localeCompare(bv, "pt-BR", { sensitivity: "base" })
+      if (cmp !== 0) return cmp
+    }
+    return 0
+  })
+}
+
+function isPedidosEnviadosColumn(name: string): boolean {
+  const n = normalizeMetricName(name)
+  return (
+    n.includes("pedidosenviado") ||
+    n.includes("pedidosenv") ||
+    n.includes("somavenda") ||
+    n.includes("vlpedido") ||
+    n.includes("vlvenda")
+  )
+}
+
+function isTendenciaValueColumn(name: string): boolean {
+  const n = normalizeMetricName(name)
+  return n.includes("tendencia") && !n.includes("%") && !n.includes("percent")
+}
+
+function sumCol(rows: Array<Record<string, unknown>>, col: ResolvedPdfColumn): number {
+  return rows.reduce((acc, row) => {
+    const v = col.sourceName ? row[col.sourceName] : undefined
+    return acc + (typeof v === "number" && Number.isFinite(v) ? v : 0)
+  }, 0)
+}
+
+function buildTotalsRow(
+  rows: Array<Record<string, unknown>>,
+  cols: ResolvedPdfColumn[]
+): string {
+  // Pre-compute sums for non-% numeric columns
+  const sums = new Map<string, number>()
+  for (const col of cols) {
+    if (isNumericColumn(col) && !isPercentMetricName(col.headerName)) {
+      sums.set(col.sourceName ?? col.name, sumCol(rows, col))
+    }
+  }
+
+  // Totals needed for weighted % calculation
+  const metaSum = Array.from(sums.entries()).find(([k]) => isMetaColumn(k))?.[1] ?? 0
+  const pedidosSum = Array.from(sums.entries()).find(([k]) => isPedidosEnviadosColumn(k))?.[1] ?? 0
+  const tendenciaSum = Array.from(sums.entries()).find(([k]) => isTendenciaValueColumn(k))?.[1] ?? 0
+
+  const cells = cols.map((col, idx) => {
+    if (idx === 0) return `<td class="totals-label">TOTAL</td>`
+
+    if (!isNumericColumn(col)) return `<td class="totals-empty"></td>`
+
+    if (isPercentMetricName(col.headerName)) {
+      const n = normalizeMetricName(col.headerName)
+      let pctValue: number | null = null
+
+      if (n.includes("tend") && metaSum > 0) {
+        pctValue = (tendenciaSum / metaSum) * 100
+      } else if (n.includes("meta") && metaSum > 0) {
+        pctValue = (pedidosSum / metaSum) * 100
+      }
+
+      if (pctValue === null) return `<td class="totals-empty"></td>`
+
+      const formatted = formatNumericValue(pctValue, col.headerName, col.dataType)
+      const indicator = getPercentIndicatorHtml(pctValue)
+      const themeClass = getColumnThemeClass(col.sourceName ?? col.headerName)
+      return `<td class="totals-cell is-numeric${themeClass ? " " + themeClass : ""}">${indicator}${escapeHtml(formatted)}</td>`
+    }
+
+    const sum = sums.get(col.sourceName ?? col.name) ?? 0
+    const formatted = formatDisplayValue(sum, {
+      name: col.sourceName ?? col.headerName,
+      dataType: col.dataType,
+    })
+    const themeClass = getColumnThemeClass(col.sourceName ?? col.headerName)
+    return `<td class="totals-cell is-numeric${themeClass ? " " + themeClass : ""}">${escapeHtml(formatted)}</td>`
+  })
+  return `<tr class="totals-row">${cells.join("")}</tr>`
+}
+
+function isFilterColumn(columnName: string, filters: QueryFilter[]): boolean {
+  const normalizedCol = normalizeMetricName(columnName)
+  return filters.some((f) => {
+    // Match "TableName[ColumnName]" format returned by DAX
+    const composed = normalizeMetricName(`${f.tableName}${f.columnName}`)
+    const colOnly = normalizeMetricName(f.columnName)
+    return normalizedCol === composed || normalizedCol === colOnly
+  })
+}
+
+function getColumnWidth(headerName: string): string {
+  const chars = headerName.length
+  const PX = 5.5  // ~px per character at 9px font
+  const PAD = 14  // left + right cell padding
+  const raw = Math.round(chars * PX + PAD)
+
+  if (isHierarchyColumn(headerName)) return `${Math.max(130, Math.min(raw, 220))}px`
+  if (isPercentMetricName(headerName)) return `${Math.max(52, Math.min(raw, 90))}px`
+  if (isCurrencyMetricName(headerName)) return `${Math.max(75, Math.min(raw, 140))}px`
+  return `${Math.max(55, Math.min(raw, 140))}px`
+}
+
+function groupBy(
+  rows: Array<Record<string, unknown>>,
+  col: ResolvedPdfColumn
+): Array<{ key: string; rows: Array<Record<string, unknown>> }> {
+  const order: string[] = []
+  const map = new Map<string, Array<Record<string, unknown>>>()
+  for (const row of rows) {
+    const key = String(formatRawCellValue(col.sourceName ? row[col.sourceName] : ""))
+    if (!map.has(key)) { map.set(key, []); order.push(key) }
+    map.get(key)!.push(row)
+  }
+  return order.map((key) => ({ key, rows: map.get(key)! }))
+}
+
+function resolvePdfColumns(columns: ReportColumn[]): ResolvedPdfColumn[] {
   const visibleColumns = columns.filter(
     (column) => !HIDDEN_PDF_COLUMNS.some((h) => normalizeMetricName(column.name).includes(h))
   )
 
-  const fixedColumns = FIXED_PDF_COLUMNS.map((fixedColumn) => {
-    const match = visibleColumns.find((column) =>
+  return visibleColumns.map((column) => {
+    const fixedMatch = FIXED_PDF_COLUMNS.find((fixedColumn) =>
       fixedColumn.aliases.some(
         (alias) => normalizeMetricName(alias) === normalizeMetricName(column.name)
       )
     )
 
-    if (match) usedColumnNames.add(match.name)
-
     return {
-      name: match?.name ?? fixedColumn.label,
-      headerName: fixedColumn.label,
-      sourceName: match?.name ?? null,
-      dataType: match?.dataType,
-    }
-  })
-
-  const extraColumns = visibleColumns
-    .filter((column) => !usedColumnNames.has(column.name))
-    .map((column) => ({
       name: column.name,
-      headerName: column.name,
+      headerName: fixedMatch ? fixedMatch.label : column.name,
       sourceName: column.name,
       dataType: column.dataType,
-    }))
+    }
+  })
+}
 
-  return [...fixedColumns, ...extraColumns]
+function renderDataCells(row: Record<string, unknown>, cols: ResolvedPdfColumn[]): string {
+  return cols.map((column) => {
+    const cellValue = column.sourceName ? row[column.sourceName] : ""
+    const classes = [
+      isNumericColumn(column) ? "is-numeric" : "",
+      getColumnThemeClass(column.sourceName ?? column.headerName),
+      isNegativeNumericValue(cellValue) ? "is-negative" : "",
+    ].filter(Boolean).join(" ")
+    const formattedValue = formatDisplayValue(cellValue, {
+      name: column.sourceName ?? column.headerName,
+      dataType: column.dataType,
+    })
+    const indicator = isIndicatorColumn(column.headerName) ? getPercentIndicatorHtml(cellValue) : ""
+    const displayContent = formattedValue ? `${indicator}${escapeHtml(formattedValue)}` : "&nbsp;"
+    return `<td class="${classes}">${displayContent}</td>`
+  }).join("")
+}
+
+function renderGroupHeaderHtml(
+  groupName: string,
+  rows: Array<Record<string, unknown>>,
+  displayCols: ResolvedPdfColumn[],
+  level: number
+): string {
+  const sums = new Map<string, number>()
+  for (const col of displayCols) {
+    if (isNumericColumn(col) && !isPercentMetricName(col.headerName)) {
+      sums.set(col.sourceName ?? col.name, sumCol(rows, col))
+    }
+  }
+  const metaSum = Array.from(sums.entries()).find(([k]) => isMetaColumn(k))?.[1] ?? 0
+  const pedidosSum = Array.from(sums.entries()).find(([k]) => isPedidosEnviadosColumn(k))?.[1] ?? 0
+  const tendenciaSum = Array.from(sums.entries()).find(([k]) => isTendenciaValueColumn(k))?.[1] ?? 0
+
+  const cells = displayCols.map((col, idx) => {
+    if (idx === 0) {
+      return `<td class="group-name level-${level}">${escapeHtml(groupName || "—")}</td>`
+    }
+    if (!isNumericColumn(col)) return `<td class="group-empty"></td>`
+    if (isPercentMetricName(col.headerName)) {
+      const n = normalizeMetricName(col.headerName)
+      let pct: number | null = null
+      if (n.includes("tend") && metaSum > 0) pct = (tendenciaSum / metaSum) * 100
+      else if (n.includes("meta") && metaSum > 0) pct = (pedidosSum / metaSum) * 100
+      if (pct === null) return `<td class="group-empty"></td>`
+      const indicator = getPercentIndicatorHtml(pct)
+      return `<td class="group-metric is-numeric">${indicator}${escapeHtml(formatNumericValue(pct, col.headerName, col.dataType))}</td>`
+    }
+    const sum = sums.get(col.sourceName ?? col.name) ?? 0
+    const formatted = formatDisplayValue(sum, { name: col.sourceName ?? col.headerName, dataType: col.dataType })
+    return `<td class="group-metric is-numeric">${escapeHtml(formatted)}</td>`
+  })
+
+  return `<tr class="group-header level-${level}">${cells.join("")}</tr>`
+}
+
+function buildGroupedRows(
+  rows: Array<Record<string, unknown>>,
+  groupCols: ResolvedPdfColumn[],
+  displayCols: ResolvedPdfColumn[],
+  level: number
+): string {
+  const groupCol = groupCols[0]
+  const remaining = groupCols.slice(1)
+  const groups = groupBy(rows, groupCol)
+  let html = ""
+  for (const group of groups) {
+    html += renderGroupHeaderHtml(group.key, group.rows, displayCols, level)
+    if (remaining.length > 0) {
+      html += buildGroupedRows(group.rows, remaining, displayCols, level + 1)
+    } else {
+      for (const row of group.rows) {
+        html += `<tr class="detail-row">${renderDataCells(row, displayCols)}</tr>`
+      }
+    }
+  }
+  return html
 }
 
 export function buildCsvContent(result: ReportResult): string {
@@ -376,111 +636,79 @@ export function buildTextReport(result: ReportResult, maxRows = 100): string {
 
 export function buildHtmlReport({
   title,
-  subtitle,
-  generatedAt,
+  generatedAt: _generatedAt,
   selectedItems: _selectedItems,
+  selectedColumns = [],
   filters = [],
-  brandLogoUrl = BRAND_LOGO_PATH,
   summaryCards = [],
   result,
+  datasetRefreshedAt,
 }: ReportDocumentInput): string {
-  const generated = (generatedAt ?? new Date()).toLocaleString("pt-BR")
+  const refreshedAt = datasetRefreshedAt
+    ? new Date(datasetRefreshedAt).toLocaleString("pt-BR")
+    : null
   const filteredPeriod = describePrimaryDateFilter(filters)
   const columns = result.columns
-  const rows = result.rows
+  const rows = filterZeroRows(result.rows, columns)
   const totalRecords = formatCount(rows.length)
 
-  const visibleSummaryCards =
-    summaryCards.length > 0
-      ? summaryCards
-      : [
-          {
-            label: filteredPeriod ? "Periodo" : "Gerado em",
-            value: filteredPeriod?.value ?? generated,
-            dataType: "String",
-          },
-          {
-            label: "Registros",
-            value: rows.length,
-            dataType: "Int64",
-          },
-        ]
-
-  const summaryCardsHtml = visibleSummaryCards
-    .map((card) => {
-      const displayValue = formatDisplayValue(card.value, {
-        name: card.label,
-        dataType: card.dataType,
-      })
-      const compactClass =
-        displayValue.length > 18
-          ? "summary-card--tight"
-          : displayValue.length > 13
-            ? "summary-card--compact"
-            : ""
-
-      return `<article class="summary-card ${compactClass}">
-        <span>${escapeHtml(card.label)}</span>
-        <strong>${escapeHtml(displayValue || "-")}</strong>
-      </article>`
+  const displayColumns = columns.filter((col) => {
+    if (!isFilterColumn(col.name, filters)) return true
+    // Filter column — keep in PDF only if it was also explicitly checked as a column
+    const n = normalizeMetricName(col.name)
+    return selectedColumns.some((sc) => {
+      return (
+        n === normalizeMetricName(`${sc.tableName}${sc.columnName}`) ||
+        n === normalizeMetricName(sc.columnName)
+      )
     })
-    .join("")
+  })
+  const orderedColumns = resolvePdfColumns(displayColumns)
+  const sortedRows = sortByHierarchy(rows, orderedColumns)
 
-  const infoChips = [
-    filteredPeriod
-      ? `<span class="info-chip"><b>Periodo:</b> ${escapeHtml(filteredPeriod.value)}</span>`
-      : "",
-    `<span class="info-chip"><b>Registros:</b> ${escapeHtml(totalRecords)}</span>`,
-    `<span class="info-chip"><b>Gerado em:</b> ${escapeHtml(generated)}</span>`,
-  ]
-    .filter(Boolean)
-    .join("")
+  // Detect hierarchy for grouping (gerente → supervisor → vendedor)
+  const allHierCols = orderedColumns
+    .filter((c) => getHierarchyRank(c.name) >= 0)
+    .sort((a, b) => getHierarchyRank(a.name) - getHierarchyRank(b.name))
 
-  const orderedColumns = resolvePdfColumns(columns)
+  // Non-hierarchy text/dimension columns (e.g. fornecedor, produto)
+  const extraDimCols = orderedColumns.filter(
+    (c) => getHierarchyRank(c.name) < 0 && !isNumericColumn(c)
+  )
 
-  const tableHead = orderedColumns
+  // When extra dim cols exist alongside hierarchy cols, promote ALL hierarchy cols
+  // to group headers so the extra dim appears in the detail rows (not side-by-side)
+  const groupCols = extraDimCols.length > 0 && allHierCols.length >= 1
+    ? allHierCols
+    : allHierCols.length >= 2 ? allHierCols.slice(0, -1) : []
+
+  // displayCols removes the group-level hierarchy columns (they become row headers)
+  const displayCols = groupCols.length > 0
+    ? orderedColumns.filter((c) => !groupCols.includes(c))
+    : orderedColumns
+
+  const colCount = Math.max(displayCols.length, 1)
+
+  const tableHead = displayCols
     .map((column) => {
       const numericClass = isNumericColumn(column) ? " is-numeric" : ""
       return `<th class="${numericClass.trim()}">${escapeHtml(column.headerName)}</th>`
     })
     .join("")
 
-  const tableBody = rows.length
-    ? rows
-        .map((row) => {
-          const cells = orderedColumns
-            .map((column) => {
-              const cellValue = column.sourceName ? row[column.sourceName] : ""
-              const classes = [
-                isNumericColumn(column) ? "is-numeric" : "",
-                getColumnThemeClass(column.sourceName ?? column.headerName),
-                isNegativeNumericValue(cellValue) ? "is-negative" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")
+  const totalsRow = sortedRows.length ? buildTotalsRow(sortedRows, displayCols) : ""
 
-              const formattedValue = formatDisplayValue(cellValue, {
-                name: column.sourceName ?? column.headerName,
-                dataType: column.dataType,
-              })
-              const indicator = isIndicatorColumn(column.headerName)
-                ? getPercentIndicatorHtml(cellValue)
-                : ""
-              const displayContent = formattedValue
-                ? `${indicator}${escapeHtml(formattedValue)}`
-                : "&nbsp;"
-              return `<td class="${classes}">${displayContent}</td>`
-            })
-            .join("")
+  const tableBody = sortedRows.length === 0
+    ? `<tr><td colspan="${colCount}" class="empty">Nenhum dado retornado.</td></tr>`
+    : groupCols.length > 0
+      ? buildGroupedRows(sortedRows, groupCols, displayCols, 0) + totalsRow
+      : sortedRows.map((row) => `<tr>${renderDataCells(row, displayCols)}</tr>`).join("") + totalsRow
 
-          return `<tr>${cells}</tr>`
-        })
-        .join("")
-    : `<tr><td colspan="${Math.max(orderedColumns.length, 1)}" class="empty">Nenhum dado retornado.</td></tr>`
-
-  const headerSubtitle = subtitle?.trim()
-    ? subtitle.trim()
-    : "Acompanhe o progresso da consulta com o mesmo recorte aplicado no construtor."
+  const metaLine = [
+    filteredPeriod ? `Periodo: ${filteredPeriod.value}` : "",
+    `Registros: ${totalRecords}`,
+    refreshedAt ? `Atualizado em: ${refreshedAt}` : "",
+  ].filter(Boolean).join("  |  ")
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -489,356 +717,258 @@ export function buildHtmlReport({
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(title)}</title>
   <style>
-    :root {
-      color-scheme: light;
-      --page-bg: #eef2fb;
-      --surface: #ffffff;
-      --line: #1e2a5a;
-      --hero: #334182;
-      --hero-accent: #ff7f11;
-      --hero-text: #ffd8a8;
-      --body-text: #0f172a;
-      --meta-bg: #dff3fb;
-      --sales-bg: #ffe7a7;
-      --gap-bg: #ffb6b3;
-      --trend-bg: #f5d89a;
-      --support-bg: #eef2ff;
-      --margin-bg: #fff4cf;
-    }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      margin: 0;
-      padding: 20px;
-      background: linear-gradient(180deg, #f8faff 0%, var(--page-bg) 100%);
-      color: var(--body-text);
-      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
-    }
-    .report-shell {
-      display: flex;
-      width: 100%;
-      max-width: 1680px;
-      margin: 0 auto;
-      background: var(--surface);
-      border-radius: 18px;
-      overflow: hidden;
-      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
-      border: 1px solid #d8deee;
-    }
-    .report-strip {
-      width: 78px;
-      flex: 0 0 78px;
-      background: linear-gradient(180deg, #ff8a1e 0%, var(--hero-accent) 100%);
-    }
-    .report-main {
-      flex: 1;
-      min-width: 0;
-      background: #f7f8fc;
-    }
-    .hero {
-      background: var(--hero);
-      color: #fff;
-      padding: 18px 22px 14px;
-    }
-    .hero-top {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 10px;
-    }
-    .hero-top img {
-      width: 44px;
-      height: 44px;
-      object-fit: contain;
-    }
-    .hero-brand {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .hero-brand strong {
-      font-size: 14px;
-      line-height: 1.1;
-      letter-spacing: 0.02em;
-    }
-    .hero-brand span {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: rgba(255, 255, 255, 0.74);
-    }
-    .hero h1 {
-      margin: 0;
-      color: var(--hero-text);
-      font-size: 24px;
-      line-height: 1.1;
-      font-weight: 800;
-    }
-    .hero p {
-      margin: 6px 0 0;
-      font-size: 13px;
-      color: rgba(255, 255, 255, 0.9);
-    }
-    .summary-zone {
-      padding: 18px 22px 14px;
-      background: #ffffff;
-      border-bottom: 1px solid #dde3f0;
-    }
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-    .summary-card {
-      position: relative;
-      min-height: 84px;
-      padding: 16px 14px 14px 18px;
-      border: 1px solid #304080;
-      border-radius: 10px;
-      background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 8px;
-      box-shadow: 0 10px 20px rgba(48, 64, 128, 0.08);
-    }
-    .summary-card::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 8px;
-      border-radius: 10px 0 0 10px;
-      background: var(--hero);
-    }
-    .summary-card span {
-      display: block;
-      color: #253774;
-      font-size: 12px;
-      font-weight: 700;
-      line-height: 1.2;
-    }
-    .summary-card strong {
-      display: block;
+      background: #f0f2f8;
       color: #111827;
-      font-size: clamp(20px, 1.9vw, 28px);
-      font-weight: 800;
-      line-height: 1.08;
-      letter-spacing: -0.035em;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }
-    .summary-card--compact strong {
-      font-size: clamp(18px, 1.55vw, 24px);
-    }
-    .summary-card--tight strong {
-      font-size: clamp(16px, 1.3vw, 21px);
-    }
-    .info-ribbon {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .info-chip {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      border: 1px solid #ced6eb;
-      background: #f7f9ff;
-      padding: 7px 12px;
-      font-size: 12px;
-      color: #31427d;
-    }
-    .selected {
-      padding: 16px 22px 0;
-      background: #ffffff;
-    }
-    .selected .label {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #475467;
-    }
-    .pill-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      border: 1px solid #cfd6ea;
-      background: #ffffff;
-      padding: 6px 12px;
-      font-size: 12px;
-      color: #253774;
-    }
-    .content {
-      padding: 12px 8px 18px 8px;
-      background: #f7f8fc;
-    }
-    .section-title {
-      display: inline-flex;
-      align-items: center;
-      min-height: 28px;
-      padding: 0 10px;
-      border-radius: 10px 10px 0 0;
-      background: var(--hero);
-      color: #ffffff;
-      font-size: 11px;
-      font-weight: 700;
-      margin: 0 0 4px 82px;
-      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16);
-    }
-    .table-wrap {
+      font-family: "Segoe UI", Arial, sans-serif;
       overflow-x: auto;
-      border: 1px solid var(--line);
-      background: #ffffff;
     }
+
+    /* ── Page wrapper ── */
+    .page {
+      width: fit-content;
+      min-width: 320px;
+      margin: 24px auto;
+      background: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(10,20,60,0.13);
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      background: #1b2d6e;
+      padding: 14px 22px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .topbar-title {
+      color: #ffffff;
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+    }
+    .topbar-meta {
+      color: rgba(255,255,255,0.72);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    /* ── Accent bar ── */
+    .accent-bar {
+      height: 4px;
+      background: linear-gradient(90deg, #3b82f6 0%, #6366f1 50%, #a855f7 100%);
+    }
+
+    /* ── Table area ── */
+    .table-wrap {
+      padding: 16px 16px 20px;
+    }
+
     table {
-      width: 100%;
+      width: auto;
       border-collapse: collapse;
+      table-layout: auto;
       font-size: 10px;
-      table-layout: fixed;
+    }
+
+    thead tr {
+      background: #1b2d6e;
     }
     thead th {
-      background: var(--hero);
       color: #ffffff;
-      border: 1px solid var(--line);
-      padding: 2px 4px;
+      padding: 5px 6px;
       text-align: center;
-      vertical-align: top;
-      font-size: 9px;
-      font-weight: 800;
-      white-space: normal;
-      line-height: 1.1;
-      word-break: break-word;
-    }
-    tbody td {
-      border: 1px solid #aeb7d0;
-      padding: 1px 1px;
       vertical-align: middle;
       font-size: 9px;
-      font-weight: 600;
-      white-space: normal;
-      line-height: 1.1;
+      font-weight: 700;
+      white-space: nowrap;
+      line-height: 1.25;
       word-break: break-word;
+      border-right: 1px solid rgba(255,255,255,0.12);
+    }
+    thead th:last-child { border-right: none; }
+
+    tbody tr { border-bottom: 1px solid #e5e9f2; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover td { background: #eef2ff !important; }
+
+    tbody td {
+      padding: 3px 5px;
+      vertical-align: middle;
+      font-size: 9px;
+      font-weight: 500;
+      white-space: nowrap;
+      line-height: 1.3;
+      word-break: normal;
       background: #ffffff;
+      border-right: 1px solid #e5e9f2;
     }
+    tbody td:first-child {
+      white-space: normal;
+      word-break: break-word;
+      max-width: 280px;
+    }
+    tbody td:last-child { border-right: none; }
+
     tbody tr:nth-child(even) td:not(.theme-meta):not(.theme-sales):not(.theme-gap):not(.theme-trend):not(.theme-support):not(.theme-margin) {
-      background: #f7f8fc;
+      background: #f8f9fd;
     }
+
+    /* ── Numerics ── */
     .is-numeric {
       text-align: right !important;
       font-variant-numeric: tabular-nums;
+      font-weight: 600;
     }
-    .theme-meta { background: var(--meta-bg); }
-    .theme-sales { background: var(--sales-bg); }
-    .theme-gap { background: var(--gap-bg); }
-    .theme-trend { background: var(--trend-bg); }
-    .theme-support { background: var(--support-bg); }
-    .theme-margin { background: var(--margin-bg); }
-    .ind-up {
-      color: #15803d;
-      font-size: 8px;
-      margin-right: 2px;
-    }
-    .ind-down {
-      color: #b91c1c;
-      font-size: 8px;
-      margin-right: 2px;
-    }
-    .is-negative {
-      color: #991b1b;
+
+    /* ── Column themes ── */
+    .theme-meta    { background: #dbeafe; }
+    .theme-sales   { background: #fef9c3; }
+    .theme-gap     { background: #fee2e2; }
+    .theme-trend   { background: #fef3c7; }
+    .theme-support { background: #ede9fe; }
+    .theme-margin  { background: #dcfce7; }
+
+    /* ── Indicators ── */
+    .ind-up   { color: #16a34a; font-size: 8px; margin-right: 2px; }
+    .ind-down { color: #dc2626; font-size: 8px; margin-right: 2px; }
+    .is-negative { color: #b91c1c; font-weight: 700; }
+
+    /* ── Group headers ── */
+    .group-header.level-0 td { background: #1b2d6e !important; border-top: 2px solid #0f1e54; border-right: 1px solid rgba(255,255,255,0.12); }
+    .group-header.level-1 td { background: #2a4490 !important; border-top: 1px solid #1b2d6e; border-right: 1px solid rgba(255,255,255,0.12); }
+    .group-header.level-2 td { background: #3d5fbe !important; border-top: 1px solid #2a4490; border-right: 1px solid rgba(255,255,255,0.12); }
+    .group-name {
+      color: #ffffff !important;
+      font-size: 9px;
       font-weight: 800;
+      padding: 4px 8px;
+      letter-spacing: 0.02em;
     }
+    .group-name.level-1 { padding-left: 20px; }
+    .group-metric {
+      color: #ffffff !important;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 4px 5px;
+    }
+    .group-empty { background: #1b2d6e !important; }
+    .group-header.level-1 .group-empty { background: #2a4490 !important; }
+    .group-header.level-2 .group-empty { background: #3d5fbe !important; }
+    .detail-row td:first-child { padding-left: 16px; }
+
+    /* ── Totals row ── */
+    .totals-row td {
+      background: #1b2d6e !important;
+      border-top: 2px solid #0f1e54;
+      border-bottom: none;
+    }
+    .totals-label {
+      color: #ffffff;
+      font-size: 9px;
+      font-weight: 800;
+      padding: 4px 5px;
+      letter-spacing: 0.05em;
+    }
+    .totals-cell {
+      color: #ffffff;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 4px 5px;
+    }
+    .totals-empty {
+      background: #1b2d6e !important;
+    }
+
+    /* ── Summary cards ── */
+    .cards-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 14px 16px 6px;
+      border-bottom: 1px solid #e5e9f2;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #d1d9f0;
+      border-radius: 8px;
+      padding: 8px 14px;
+      min-width: 100px;
+      text-align: center;
+      box-shadow: 0 1px 4px rgba(10,20,60,0.07);
+    }
+    .card-label {
+      font-size: 9px;
+      font-weight: 600;
+      color: #1b2d6e;
+      white-space: nowrap;
+      margin-bottom: 3px;
+    }
+    .card-value {
+      font-size: 13px;
+      font-weight: 800;
+      color: #111827;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .card-value.is-negative { color: #b91c1c; }
+
+    /* ── Empty state ── */
     .empty {
       text-align: center;
-      color: #667085;
-      padding: 26px;
-      background: #f8fafc;
-      font-size: 13px;
+      color: #9ca3af;
+      padding: 28px;
+      font-size: 12px;
     }
-    .footer {
-      padding: 16px 22px 20px;
-      color: #475467;
-      font-size: 11px;
-      background: #ffffff;
-      border-top: 1px solid #dde3f0;
-    }
+
+    /* ── Print ── */
+    @page { size: A4 landscape; margin: 8mm; }
     @media print {
-      body {
-        padding: 0;
-        background: #ffffff;
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
-      .report-shell {
-        box-shadow: none;
-        border-radius: 0;
-        max-width: none;
-      }
-      .table-wrap {
-        overflow: visible;
-      }
-    }
-    @media (max-width: 980px) {
-      body { padding: 10px; }
-      .report-strip { display: none; }
-      .summary-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-      .summary-card strong {
-        font-size: 22px;
-      }
-      .section-title {
-        margin-left: 0;
-      }
+      body { background: #ffffff; }
+      .page { margin: 0; border-radius: 0; box-shadow: none; max-width: none; }
+      .table-wrap { padding: 8px; overflow: visible; }
+      tbody tr:hover td { background: inherit !important; }
     }
   </style>
 </head>
 <body>
-  <div class="report-shell">
-    <aside class="report-strip"></aside>
-    <main class="report-main">
-      <section class="hero">
-        <div class="hero-top">
-          <img src="${escapeHtml(brandLogoUrl)}" alt="${escapeHtml(BRAND_NAME)}" />
-          <div class="hero-brand">
-            <strong>${escapeHtml(BRAND_NAME)}</strong>
-            <span>Relatorio automatizado</span>
-          </div>
-        </div>
-        <h1>${escapeHtml(title)}</h1>
-        <p>${escapeHtml(headerSubtitle)}</p>
-      </section>
-
-      <section class="summary-zone">
-        <div class="summary-grid">${summaryCardsHtml}</div>
-        <div class="info-ribbon">${infoChips}</div>
-      </section>
-
-      <section class="content">
-        <div class="section-title">${escapeHtml(title)}</div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>${tableHead}</tr>
-            </thead>
-            <tbody>
-              ${tableBody}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <footer class="footer">
-        ${escapeHtml(BRAND_NAME)} | Conteudo pronto para envio por N8N e conversao para PDF quando necessario.
-      </footer>
-    </main>
+  <div class="page">
+    <header class="topbar">
+      <span class="topbar-title">${escapeHtml(title)}</span>
+      <span class="topbar-meta">${escapeHtml(metaLine)}</span>
+    </header>
+    <div class="accent-bar"></div>
+    ${summaryCards.length > 0 ? `
+    <div class="cards-wrap">
+      ${summaryCards.map((card) => {
+        const formatted = formatDisplayValue(card.value, { name: card.label, dataType: card.dataType })
+        const isNeg = typeof card.value === "number" && card.value < 0
+        return `<div class="card">
+          <div class="card-label">${escapeHtml(card.label)}</div>
+          <div class="card-value${isNeg ? " is-negative" : ""}">${escapeHtml(formatted || String(card.value ?? "—"))}</div>
+        </div>`
+      }).join("")}
+    </div>` : ""}
+    <div class="table-wrap">
+      <table>
+        <colgroup>${displayCols.map((c) => `<col style="min-width:${getColumnWidth(c.headerName)}" />`).join("")}</colgroup>
+        <thead>
+          <tr>${tableHead}</tr>
+        </thead>
+        <tbody>
+          ${tableBody}
+        </tbody>
+      </table>
+    </div>
   </div>
 </body>
 </html>`

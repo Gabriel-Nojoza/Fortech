@@ -40,7 +40,8 @@ interface ResultsPanelProps {
   isExecuting: boolean
   onExecute: () => void
   onPreviewHtml: () => void
-  onGeneratePdf: () => void
+  onGeneratePdf: () => void | Promise<void>
+  isGeneratingPdf?: boolean
   onRemoveColumn: (tableName: string, columnName: string) => void
   onRemoveMeasure: (tableName: string, measureName: string) => void
 }
@@ -199,6 +200,7 @@ export function ResultsPanel({
   onExecute,
   onPreviewHtml,
   onGeneratePdf,
+  isGeneratingPdf,
   onRemoveColumn,
   onRemoveMeasure,
 }: ResultsPanelProps) {
@@ -367,11 +369,15 @@ export function ResultsPanel({
           size="sm"
           variant="outline"
           onClick={onGeneratePdf}
-          disabled={!reportHtml || !result || result.rows.length === 0}
+          disabled={!reportHtml || !result || result.rows.length === 0 || isGeneratingPdf}
           className="h-7 gap-1.5 text-xs"
         >
-          <FileDown className="size-3" />
-          Gerar PDF
+          {isGeneratingPdf ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <FileDown className="size-3" />
+          )}
+          {isGeneratingPdf ? "Gerando..." : "Gerar PDF"}
         </Button>
 
         {result && (

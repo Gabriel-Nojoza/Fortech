@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
-import { getAccessToken, executeDAXQuery, getDatasetMetadata } from "@/lib/powerbi"
+import { getAccessToken, executeDAXQuery, getDatasetMetadata, getDatasetLastRefresh } from "@/lib/powerbi"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
 import { buildCsvContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
 import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
@@ -397,11 +397,17 @@ export async function POST(request: Request) {
     const reportTitle = automationName
     const csvContent = buildCsvContent(result)
     const textReport = buildTextReport(result)
-    const summaryCards = await fetchReportSummaryCards({
-      availableMeasures: executionMetadata.measures,
-      filters: execution.appliedFilters,
-      runQuery: (summaryQuery) => executeDAXQuery(token, executionDatasetId, summaryQuery),
-    }).catch(() => [])
+    const [summaryCards, datasetRefreshedAt] = await Promise.all([
+      fetchReportSummaryCards({
+        availableMeasures: executionMetadata.measures,
+        selectedMeasures: selectedMeasuresForExecution,
+        filters: execution.appliedFilters,
+        runQuery: (summaryQuery) => executeDAXQuery(token, executionDatasetId, summaryQuery),
+      }).catch(() => []),
+      executionWorkspaceId
+        ? getDatasetLastRefresh(token, executionWorkspaceId, executionDatasetId)
+        : Promise.resolve(null),
+    ])
     const htmlReport = buildHtmlReport({
       title: reportTitle,
       subtitle:
@@ -410,10 +416,12 @@ export async function POST(request: Request) {
           : `Dataset origem ${datasetId} | Execucao ${executionDatasetId}`,
       generatedAt,
       selectedItems,
+      selectedColumns: selectedColumnsForExecution,
       filters: execution.appliedFilters,
       brandLogoUrl: new URL(BRAND_LOGO_PATH, request.url).toString(),
       summaryCards,
       result,
+      datasetRefreshedAt,
     })
 
     if (contacts.length > 0) {

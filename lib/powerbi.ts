@@ -750,3 +750,22 @@ export async function getWorkspaceScanResult(token: string, scanId: string) {
 
   return res.json() as Promise<Record<string, unknown>>
 }
+
+export async function getDatasetLastRefresh(
+  token: string,
+  workspaceId: string,
+  datasetId: string
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${PBI_API_BASE}/groups/${workspaceId}/datasets/${datasetId}/refreshes?$top=1`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    if (!res.ok) return null
+    const data = await res.json() as { value?: Array<{ endTime?: string; startTime?: string }> }
+    const latest = data?.value?.[0]
+    return latest?.endTime ?? latest?.startTime ?? null
+  } catch {
+    return null
+  }
+}

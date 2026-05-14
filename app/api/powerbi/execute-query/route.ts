@@ -3,6 +3,7 @@ import {
   getAccessToken,
   executeDAXQuery,
   getDatasetMetadata,
+  getDatasetLastRefresh,
   listDatasets,
 } from "@/lib/powerbi"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
@@ -215,16 +216,22 @@ export async function POST(request: Request) {
     const selectedItems = Array.isArray(body?.selectedItems)
       ? body.selectedItems.filter((item: unknown): item is string => typeof item === "string")
       : []
-    const summaryCards = await fetchReportSummaryCards({
-      availableMeasures: executionMetadata.measures,
-      filters: execution.appliedFilters,
-      runQuery: (summaryQuery) =>
-        executeDAXQuery(
-          token,
-          effectiveExecutionDatasetId,
-          injectCustomMeasuresIntoDax(summaryQuery, executionMetadata)
-        ),
-    }).catch(() => [])
+    const [summaryCards, datasetRefreshedAt] = await Promise.all([
+      fetchReportSummaryCards({
+        availableMeasures: executionMetadata.measures,
+        selectedMeasures,
+        filters: execution.appliedFilters,
+        runQuery: (summaryQuery) =>
+          executeDAXQuery(
+            token,
+            effectiveExecutionDatasetId,
+            injectCustomMeasuresIntoDax(summaryQuery, executionMetadata)
+          ),
+      }).catch(() => []),
+      effectiveExecutionWorkspaceId
+        ? getDatasetLastRefresh(token, effectiveExecutionWorkspaceId, effectiveExecutionDatasetId)
+        : Promise.resolve(null),
+    ])
     const reportHtml = buildHtmlReport({
       title: reportTitle,
       subtitle:
@@ -233,10 +240,12 @@ export async function POST(request: Request) {
           : `Dataset origem ${datasetId} | Execucao ${effectiveExecutionDatasetId}`,
       generatedAt,
       selectedItems,
+      selectedColumns,
       filters: execution.appliedFilters,
       brandLogoUrl: new URL(BRAND_LOGO_PATH, request.url).toString(),
       summaryCards,
       result,
+      datasetRefreshedAt,
     })
 
     return NextResponse.json({

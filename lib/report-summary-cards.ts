@@ -1,15 +1,5 @@
 import { buildDAXQuery } from "@/lib/dax-builder"
-import type { DAXQueryResult, DatasetMeasure, QueryFilter } from "@/lib/types"
-
-const PREFERRED_SUMMARY_CARD_NAMES = [
-  "Dias Uteis",
-  "Dias Realizados",
-  "Dias Restantes",
-  "Vl Faturados",
-  "Real x Meta",
-  "% Margem Pedidos",
-  "Semana_",
-] as const
+import type { DAXQueryResult, DatasetMeasure, QueryFilter, SelectedMeasure } from "@/lib/types"
 
 function normalizeMeasureName(value: string) {
   return value
@@ -19,28 +9,28 @@ function normalizeMeasureName(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
 }
 
-function selectSummaryMeasures(availableMeasures: DatasetMeasure[]) {
+function selectSummaryMeasures(
+  availableMeasures: DatasetMeasure[],
+  selectedMeasures: SelectedMeasure[]
+): DatasetMeasure[] {
   const measureMap = new Map<string, DatasetMeasure>()
-
   for (const measure of availableMeasures) {
-    const normalized = normalizeMeasureName(measure.measureName)
-    if (!measureMap.has(normalized)) {
-      measureMap.set(normalized, measure)
-    }
+    measureMap.set(normalizeMeasureName(measure.measureName), measure)
   }
 
-  return PREFERRED_SUMMARY_CARD_NAMES.flatMap((measureName) => {
-    const measure = measureMap.get(normalizeMeasureName(measureName))
-    return measure ? [measure] : []
+  return selectedMeasures.flatMap((sel) => {
+    const found = measureMap.get(normalizeMeasureName(sel.measureName))
+    return found ? [found] : []
   })
 }
 
 export async function fetchReportSummaryCards(params: {
   availableMeasures: DatasetMeasure[]
+  selectedMeasures: SelectedMeasure[]
   filters: QueryFilter[]
   runQuery: (query: string) => Promise<DAXQueryResult>
 }) {
-  const summaryMeasures = selectSummaryMeasures(params.availableMeasures)
+  const summaryMeasures = selectSummaryMeasures(params.availableMeasures, params.selectedMeasures)
 
   if (summaryMeasures.length === 0) {
     return []

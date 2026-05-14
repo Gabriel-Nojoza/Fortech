@@ -99,17 +99,7 @@ export function TablesPanel({
         if (!showHidden && table.isHidden) return false
 
         if (normalizedSearch) {
-          const normalizedTableName = normalizeName(table.name)
-
-          const hasMatchingColumn = normalizedColumns.some((column) => {
-            if (column.__normalizedTableName !== normalizedTableName) return false
-            if (!showHidden && column.isHidden) return false
-            return column.__normalizedColumnName.includes(normalizedSearch)
-          })
-
-          return (
-            normalizedTableName.includes(normalizedSearch) || hasMatchingColumn
-          )
+          return normalizeName(table.name).includes(normalizedSearch)
         }
 
         return true
@@ -153,10 +143,6 @@ export function TablesPanel({
       .filter((column) => {
         if (column.__normalizedTableName !== normalizedTableName) return false
         if (!showHidden && column.isHidden) return false
-
-        if (normalizedSearch) {
-          return column.__normalizedColumnName.includes(normalizedSearch)
-        }
 
         return true
       })
