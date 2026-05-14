@@ -399,27 +399,29 @@ export function FiltersPanel({
                         </div>
                       </div>
 
-                      {isDateFilter ? (
-                        <DateFilterInputs
-                          filter={filter}
-                          onUpdateFilter={onUpdateFilter}
-                        />
-                      ) : (
-                        <div className="flex gap-1.5">
-                          <FilterValueField
+                      <div className={filter.locked ? "pointer-events-none select-none opacity-50" : undefined}>
+                        {isDateFilter ? (
+                          <DateFilterInputs
                             filter={filter}
-                            datasetId={datasetId}
-                            executionDatasetId={executionDatasetId}
-                            executionWorkspaceId={executionWorkspaceId}
-                            autoOpenSignal={
-                              autoOpenFilterSignal?.startsWith(`${filter.id}:`)
-                                ? autoOpenFilterSignal
-                                : null
-                            }
                             onUpdateFilter={onUpdateFilter}
                           />
-                        </div>
-                      )}
+                        ) : (
+                          <div className="flex gap-1.5">
+                            <FilterValueField
+                              filter={filter}
+                              datasetId={datasetId}
+                              executionDatasetId={executionDatasetId}
+                              executionWorkspaceId={executionWorkspaceId}
+                              autoOpenSignal={
+                                autoOpenFilterSignal?.startsWith(`${filter.id}:`)
+                                  ? autoOpenFilterSignal
+                                  : null
+                              }
+                              onUpdateFilter={onUpdateFilter}
+                            />
+                          </div>
+                        )}
+                      </div>
 
                     </div>
                   )
