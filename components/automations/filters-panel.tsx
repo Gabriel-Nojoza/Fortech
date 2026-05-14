@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Filter, X, FilterX, Plus, Search, Sparkles } from "lucide-react"
+import { Filter, X, FilterX, Plus, Search, Sparkles, Lock, LockOpen } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -219,6 +219,7 @@ interface FiltersPanelProps {
   autoOpenFilterSignal?: string | null
   onUpdateFilter: (id: string, field: string, value: string) => void
   onRemoveFilter: (id: string) => void
+  onLockFilter: (id: string, locked: boolean) => void
   onClearAll: () => void
 }
 
@@ -232,6 +233,7 @@ export function FiltersPanel({
   autoOpenFilterSignal,
   onUpdateFilter,
   onRemoveFilter,
+  onLockFilter,
   onClearAll,
 }: FiltersPanelProps) {
   return (
@@ -254,7 +256,7 @@ export function FiltersPanel({
           )}
         </div>
 
-        {filters.length > 0 && (
+        {filters.some((f) => !f.locked) && (
           <Button
             variant="ghost"
             size="sm"
@@ -355,23 +357,46 @@ export function FiltersPanel({
                       className="rounded-xl border border-border bg-background/50 p-3 shadow-sm"
                     >
                       <div className="mb-2 flex items-center justify-between">
-                        <div className="min-w-0">
-                          <span className="block truncate text-xs font-semibold text-primary">
-                            {filter.columnName}
-                          </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1">
+                            {filter.locked && (
+                              <Lock className="size-3 shrink-0 text-amber-500" />
+                            )}
+                            <span className="block truncate text-xs font-semibold text-primary">
+                              {filter.columnName}
+                            </span>
+                          </div>
                           <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">
                             {filter.tableName}
                           </span>
                         </div>
 
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-5"
-                          onClick={() => onRemoveFilter(filter.id)}
-                        >
-                          <X className="size-3" />
-                        </Button>
+                        <div className="flex items-center gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-5"
+                            title={filter.locked ? "Destravar filtro" : "Travar filtro"}
+                            onClick={() => onLockFilter(filter.id, !filter.locked)}
+                          >
+                            {filter.locked ? (
+                              <Lock className="size-3 text-amber-500" />
+                            ) : (
+                              <LockOpen className="size-3 text-muted-foreground" />
+                            )}
+                          </Button>
+
+                          {!filter.locked && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-5"
+                              onClick={() => onRemoveFilter(filter.id)}
+                            >
+                              <X className="size-3" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
 
                       {isDateFilter ? (

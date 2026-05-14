@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import useSWR, { mutate } from "swr"
 import {
   Play,
@@ -10,6 +11,7 @@ import {
   Loader2,
   ListFilter,
   Workflow,
+  Pencil,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -59,13 +61,33 @@ function describeExportFormat(format: string): string {
   return format.toUpperCase()
 }
 
+const BUILDER_STORAGE_KEY = "report-builder-draft"
+
 export function SavedAutomationsList() {
+  const router = useRouter()
   const { data: automations, isLoading } = useSWR<Automation[]>(
     "/api/automations",
     fetcher
   )
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [runningId, setRunningId] = useState<string | null>(null)
+
+  function handleEdit(auto: Automation) {
+    try {
+      localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify({
+        selectedWorkspace: auto.workspace_id ?? "",
+        selectedDataset: auto.dataset_id ?? "",
+        selectedExecutionDataset: "",
+        selectedColumns: auto.selected_columns ?? [],
+        selectedMeasures: auto.selected_measures ?? [],
+        activeTableName: null,
+        filters: auto.filters ?? [],
+      }))
+    } catch {
+      // ignore storage errors
+    }
+    router.push("/automations")
+  }
 
   async function handleRun(automation: Automation) {
     setRunningId(automation.id)
@@ -212,6 +234,22 @@ export function SavedAutomationsList() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => handleEdit(auto)}
+                        >
+                          <Pencil className="size-3.5" />
+                          <span className="sr-only">Editar</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Editar no construtor</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>

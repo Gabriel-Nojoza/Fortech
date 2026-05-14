@@ -63,18 +63,32 @@ const fetcher = async (url: string) => {
 }
 
 
+const BUILDER_STORAGE_KEY = "report-builder-draft"
+
+function loadBuilderDraft() {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = localStorage.getItem(BUILDER_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
 export default function AutomationsPage() {
   const lastExecutedSignatureRef = useRef("")
-  const defaultFiltersAppliedRef = useRef<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState("builder")
-  const [selectedWorkspace, setSelectedWorkspace] = useState("")
-  const [selectedDataset, setSelectedDataset] = useState("")
-  const [selectedExecutionDataset, setSelectedExecutionDataset] = useState("")
-  const [selectedColumns, setSelectedColumns] = useState<SelectedColumn[]>([])
-  const [selectedMeasures, setSelectedMeasures] = useState<SelectedMeasure[]>([])
-  const [activeTableName, setActiveTableName] = useState<string | null>(null)
-  const [filters, setFilters] = useState<QueryFilter[]>([])
+
+  // Restore draft from localStorage on first mount
+  const draft = typeof window !== "undefined" ? loadBuilderDraft() : null
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string>(draft?.selectedWorkspace ?? "")
+  const [selectedDataset, setSelectedDataset] = useState<string>(draft?.selectedDataset ?? "")
+  const [selectedExecutionDataset, setSelectedExecutionDataset] = useState<string>(draft?.selectedExecutionDataset ?? "")
+  const [selectedColumns, setSelectedColumns] = useState<SelectedColumn[]>(draft?.selectedColumns ?? [])
+  const [selectedMeasures, setSelectedMeasures] = useState<SelectedMeasure[]>(draft?.selectedMeasures ?? [])
+  const [activeTableName, setActiveTableName] = useState<string | null>(draft?.activeTableName ?? null)
+  const [filters, setFilters] = useState<QueryFilter[]>(draft?.filters ?? [])
   const [autoOpenFilterSignal, setAutoOpenFilterSignal] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
   const [result, setResult] = useState<DAXQueryResult | null>(null)
@@ -90,16 +104,35 @@ export default function AutomationsPage() {
     setMounted(true)
   }, [])
 
-  const { data: rawWorkspaces } = useSWR("/api/workspaces", fetcher)
-  const { data: rawContacts } = useSWR("/api/contacts", fetcher)
+  // Persist builder state to localStorage whenever it changes
+  useEffect(() => {
+    if (!mounted) return
+    try {
+      localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify({
+        selectedWorkspace,
+        selectedDataset,
+        selectedExecutionDataset,
+        selectedColumns,
+        selectedMeasures,
+        activeTableName,
+        filters,
+      }))
+    } catch {
+      // ignore storage errors
+    }
+  }, [mounted, selectedWorkspace, selectedDataset, selectedExecutionDataset, selectedColumns, selectedMeasures, activeTableName, filters])
+
+  const SWR_OPTS = { revalidateOnFocus: false }
+  const { data: rawWorkspaces } = useSWR("/api/workspaces", fetcher, SWR_OPTS)
+  const { data: rawContacts } = useSWR("/api/contacts", fetcher, SWR_OPTS)
   const { data: stats } = useSWR<{
     n8nConfigured?: boolean
     canSyncAllPowerBi?: boolean
     canImportWorkspaceCatalogInBulk?: boolean
-  }>("/api/stats", fetcher)
+  }>("/api/stats", fetcher, SWR_OPTS)
   const { data: botQrConfig } = useSWR<{
     status?: "starting" | "awaiting_qr" | "connected" | "reconnecting" | "offline" | "error"
-  }>("/api/bot/qr", fetcher)
+  }>("/api/bot/qr", fetcher, SWR_OPTS)
 
   const workspaces: Workspace[] = Array.isArray(rawWorkspaces) ? rawWorkspaces : []
   const contacts: Contact[] = Array.isArray(rawContacts) ? rawContacts : []
@@ -114,7 +147,8 @@ export default function AutomationsPage() {
     error: datasetsError,
   } = useSWR(
     pbiWorkspaceId ? `/api/powerbi/datasets?workspaceId=${pbiWorkspaceId}` : null,
-    fetcher
+    fetcher,
+    SWR_OPTS
   )
 
   const datasets = Array.isArray(rawDatasets) ? rawDatasets : []
@@ -134,7 +168,8 @@ export default function AutomationsPage() {
     execution_dataset_name: string | null
   }>(
     selectedDataset ? `/api/automations/catalog?datasetId=${selectedDataset}` : null,
-    fetcher
+    fetcher,
+    SWR_OPTS
   )
 
   const {
@@ -150,7 +185,8 @@ export default function AutomationsPage() {
     selectedDataset && pbiWorkspaceId
       ? `/api/powerbi/metadata?datasetId=${selectedDataset}&workspaceId=${pbiWorkspaceId}&refresh=1`
       : null,
-    fetcher
+    fetcher,
+    SWR_OPTS
   )
 
   const isLoadingSchema = !!selectedDataset && loadingMetadata
@@ -208,28 +244,6 @@ export default function AutomationsPage() {
     )
   }, [selectedDataset, fixedCatalogPayload?.execution_dataset_id])
 
-  useEffect(() => {
-    if (!columns.length || !selectedDataset) return
-    if (defaultFiltersAppliedRef.current === selectedDataset) return
-    defaultFiltersAppliedRef.current = selectedDataset
-
-    const norm = (s: string) =>
-      s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
-
-    const condvendaCol =
-      columns.find((col) => norm(col.tableName).includes("condvenda") && norm(col.columnName).includes("condvenda")) ??
-      columns.find((col) => norm(col.columnName).includes("condvenda"))
-
-    if (condvendaCol) {
-      setSelectedColumns((prev) => {
-        const alreadySelected = prev.some(
-          (c) => c.tableName === condvendaCol.tableName && c.columnName === condvendaCol.columnName
-        )
-        if (alreadySelected) return prev
-        return [...prev, { tableName: condvendaCol.tableName, columnName: condvendaCol.columnName }]
-      })
-    }
-  }, [selectedDataset, columns])
 
   const quickFilters = useMemo(() => {
     return buildQuickFilters(columns, filters, {
@@ -294,7 +308,7 @@ export default function AutomationsPage() {
   }, [])
 
   const addFilter = useCallback(
-    (tableName: string, columnName: string, dataType: string) => {
+    (tableName: string, columnName: string, dataType: string, defaultValue?: string) => {
       const existingFilter = filters.find(
         (filter) =>
           filter.tableName === tableName && filter.columnName === columnName
@@ -315,7 +329,7 @@ export default function AutomationsPage() {
           tableName,
           columnName,
           operator: "eq",
-          value: getDefaultFilterValue(dataType),
+          value: defaultValue ?? getDefaultFilterValue(dataType),
           valueTo: getDefaultFilterValueTo(dataType),
           dataType,
         },
@@ -343,10 +357,18 @@ export default function AutomationsPage() {
   }, [])
 
   const removeFilter = useCallback((id: string) => {
+    setFilters((prev) => {
+      const target = prev.find((f) => f.id === id)
+      if (target?.locked) return prev
+      return prev.filter((f) => f.id !== id)
+    })
     setAutoOpenFilterSignal((current) =>
       current?.startsWith(`${id}:`) ? null : current
     )
-    setFilters((prev) => prev.filter((f) => f.id !== id))
+  }, [])
+
+  const lockFilter = useCallback((id: string, locked: boolean) => {
+    setFilters((prev) => prev.map((f) => (f.id === id ? { ...f, locked } : f)))
   }, [])
 
   const executeQuery = useCallback(
@@ -538,31 +560,44 @@ export default function AutomationsPage() {
     return () => window.clearTimeout(timeoutId)
   }, [mounted, selectedDataset, hasQuery, daxQuery, isExecuting, executeQuery])
 
-  const handleGeneratePdf = useCallback(() => {
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
+
+  const handleGeneratePdf = useCallback(async () => {
     if (!reportHtml) {
       toast.error("Execute uma query com resultado antes de gerar PDF")
       return
     }
 
-    const blob = new Blob([reportHtml], { type: "text/html;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const printWindow = window.open(url, "_blank", "width=1200,height=900")
+    setIsGeneratingPdf(true)
+    const toastId = toast.loading("Gerando PDF...")
 
-    if (!printWindow) {
+    try {
+      const res = await fetch("/api/automations/generate-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html: reportHtml }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error || "Erro ao gerar PDF")
+      }
+
+      const pdfBlob = await res.blob()
+      const url = URL.createObjectURL(pdfBlob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "relatorio.pdf"
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      toast.error(
-        "Nao foi possivel abrir a janela do PDF. Verifique se o navegador bloqueou pop-up."
-      )
-      return
+      toast.success("PDF gerado com sucesso", { id: toastId })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao gerar PDF", { id: toastId })
+    } finally {
+      setIsGeneratingPdf(false)
     }
-
-    const triggerPrint = () => {
-      printWindow.focus()
-      printWindow.print()
-      window.setTimeout(() => URL.revokeObjectURL(url), 10000)
-    }
-
-    printWindow.onload = triggerPrint
   }, [reportHtml])
 
   const handlePreviewHtml = useCallback(() => {
@@ -1063,8 +1098,9 @@ export default function AutomationsPage() {
                   autoOpenFilterSignal={autoOpenFilterSignal}
                   onUpdateFilter={updateFilter}
                   onRemoveFilter={removeFilter}
+                  onLockFilter={lockFilter}
                   onClearAll={() => {
-                    setFilters([])
+                    setFilters((prev) => prev.filter((f) => f.locked))
                     setAutoOpenFilterSignal(null)
                   }}
                 />
@@ -1079,6 +1115,7 @@ export default function AutomationsPage() {
                   onExecute={executeQuery}
                   onPreviewHtml={handlePreviewHtml}
                   onGeneratePdf={handleGeneratePdf}
+                  isGeneratingPdf={isGeneratingPdf}
                   onRemoveColumn={toggleColumn}
                   onRemoveMeasure={toggleMeasure}
                 />
@@ -1124,8 +1161,9 @@ export default function AutomationsPage() {
                     autoOpenFilterSignal={autoOpenFilterSignal}
                     onUpdateFilter={updateFilter}
                     onRemoveFilter={removeFilter}
+                    onLockFilter={lockFilter}
                     onClearAll={() => {
-                      setFilters([])
+                      setFilters((prev) => prev.filter((f) => f.locked))
                       setAutoOpenFilterSignal(null)
                     }}
                   />
@@ -1144,6 +1182,7 @@ export default function AutomationsPage() {
                     onExecute={executeQuery}
                     onPreviewHtml={handlePreviewHtml}
                     onGeneratePdf={handleGeneratePdf}
+                    isGeneratingPdf={isGeneratingPdf}
                     onRemoveColumn={toggleColumn}
                     onRemoveMeasure={toggleMeasure}
                   />

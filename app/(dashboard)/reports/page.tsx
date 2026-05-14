@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import useSWR from "swr"
 import {
   FileBarChart2,
@@ -10,6 +11,11 @@ import {
   RefreshCcw,
   Loader2,
   Eye,
+  Workflow,
+  Pencil,
+  Play,
+  Clock,
+  Database,
 } from "lucide-react"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -32,8 +38,32 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { Report, Workspace } from "@/lib/types"
+import { describeCronValue } from "@/lib/schedule-cron"
 import { toast } from "sonner"
+
+const BUILDER_STORAGE_KEY = "report-builder-draft"
+
+interface AutomationItem {
+  id: string
+  name: string
+  dataset_id: string
+  workspace_id: string | null
+  selected_columns: { tableName: string; columnName: string }[]
+  selected_measures: { tableName: string; measureName: string }[]
+  filters: unknown[]
+  dax_query: string | null
+  cron_expression: string | null
+  export_format: string
+  is_active: boolean
+  contacts: { id: string; name: string }[]
+}
 
 const fetcher = async (url: string) => {
   const response = await fetch(url)
@@ -47,6 +77,8 @@ const fetcher = async (url: string) => {
 }
 
 export default function ReportsPage() {
+  const router = useRouter()
+
   const {
     data: reports,
     isLoading,
@@ -58,12 +90,57 @@ export default function ReportsPage() {
     mutate: mutateWorkspaces,
   } = useSWR<Workspace[]>("/api/workspaces", fetcher)
 
+  const { data: automationsData, isLoading: loadingAutomations } =
+    useSWR<AutomationItem[]>("/api/automations", fetcher)
+
   const reportList = Array.isArray(reports) ? reports : []
   const workspaceList = Array.isArray(workspaces) ? workspaces : []
+  const automationList = Array.isArray(automationsData) ? automationsData : []
 
   const [search, setSearch] = useState("")
   const [wsFilter, setWsFilter] = useState("all")
   const [syncingPowerBi, setSyncingPowerBi] = useState(false)
+  const [runningId, setRunningId] = useState<string | null>(null)
+
+  function handleEditAutomation(auto: AutomationItem) {
+    try {
+      localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify({
+        selectedWorkspace: auto.workspace_id ?? "",
+        selectedDataset: auto.dataset_id ?? "",
+        selectedExecutionDataset: "",
+        selectedColumns: auto.selected_columns ?? [],
+        selectedMeasures: auto.selected_measures ?? [],
+        activeTableName: null,
+        filters: auto.filters ?? [],
+      }))
+    } catch {
+      // ignore storage errors
+    }
+    router.push("/automations")
+  }
+
+  async function handleRunAutomation(auto: AutomationItem) {
+    setRunningId(auto.id)
+    try {
+      const res = await fetch("/api/automations/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ automation_id: auto.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(`Automacao executada: ${data.rowCount ?? 0} linhas retornadas.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao executar automacao")
+    } finally {
+      setRunningId(null)
+    }
+  }
+
+  function describeFormat(format: string) {
+    if (format === "table") return "Tabela"
+    return format.toUpperCase()
+  }
 
   const filtered = reportList.filter((report) => {
     const matchSearch = report.name.toLowerCase().includes(search.toLowerCase())
@@ -260,6 +337,131 @@ export default function ReportsPage() {
                               </a>
                             </Button>
                           )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Automações criadas no Construtor */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Workflow className="size-4 text-primary" />
+                Automacoes DAX ({automationList.length})
+              </CardTitle>
+              <Button variant="outline" size="sm" asChild className="gap-1.5 text-xs">
+                <Link href="/automations">
+                  <Pencil className="size-3.5" />
+                  Ir para Construtor
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-0">
+            {loadingAutomations ? (
+              <div className="space-y-3 p-6">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <Skeleton key={index} className="h-12 rounded" />
+                ))}
+              </div>
+            ) : automationList.length === 0 ? (
+              <div className="flex flex-col items-center gap-4 py-12">
+                <Workflow className="size-12 text-muted-foreground" />
+                <div className="text-center">
+                  <p className="font-medium">Nenhuma automacao salva</p>
+                  <p className="text-sm text-muted-foreground">
+                    Crie uma query no Construtor de Relatorios e salve como automacao.
+                  </p>
+                </div>
+                <Button variant="outline" asChild>
+                  <Link href="/automations">Abrir Construtor</Link>
+                </Button>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Formato</TableHead>
+                    <TableHead>Frequencia</TableHead>
+                    <TableHead>Contatos</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {automationList.map((auto) => (
+                    <TableRow key={auto.id}>
+                      <TableCell className="font-medium">{auto.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {describeFormat(auto.export_format)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {auto.cron_expression ? (
+                          <Badge variant="outline" className="gap-1 text-xs">
+                            <Clock className="size-3" />
+                            {describeCronValue(auto.cron_expression).join(" | ")}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs">Sob demanda</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-xs">
+                          {auto.contacts?.length ?? 0} contato(s)
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={auto.is_active ? "default" : "secondary"} className="text-xs">
+                          {auto.is_active ? "Ativa" : "Inativa"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  onClick={() => handleEditAutomation(auto)}
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Editar no construtor</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  disabled={runningId === auto.id}
+                                  onClick={() => handleRunAutomation(auto)}
+                                >
+                                  {runningId === auto.id ? (
+                                    <Loader2 className="size-3.5 animate-spin" />
+                                  ) : (
+                                    <Play className="size-3.5" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Executar agora</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         </div>
                       </TableCell>
                     </TableRow>

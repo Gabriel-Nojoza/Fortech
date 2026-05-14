@@ -168,6 +168,7 @@ export interface QueryFilter {
   value: string
   valueTo?: string
   dataType: string
+  locked?: boolean
 }
 
 export interface SelectedColumn {

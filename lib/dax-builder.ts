@@ -227,6 +227,35 @@ function buildWrappedFilters(filters: Filter[]) {
     .filter((expr): expr is string => Boolean(expr))
 }
 
+// Group filters by table and wrap each group as FILTER(ALL(table), expr1 && expr2)
+// This is the correct pattern for SUMMARIZECOLUMNS — avoids CALCULATETABLE
+// overriding the row context and returning zeros across different dataset structures.
+function buildSumcolFilterArgs(filters: Filter[]): string[] {
+  const validFilters = filters.filter(
+    (f) =>
+      String(f.value ?? "").trim() !== "" ||
+      String(f.valueTo ?? "").trim() !== ""
+  )
+
+  const byTable = new Map<string, Filter[]>()
+  for (const filter of validFilters) {
+    const existing = byTable.get(filter.tableName) ?? []
+    byTable.set(filter.tableName, [...existing, filter])
+  }
+
+  const result: string[] = []
+  for (const [tableName, tableFilters] of byTable) {
+    const exprs = tableFilters
+      .map(buildFilterExpression)
+      .filter((e): e is string => Boolean(e))
+    if (exprs.length === 0) continue
+    const combined = exprs.length === 1 ? exprs[0] : exprs.map((e) => `(${e})`).join(" && ")
+    result.push(`FILTER(ALL(${tableRef(tableName)}), ${combined})`)
+  }
+
+  return result
+}
+
 function buildMeasureAlias(measureName: string) {
   return `"${escapeDaxString(measureName)}", COALESCE(CALCULATE(${measureRef(measureName)}), 0)`
 }
@@ -277,17 +306,38 @@ export function buildDAXQuery({
 
   // colunas + medidas
   if (hasColumns && hasMeasures) {
+    const uniqueTableNames = new Set(columns.map((c) => c.tableName))
+    const isMultiTable = uniqueTableNames.size > 1
+
     const groupByRefs = columns.map((column) => `    ${colRef(column.tableName, column.columnName)}`)
     const measureAliases = measures.map((measure) => `    ${buildMeasureAlias(measure.measureName)}`)
-    const summarizeBody = [...groupByRefs, ...measureAliases].join(",\n")
 
-    const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
+    if (isMultiTable) {
+      // Múltiplas tabelas de dimensão (ex: hierarquia Gerente/Supervisor/Vendedor de tabelas distintas).
+      // FILTER(ALL()) dentro do SUMMARIZECOLUMNS não funciona para cross-table — usar CALCULATETABLE.
+      const wrappedFilters = buildWrappedFilters(filters)
+      const summarizeBody = [...groupByRefs, ...measureAliases].join(",\n")
+      const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
 
-    if (wrappedFilters.length === 0) {
+      if (wrappedFilters.length === 0) {
+        return [
+          "EVALUATE",
+          `TOPN(${limit},`,
+          `  ${summarizeExpression.replace(/\n/g, "\n  ")},`,
+          `  ${measureRef(measures[0].measureName)}, DESC`,
+          ")",
+          "ORDER BY",
+          `  ${measureRef(measures[0].measureName)} DESC`,
+        ].join("\n")
+      }
+
       return [
         "EVALUATE",
         `TOPN(${limit},`,
-        `  ${summarizeExpression.replace(/\n/g, "\n  ")},`,
+        "  CALCULATETABLE(",
+        `    ${summarizeExpression.replace(/\n/g, "\n    ")},`,
+        `    ${wrappedFilters.join(",\n    ")}`,
+        "  ),",
         `  ${measureRef(measures[0].measureName)}, DESC`,
         ")",
         "ORDER BY",
@@ -295,13 +345,15 @@ export function buildDAXQuery({
       ].join("\n")
     }
 
+    // Tabela única: FILTER(ALL()) dentro do SUMMARIZECOLUMNS evita zeros em datasets de empresa única.
+    const filterArgs = buildSumcolFilterArgs(filters).map((f) => `    ${f}`)
+    const summarizeBody = [...groupByRefs, ...filterArgs, ...measureAliases].join(",\n")
+    const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
+
     return [
       "EVALUATE",
       `TOPN(${limit},`,
-      "  CALCULATETABLE(",
-      `    ${summarizeExpression.replace(/\n/g, "\n    ")},`,
-      `    ${wrappedFilters.join(",\n    ")}`,
-      "  ),",
+      `  ${summarizeExpression.replace(/\n/g, "\n  ")},`,
       `  ${measureRef(measures[0].measureName)}, DESC`,
       ")",
       "ORDER BY",
