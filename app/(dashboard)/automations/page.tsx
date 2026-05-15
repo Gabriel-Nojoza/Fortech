@@ -371,6 +371,10 @@ export default function AutomationsPage() {
     setFilters((prev) => prev.map((f) => (f.id === id ? { ...f, locked } : f)))
   }, [])
 
+  const reorderFilters = useCallback((ids: string[]) => {
+    setFilters((prev) => ids.map((id) => prev.find((f) => f.id === id)!).filter(Boolean))
+  }, [])
+
   const executeQuery = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!selectedDataset) {
@@ -1099,6 +1103,7 @@ export default function AutomationsPage() {
                   onUpdateFilter={updateFilter}
                   onRemoveFilter={removeFilter}
                   onLockFilter={lockFilter}
+                  onReorderFilters={reorderFilters}
                   onClearAll={() => {
                     setFilters((prev) => prev.filter((f) => f.locked))
                     setAutoOpenFilterSignal(null)
@@ -1162,6 +1167,7 @@ export default function AutomationsPage() {
                     onUpdateFilter={updateFilter}
                     onRemoveFilter={removeFilter}
                     onLockFilter={lockFilter}
+                    onReorderFilters={reorderFilters}
                     onClearAll={() => {
                       setFilters((prev) => prev.filter((f) => f.locked))
                       setAutoOpenFilterSignal(null)

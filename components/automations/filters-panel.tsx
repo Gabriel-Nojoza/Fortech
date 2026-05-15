@@ -1,7 +1,22 @@
 "use client"
 
 import { useState } from "react"
-import { Filter, X, FilterX, Plus, Search, Sparkles, Lock, LockOpen } from "lucide-react"
+import { Filter, X, FilterX, Plus, Search, Sparkles, Lock, LockOpen, GripVertical } from "lucide-react"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -202,6 +217,115 @@ function DateFilterInputs({
   )
 }
 
+function SortableFilterItem({
+  filter,
+  datasetId,
+  executionDatasetId,
+  executionWorkspaceId,
+  autoOpenFilterSignal,
+  onUpdateFilter,
+  onRemoveFilter,
+  onLockFilter,
+}: {
+  filter: QueryFilter
+  datasetId: string
+  executionDatasetId?: string
+  executionWorkspaceId?: string | null
+  autoOpenFilterSignal?: string | null
+  onUpdateFilter: (id: string, field: string, value: string) => void
+  onRemoveFilter: (id: string) => void
+  onLockFilter: (id: string, locked: boolean) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: filter.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  const isDateFilter = isDateLikeDataType(filter.dataType)
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="rounded-xl border border-border bg-background/50 p-3 shadow-sm"
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <button
+            type="button"
+            className="shrink-0 cursor-grab touch-none text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="size-3.5" />
+          </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1">
+              {filter.locked && <Lock className="size-3 shrink-0 text-amber-500" />}
+              <span className="block truncate text-xs font-semibold text-primary">
+                {filter.columnName}
+              </span>
+            </div>
+            <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">
+              {filter.tableName}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-5"
+            title={filter.locked ? "Destravar filtro" : "Travar filtro"}
+            onClick={() => onLockFilter(filter.id, !filter.locked)}
+          >
+            {filter.locked ? (
+              <Lock className="size-3 text-amber-500" />
+            ) : (
+              <LockOpen className="size-3 text-muted-foreground" />
+            )}
+          </Button>
+
+          {!filter.locked && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-5"
+              onClick={() => onRemoveFilter(filter.id)}
+            >
+              <X className="size-3" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className={filter.locked ? "pointer-events-none select-none opacity-50" : undefined}>
+        {isDateFilter ? (
+          <DateFilterInputs filter={filter} onUpdateFilter={onUpdateFilter} />
+        ) : (
+          <div className="flex gap-1.5">
+            <FilterValueField
+              filter={filter}
+              datasetId={datasetId}
+              executionDatasetId={executionDatasetId}
+              executionWorkspaceId={executionWorkspaceId}
+              autoOpenSignal={
+                autoOpenFilterSignal?.startsWith(`${filter.id}:`)
+                  ? autoOpenFilterSignal
+                  : null
+              }
+              onUpdateFilter={onUpdateFilter}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 interface FiltersPanelProps {
   quickFilters: Array<{
     key: string
@@ -220,6 +344,7 @@ interface FiltersPanelProps {
   onUpdateFilter: (id: string, field: string, value: string) => void
   onRemoveFilter: (id: string) => void
   onLockFilter: (id: string, locked: boolean) => void
+  onReorderFilters: (ids: string[]) => void
   onClearAll: () => void
 }
 
@@ -234,8 +359,20 @@ export function FiltersPanel({
   onUpdateFilter,
   onRemoveFilter,
   onLockFilter,
+  onReorderFilters,
   onClearAll,
 }: FiltersPanelProps) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = filters.findIndex((f) => f.id === active.id)
+    const newIndex = filters.findIndex((f) => f.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    const reordered = arrayMove(filters, oldIndex, newIndex)
+    onReorderFilters(reordered.map((f) => f.id))
+  }
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -347,86 +484,32 @@ export function FiltersPanel({
                 </p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {filters.map((filter) => {
-                  const isDateFilter = isDateLikeDataType(filter.dataType)
-
-                  return (
-                    <div
-                      key={filter.id}
-                      className="rounded-xl border border-border bg-background/50 p-3 shadow-sm"
-                    >
-                      <div className="mb-2 flex items-center justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1">
-                            {filter.locked && (
-                              <Lock className="size-3 shrink-0 text-amber-500" />
-                            )}
-                            <span className="block truncate text-xs font-semibold text-primary">
-                              {filter.columnName}
-                            </span>
-                          </div>
-                          <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">
-                            {filter.tableName}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-5"
-                            title={filter.locked ? "Destravar filtro" : "Travar filtro"}
-                            onClick={() => onLockFilter(filter.id, !filter.locked)}
-                          >
-                            {filter.locked ? (
-                              <Lock className="size-3 text-amber-500" />
-                            ) : (
-                              <LockOpen className="size-3 text-muted-foreground" />
-                            )}
-                          </Button>
-
-                          {!filter.locked && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-5"
-                              onClick={() => onRemoveFilter(filter.id)}
-                            >
-                              <X className="size-3" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className={filter.locked ? "pointer-events-none select-none opacity-50" : undefined}>
-                        {isDateFilter ? (
-                          <DateFilterInputs
-                            filter={filter}
-                            onUpdateFilter={onUpdateFilter}
-                          />
-                        ) : (
-                          <div className="flex gap-1.5">
-                            <FilterValueField
-                              filter={filter}
-                              datasetId={datasetId}
-                              executionDatasetId={executionDatasetId}
-                              executionWorkspaceId={executionWorkspaceId}
-                              autoOpenSignal={
-                                autoOpenFilterSignal?.startsWith(`${filter.id}:`)
-                                  ? autoOpenFilterSignal
-                                  : null
-                              }
-                              onUpdateFilter={onUpdateFilter}
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                    </div>
-                  )
-                })}
-              </div>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={filters.map((f) => f.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-2">
+                    {filters.map((filter) => (
+                      <SortableFilterItem
+                        key={filter.id}
+                        filter={filter}
+                        datasetId={datasetId}
+                        executionDatasetId={executionDatasetId}
+                        executionWorkspaceId={executionWorkspaceId}
+                        autoOpenFilterSignal={autoOpenFilterSignal}
+                        onUpdateFilter={onUpdateFilter}
+                        onRemoveFilter={onRemoveFilter}
+                        onLockFilter={onLockFilter}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
             )}
           </div>
         </div>
