@@ -196,38 +196,36 @@ export function SaveAutomationDialog({
             />
           </div>
 
-          <div className="space-y-2">
-            <Label>Contatos para envio</Label>
-            {!showContacts ? (
-              <p className="text-xs text-muted-foreground">
-                Os contatos so aparecem depois que o WhatsApp for conectado pela leitura do QR Code.
-              </p>
-            ) : activeContacts.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                Nenhum contato ativo cadastrado. Adicione na pagina de Contatos.
-              </p>
-            ) : (
-              <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border p-2">
-                {activeContacts.map((contact) => (
-                  <label
-                    key={contact.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent"
-                  >
-                    <Checkbox
-                      checked={selectedContacts.includes(contact.id)}
-                      onCheckedChange={() => toggleContact(contact.id)}
-                    />
-                    <span className="text-sm">{contact.name}</span>
-                    {contact.phone && (
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {contact.phone}
-                      </span>
-                    )}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+          {showContacts && (
+            <div className="space-y-2">
+              <Label>Contatos para envio</Label>
+              {activeContacts.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Nenhum contato ativo cadastrado. Adicione na pagina de Contatos.
+                </p>
+              ) : (
+                <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                  {activeContacts.map((contact) => (
+                    <label
+                      key={contact.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent"
+                    >
+                      <Checkbox
+                        checked={selectedContacts.includes(contact.id)}
+                        onCheckedChange={() => toggleContact(contact.id)}
+                      />
+                      <span className="text-sm">{contact.name}</span>
+                      {contact.phone && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {contact.phone}
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
