@@ -384,7 +384,9 @@ export async function POST(request: NextRequest) {
     .from("schedules")
     .insert({
       ...scheduleData,
-      report_id: primaryReportConfig.report_id,
+      report_id: accessMaps.reportNames.has(primaryReportConfig.report_id)
+        ? primaryReportConfig.report_id
+        : null,
       bot_instance_id: selectedBotInstance.id,
       company_id: companyId,
       pbi_page_name: primaryReportConfig.pbi_page_name,
@@ -633,7 +635,10 @@ export async function PUT(request: NextRequest) {
   if (isUpdatingReportSelection) {
     const primaryReportConfig = getPrimaryScheduleReportConfig(reportConfigs)
 
-    scheduleUpdates.report_id = primaryReportConfig?.report_id ?? null
+    scheduleUpdates.report_id =
+      primaryReportConfig && accessMaps.reportNames.has(primaryReportConfig.report_id)
+        ? primaryReportConfig.report_id
+        : null
     scheduleUpdates.pbi_page_name = primaryReportConfig?.pbi_page_name ?? null
     scheduleUpdates.pbi_page_names =
       primaryReportConfig && primaryReportConfig.pbi_page_names.length > 0

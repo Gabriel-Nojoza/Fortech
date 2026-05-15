@@ -101,6 +101,18 @@ function applyMessageTemplate(template: string | null | undefined, reportName: s
 
 
 export async function POST(request: NextRequest) {
+  try {
+    return await handleDispatch(request)
+  } catch (error) {
+    console.error("[dispatch] unhandled error", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erro interno ao processar rotina" },
+      { status: 500 }
+    )
+  }
+}
+
+async function handleDispatch(request: NextRequest) {
   const supabase = createClient()
   const body = await request.json()
   const { schedule_id } = body
@@ -775,3 +787,4 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ success: true, logs_created: (insertedLogs ?? []).length })
 }
+
