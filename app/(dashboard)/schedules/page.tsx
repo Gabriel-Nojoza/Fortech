@@ -1001,6 +1001,9 @@ export default function SchedulesPage() {
       return
     }
 
+    const isDaxAutomation = automationList.some((a) => a.id === reportId)
+    if (isDaxAutomation) return
+
     void loadReportPagesForSelection(selectionKey, reportId)
   }
 
@@ -1770,10 +1773,21 @@ export default function SchedulesPage() {
                               ))}
                             </SelectGroup>
                           ) : null}
+                          {automationList.length > 0 ? (
+                            <SelectGroup>
+                              <SelectLabel>Automações DAX</SelectLabel>
+                              {automationList.map((auto) => (
+                                <SelectItem key={auto.id} value={auto.id}>
+                                  {auto.name}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          ) : null}
                         </SelectContent>
                       </Select>
                     </div>
 
+                    {!automationList.some((a) => a.id === selection.reportId) && (
                     <div className="flex flex-col gap-2">
                       <Label>Paginas do Relatorio</Label>
                       <Popover>
@@ -1901,6 +1915,7 @@ export default function SchedulesPage() {
                         </p>
                       ) : null}
                     </div>
+                    )}
                   </div>
                 )
               })}
