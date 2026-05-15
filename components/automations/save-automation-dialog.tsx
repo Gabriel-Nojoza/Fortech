@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { Save, Loader2 } from "lucide-react"
 import {
   Dialog,
@@ -48,7 +47,6 @@ export function SaveAutomationDialog({
   onSave,
   disabled,
 }: SaveAutomationDialogProps) {
-  const router = useRouter()
   const defaultMessage = "Segue os dados da automacao {name} em anexo."
   const defaultCron = "0 8 * * 1-5"
   const [open, setOpen] = useState(false)
@@ -112,7 +110,6 @@ export function SaveAutomationDialog({
       })
       setOpen(false)
       resetForm()
-      router.push("/reports")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao salvar automacao")
     } finally {
