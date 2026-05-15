@@ -448,6 +448,7 @@ export default function SchedulesPage() {
   const [editAutoEnableSchedule, setEditAutoEnableSchedule] = useState(false)
   const [editAutoMessage, setEditAutoMessage] = useState("")
   const [editAutoContactIds, setEditAutoContactIds] = useState<string[]>([])
+  const [editAutoContactSearch, setEditAutoContactSearch] = useState("")
   const [savingEditAuto, setSavingEditAuto] = useState(false)
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -1524,30 +1525,39 @@ export default function SchedulesPage() {
                   Nenhum contato ativo cadastrado.
                 </p>
               ) : (
-                <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border p-2">
-                  {contactList.filter((c) => c.is_active).map((contact) => (
-                    <label
-                      key={contact.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent"
-                    >
-                      <input
-                        type="checkbox"
-                        className="size-4 rounded"
-                        checked={editAutoContactIds.includes(contact.id)}
-                        onChange={() => {
-                          setEditAutoContactIds((prev) =>
-                            prev.includes(contact.id)
-                              ? prev.filter((id) => id !== contact.id)
-                              : [...prev, contact.id]
-                          )
-                        }}
-                      />
-                      <span className="text-sm">{contact.name}</span>
-                      {contact.phone && (
-                        <span className="ml-auto text-xs text-muted-foreground">{contact.phone}</span>
-                      )}
-                    </label>
-                  ))}
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    value={editAutoContactSearch}
+                    onChange={(e) => setEditAutoContactSearch(e.target.value)}
+                    placeholder="Pesquisar contato..."
+                    className="h-8 w-full rounded-md border border-border bg-background px-3 text-xs outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                    {contactList.filter((c) => c.is_active && c.name.toLowerCase().includes(editAutoContactSearch.toLowerCase())).map((contact) => (
+                      <label
+                        key={contact.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent"
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4 rounded"
+                          checked={editAutoContactIds.includes(contact.id)}
+                          onChange={() => {
+                            setEditAutoContactIds((prev) =>
+                              prev.includes(contact.id)
+                                ? prev.filter((id) => id !== contact.id)
+                                : [...prev, contact.id]
+                            )
+                          }}
+                        />
+                        <span className="text-sm">{contact.name}</span>
+                        {contact.phone && (
+                          <span className="ml-auto text-xs text-muted-foreground">{contact.phone}</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
