@@ -29,6 +29,7 @@ import { getWorkspaceAccessScope } from "@/lib/workspace-access"
 import { normalizeDispatchSettings } from "@/lib/dispatch-config"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 import { getCompanyWhatsAppBotInstance } from "@/lib/whatsapp-bot-instances"
+import { runStoredAutomation } from "@/lib/automation-runner"
 
 const EXPORT_DELAY_MS = Number(process.env.EXPORT_DELAY_MS || "8000")
 
@@ -329,41 +330,20 @@ async function handleDispatch(request: NextRequest) {
       return NextResponse.json({ error: "Relatorio nao encontrado" }, { status: 404 })
     }
 
-    // Use 127.0.0.1 to avoid hairpin NAT issues when the server fetches itself via public domain
-    const internalPort = process.env.PORT || 3000
-    const internalSecret = process.env.PLATFORM_SCHEDULER_SECRET?.trim() || request.headers.get("x-callback-secret") || ""
-    const internalUrl = `http://127.0.0.1:${internalPort}/api/automations/run?company_id=${encodeURIComponent(companyId)}`
-    const runResponse = await fetch(internalUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        host: new URL(request.url).host,
-        ...(internalSecret ? { "x-callback-secret": internalSecret } : {}),
-        ...(request.headers.get("cookie") ? { cookie: request.headers.get("cookie") as string } : {}),
-        ...(request.headers.get("authorization")
-          ? { authorization: request.headers.get("authorization") as string }
-          : {}),
-      },
-      body: JSON.stringify({
-        company_id: companyId,
-        automation_id: automation.id,
-        export_format: normalizeAutomationExportFormat(
-          schedule.export_format || automation.export_format
-        ),
-        message: schedule.message_template ?? `Segue o relatorio ${automation.name}.`,
-        contact_ids: contactIds,
-        schedule_id: schedule.id,
-        bot_instance_id: schedule.bot_instance_id ?? null,
-      }),
-    })
+    const appBaseUrl =
+      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+      new URL(request.url).origin
 
-    const runPayload = await runResponse.json().catch(() => null)
-    if (!runResponse.ok) {
-      return NextResponse.json(
-        { error: runPayload?.error || "Erro ao disparar relatorio salvo" },
-        { status: runResponse.status }
-      )
-    }
+    const runResult = await runStoredAutomation({
+      companyId,
+      automationId: automation.id,
+      exportFormat: normalizeAutomationExportFormat(schedule.export_format || automation.export_format),
+      messageOverride: schedule.message_template ?? `Segue o relatorio ${automation.name}.`,
+      contactIds,
+      scheduleId: schedule.id,
+      botInstanceId: schedule.bot_instance_id ?? null,
+      appBaseUrl,
+    })
 
     await supabase
       .from("schedules")
@@ -373,10 +353,10 @@ async function handleDispatch(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      logs_created: normalizedContacts.length,
-        report_name: automation.name,
-        source: "created",
-      })
+      logs_created: runResult.contacts_notified,
+      report_name: runResult.report_name,
+      source: "created",
+    })
   }
 
   const powerBiTargets = scheduleReportConfigs.flatMap((reportConfig) => {

@@ -1133,6 +1133,9 @@ export default function SchedulesPage() {
         continue
       }
 
+      const isDaxAutomation = automationList.some((a) => a.id === selection.reportId)
+      if (isDaxAutomation) continue
+
       const reportPages = reportPagesBySelection[selection.key]
       const isLoading = loadingReportPagesBySelection[selection.key]
       if (!reportPages && !isLoading) {
