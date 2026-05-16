@@ -329,10 +329,13 @@ async function handleDispatch(request: NextRequest) {
       return NextResponse.json({ error: "Relatorio nao encontrado" }, { status: 404 })
     }
 
-    const runResponse = await fetch(new URL("/api/automations/run", request.url), {
+    // Use 127.0.0.1 to avoid hairpin NAT issues when the server fetches itself via public domain
+    const internalPort = process.env.PORT || 3000
+    const runResponse = await fetch(`http://127.0.0.1:${internalPort}/api/automations/run`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        host: new URL(request.url).host,
         cookie: request.headers.get("cookie") ?? "",
         ...(request.headers.get("x-callback-secret")
           ? { "x-callback-secret": request.headers.get("x-callback-secret") as string }
