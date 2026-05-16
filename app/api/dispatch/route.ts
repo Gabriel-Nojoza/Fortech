@@ -122,10 +122,7 @@ async function handleDispatch(request: NextRequest) {
     return NextResponse.json({ error: "schedule_id obrigatorio" }, { status: 400 })
   }
 
-  // Allow platform scheduler secret to dispatch for any company
-  const platformSecret = process.env.PLATFORM_SCHEDULER_SECRET?.trim()
-  const headerSecret = request.headers.get("x-callback-secret")?.trim()
-  const isPlatformRequest = platformSecret && headerSecret === platformSecret
+  const headerSecret = request.headers.get("x-callback-secret")?.trim() || ""
 
   let companyId: string
   let source: string
@@ -136,9 +133,12 @@ async function handleDispatch(request: NextRequest) {
     requestHost: request.headers.get("host")?.trim() || null,
     requestOrigin: request.headers.get("origin")?.trim() || null,
     scheduleId: schedule_id ?? null,
+    hasSecret: !!headerSecret,
   })
 
-  if (isPlatformRequest) {
+  if (headerSecret) {
+    // Secret present — look up company from schedule then validate secret.
+    // This path works even when PLATFORM_SCHEDULER_SECRET is not loaded by the process.
     const { data: scheduleRow } = await supabase
       .from("schedules")
       .select("company_id")
@@ -149,11 +149,31 @@ async function handleDispatch(request: NextRequest) {
       return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
     }
 
-    companyId = scheduleRow.company_id
-    source = "platform"
+    const platformSecret = process.env.PLATFORM_SCHEDULER_SECRET?.trim()
+    if (platformSecret && headerSecret === platformSecret) {
+      companyId = scheduleRow.company_id
+      source = "platform"
+    } else {
+      // Fall back to company-level n8n callback_secret stored in DB
+      const { data: n8nRow } = await supabase
+        .from("company_settings")
+        .select("value")
+        .eq("company_id", scheduleRow.company_id)
+        .eq("key", "n8n")
+        .maybeSingle()
+
+      const companySecret = (n8nRow?.value as Record<string, unknown> | null)?.callback_secret
+      if (typeof companySecret === "string" && companySecret.trim() === headerSecret) {
+        companyId = scheduleRow.company_id
+        source = "n8n_secret"
+      } else {
+        return NextResponse.json({ error: "Callback secret invalido" }, { status: 401 })
+      }
+    }
   } else {
+    // No secret — require session auth
     const context = await resolveRequestCompanyContext(request, {
-      allowCallbackSecret: true,
+      allowCallbackSecret: false,
     })
     companyId = context.companyId
     source = context.source
