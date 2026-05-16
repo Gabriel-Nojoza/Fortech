@@ -205,7 +205,7 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
   const executionDatasetId = executionTarget.datasetId
   const executionWorkspaceId = executionTarget.workspaceId || null
 
-  const token = await getAccessToken()
+  const token = await getAccessToken(companyId)
   const executionMetadata = await getDatasetMetadata(token, executionDatasetId, {
     includeCustomChatMeasures: false,
   })
