@@ -71,6 +71,11 @@ async function getCompanyIdFromBody(request: Request): Promise<string | null> {
       if (data?.company_id) return data.company_id
     }
 
+    // Try company_id directly
+    if (typeof body.company_id === "string" && body.company_id.trim()) {
+      return body.company_id.trim()
+    }
+
     // Try report_id
     const reportId =
       typeof body.report_id === "string" && body.report_id.trim()

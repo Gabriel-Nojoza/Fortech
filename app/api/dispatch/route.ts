@@ -345,6 +345,7 @@ async function handleDispatch(request: NextRequest) {
           : {}),
       },
       body: JSON.stringify({
+        company_id: companyId,
         automation_id: automation.id,
         export_format: normalizeAutomationExportFormat(
           schedule.export_format || automation.export_format
