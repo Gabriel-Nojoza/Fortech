@@ -7,7 +7,7 @@ import { buildPdfFromHtml } from "@/lib/report-pdf"
 import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
 import { buildDAXQuery } from "@/lib/dax-builder"
-import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
+import { resolveRequestCompanyContext, type RequestCompanyContext } from "@/lib/n8n-auth"
 import { normalizeContactForResponse } from "@/lib/contact-compat"
 import { executeWithQueryFallback } from "@/lib/query-execution-fallback"
 import { normalizeFilters } from "@/lib/query-filters"
@@ -88,9 +88,21 @@ function buildSelectedItems(
 
 export async function POST(request: Request) {
   try {
-    const requestCompanyContext = await resolveRequestCompanyContext(request, {
-      allowCallbackSecret: true,
-    })
+    // Fast path: internal call from dispatch route using platform secret + company_id in URL
+    const platformSecret = process.env.PLATFORM_SCHEDULER_SECRET?.trim()
+    const reqSecret = request.headers.get("x-callback-secret")?.trim() || ""
+    const urlCompanyId = (() => {
+      try { return new URL(request.url).searchParams.get("company_id")?.trim() || "" } catch { return "" }
+    })()
+
+    let requestCompanyContext: RequestCompanyContext
+    if (platformSecret && reqSecret === platformSecret && urlCompanyId) {
+      requestCompanyContext = { companyId: urlCompanyId, source: "platform" }
+    } else {
+      requestCompanyContext = await resolveRequestCompanyContext(request, {
+        allowCallbackSecret: true,
+      })
+    }
     const { companyId, source } = requestCompanyContext
     const supabase = createClient()
     const accessScope =

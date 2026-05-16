@@ -331,15 +331,15 @@ async function handleDispatch(request: NextRequest) {
 
     // Use 127.0.0.1 to avoid hairpin NAT issues when the server fetches itself via public domain
     const internalPort = process.env.PORT || 3000
-    const runResponse = await fetch(`http://127.0.0.1:${internalPort}/api/automations/run`, {
+    const internalSecret = process.env.PLATFORM_SCHEDULER_SECRET?.trim() || request.headers.get("x-callback-secret") || ""
+    const internalUrl = `http://127.0.0.1:${internalPort}/api/automations/run?company_id=${encodeURIComponent(companyId)}`
+    const runResponse = await fetch(internalUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         host: new URL(request.url).host,
-        cookie: request.headers.get("cookie") ?? "",
-        ...(request.headers.get("x-callback-secret")
-          ? { "x-callback-secret": request.headers.get("x-callback-secret") as string }
-          : {}),
+        ...(internalSecret ? { "x-callback-secret": internalSecret } : {}),
+        ...(request.headers.get("cookie") ? { cookie: request.headers.get("cookie") as string } : {}),
         ...(request.headers.get("authorization")
           ? { authorization: request.headers.get("authorization") as string }
           : {}),

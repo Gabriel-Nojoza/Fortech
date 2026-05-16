@@ -71,10 +71,14 @@ async function getCompanyIdFromBody(request: Request): Promise<string | null> {
       if (data?.company_id) return data.company_id
     }
 
-    // Try company_id directly
+    // Try company_id directly (from body or URL query param)
     if (typeof body.company_id === "string" && body.company_id.trim()) {
       return body.company_id.trim()
     }
+    try {
+      const urlCompanyId = new URL(request.url).searchParams.get("company_id")?.trim()
+      if (urlCompanyId) return urlCompanyId
+    } catch { /* ignore */ }
 
     // Try report_id
     const reportId =
