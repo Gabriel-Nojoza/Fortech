@@ -3,6 +3,7 @@ import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getAccessToken, executeDAXQuery, getDatasetMetadata, getDatasetLastRefresh } from "@/lib/powerbi"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
 import { buildCsvContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
+import { buildPdfFromHtml } from "@/lib/report-pdf"
 import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
 import { buildDAXQuery } from "@/lib/dax-builder"
@@ -18,12 +19,7 @@ import {
   touchStoredAutomationLastRunAt,
 } from "@/lib/automation-storage"
 import type { QueryFilter, SelectedColumn, SelectedMeasure } from "@/lib/types"
-import {
-  buildDispatchTargets,
-  buildN8nCallbackHeaders,
-  buildN8nEndpointUrls,
-  normalizeN8nSettings,
-} from "@/lib/n8n-webhook"
+import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 import {
   getWorkspaceAccessScope,
   isDatasetAllowed,
@@ -36,6 +32,7 @@ type ContactRecord = {
   phone: string | null
   type?: string | null
   whatsapp_group_id?: string | null
+  bot_instance_id?: string | null
   is_active?: boolean | null
 }
 
@@ -87,14 +84,6 @@ function buildSelectedItems(
     ...selectedColumns.map((column) => `${column.tableName}.${column.columnName}`),
     ...selectedMeasures.map((measure) => measure.measureName),
   ]
-}
-
-function getRequestOrigin(request: Request) {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    request.headers.get("origin")?.trim() ||
-    new URL(request.url).origin
-  )
 }
 
 export async function POST(request: Request) {
@@ -425,18 +414,6 @@ export async function POST(request: Request) {
     })
 
     if (contacts.length > 0) {
-      const { data: n8nSettings } = await supabase
-        .from("company_settings")
-        .select("value")
-        .eq("company_id", companyId)
-        .eq("key", "n8n")
-        .single()
-
-      const normalizedN8nSettings = normalizeN8nSettings(n8nSettings?.value)
-      const webhookUrl =
-        normalizedN8nSettings.webhookUrl || process.env.N8N_WEBHOOK_URL?.trim() || ""
-      const callbackSecret = normalizedN8nSettings.callbackSecret
-
       const logEntries = contacts.map((contact) => ({
         company_id: companyId,
         schedule_id: scheduleIdOverride,
@@ -459,121 +436,98 @@ export async function POST(request: Request) {
         )
       }
 
-      if (!webhookUrl) {
-        const errMsg = "URL do webhook N8N nao configurada"
-        for (const log of logs ?? []) {
-          await supabase
-            .from("dispatch_logs")
-            .update({ status: "failed", error_message: errMsg, completed_at: new Date().toISOString() })
-            .eq("company_id", companyId)
-            .eq("id", log.id)
-        }
-        return NextResponse.json({ error: errMsg }, { status: 400 })
-      }
-
-      if (!callbackSecret) {
-        const errMsg = "Callback secret do N8N nao configurado"
-        for (const log of logs ?? []) {
-          await supabase
-            .from("dispatch_logs")
-            .update({ status: "failed", error_message: errMsg, completed_at: new Date().toISOString() })
-            .eq("company_id", companyId)
-            .eq("id", log.id)
-        }
-        return NextResponse.json({ error: errMsg }, { status: 400 })
-      }
-
-      for (const log of logs ?? []) {
-        await supabase
-          .from("dispatch_logs")
-          .update({ status: "sending" })
-          .eq("company_id", companyId)
-          .eq("id", log.id)
-      }
-
-      const appUrl = getRequestOrigin(request)
       const message = applyTemplate(messageTemplate, {
         name: reportTitle,
         row_count: rowCount,
         format: exportFormat,
       })
 
-      let webhookErrorMessage: string | null = null
+      console.log("[automations/run] sending directly via bot", {
+        companyId,
+        scheduleId: scheduleContext?.id ?? scheduleIdOverride,
+        automationName: reportTitle,
+        exportFormat,
+        contactCount: contacts.length,
+        rowCount,
+      })
 
-      try {
-        const { callbackUrl, botSendUrl } = buildN8nEndpointUrls(appUrl)
-        const callbackHeaders = buildN8nCallbackHeaders(callbackSecret)
-        const dispatchTargets = buildDispatchTargets(
-          contacts,
-          logs?.map((log) => log.id) || []
-        )
+      let pdfBuffer: Buffer | null = null
+      if (exportFormat === "pdf") {
+        pdfBuffer = await buildPdfFromHtml(htmlReport)
+      }
 
-        console.log("[automations/run] forwarding payload to n8n", {
-          companyId,
-          appUrl,
-          webhookUrl,
-          callbackUrl,
-          botSendUrl,
-          scheduleId: scheduleContext?.id ?? scheduleIdOverride,
-          automationName: reportTitle,
-          exportFormat,
-          contactCount: contacts.length,
-          rowCount,
-        })
+      for (const [index, contact] of contacts.entries()) {
+        const log = logs?.[index]
 
-        const webhookResponse = await fetch(webhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            schedule_id: scheduleContext?.id ?? scheduleIdOverride,
-            schedule_name: scheduleContext?.name ?? null,
-            cron_expression: scheduleContext?.cron_expression ?? null,
-            is_active: scheduleContext?.is_active ?? null,
-            automation_name: reportTitle,
-            dataset_id: datasetId,
-            execution_dataset_id: executionDatasetId,
-            export_format: exportFormat,
-            row_count: rowCount,
-            generated_at: generatedAt.toISOString(),
-            columns: result.columns,
-            rows: result.rows,
-            data_csv: csvContent,
-            report_text: textReport,
-            report_html: htmlReport,
-            contacts,
-            message,
-            dispatch_targets: dispatchTargets,
-            callback_url: callbackUrl,
-            callback_secret: callbackSecret,
-            callback_headers: callbackHeaders,
-            bot_send_url: botSendUrl,
-            bot_send_headers: callbackHeaders,
-            dispatch_log_ids: logs?.map((log) => log.id) || [],
-          }),
-        })
-        if (!webhookResponse.ok) {
-          const responseText = await webhookResponse.text().catch(() => "")
-          throw new Error(responseText || `Webhook N8N retornou ${webhookResponse.status}`)
-        }
-      } catch (error) {
-        webhookErrorMessage =
-          error instanceof Error ? error.message : "Erro ao enviar para o webhook N8N"
-
-        for (const log of logs ?? []) {
+        if (log) {
           await supabase
             .from("dispatch_logs")
-            .update({
-              status: "failed",
-              error_message: webhookErrorMessage,
-              completed_at: new Date().toISOString(),
-            })
+            .update({ status: "sending" })
             .eq("company_id", companyId)
             .eq("id", log.id)
         }
-      }
 
-      if (webhookErrorMessage) {
-        return NextResponse.json({ error: webhookErrorMessage }, { status: 502 })
+        try {
+          let sendPayload: Parameters<typeof sendWhatsAppBotMessage>[0]
+
+          const instanceId = contact.bot_instance_id ?? null
+
+          if (exportFormat === "table") {
+            sendPayload = {
+              instance_id: instanceId,
+              phone: contact.phone,
+              whatsapp_group_id: contact.whatsapp_group_id,
+              message: `${message}\n\n${textReport}`,
+            }
+          } else if (exportFormat === "csv") {
+            sendPayload = {
+              instance_id: instanceId,
+              phone: contact.phone,
+              whatsapp_group_id: contact.whatsapp_group_id,
+              message,
+              document_base64: Buffer.from(csvContent, "utf-8").toString("base64"),
+              file_name: `${reportTitle}.csv`,
+              mimetype: "text/csv",
+            }
+          } else {
+            sendPayload = {
+              instance_id: instanceId,
+              phone: contact.phone,
+              whatsapp_group_id: contact.whatsapp_group_id,
+              message,
+              document_base64: pdfBuffer!.toString("base64"),
+              file_name: `${reportTitle}.pdf`,
+              mimetype: "application/pdf",
+            }
+          }
+
+          await sendWhatsAppBotMessage(sendPayload)
+
+          if (log) {
+            await supabase
+              .from("dispatch_logs")
+              .update({
+                status: "delivered",
+                error_message: null,
+                completed_at: new Date().toISOString(),
+              })
+              .eq("company_id", companyId)
+              .eq("id", log.id)
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : "Erro ao enviar para o bot"
+          if (log) {
+            await supabase
+              .from("dispatch_logs")
+              .update({
+                status: "failed",
+                error_message: errorMsg,
+                completed_at: new Date().toISOString(),
+              })
+              .eq("company_id", companyId)
+              .eq("id", log.id)
+          }
+        }
       }
     }
 

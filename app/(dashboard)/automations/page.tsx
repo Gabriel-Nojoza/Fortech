@@ -80,15 +80,13 @@ export default function AutomationsPage() {
   const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState("builder")
 
-  // Restore draft from localStorage on first mount
-  const draft = typeof window !== "undefined" ? loadBuilderDraft() : null
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string>(draft?.selectedWorkspace ?? "")
-  const [selectedDataset, setSelectedDataset] = useState<string>(draft?.selectedDataset ?? "")
-  const [selectedExecutionDataset, setSelectedExecutionDataset] = useState<string>(draft?.selectedExecutionDataset ?? "")
-  const [selectedColumns, setSelectedColumns] = useState<SelectedColumn[]>(draft?.selectedColumns ?? [])
-  const [selectedMeasures, setSelectedMeasures] = useState<SelectedMeasure[]>(draft?.selectedMeasures ?? [])
-  const [activeTableName, setActiveTableName] = useState<string | null>(draft?.activeTableName ?? null)
-  const [filters, setFilters] = useState<QueryFilter[]>(draft?.filters ?? [])
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string>("")
+  const [selectedDataset, setSelectedDataset] = useState<string>("")
+  const [selectedExecutionDataset, setSelectedExecutionDataset] = useState<string>("")
+  const [selectedColumns, setSelectedColumns] = useState<SelectedColumn[]>([])
+  const [selectedMeasures, setSelectedMeasures] = useState<SelectedMeasure[]>([])
+  const [activeTableName, setActiveTableName] = useState<string | null>(null)
+  const [filters, setFilters] = useState<QueryFilter[]>([])
   const [autoOpenFilterSignal, setAutoOpenFilterSignal] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
   const [result, setResult] = useState<DAXQueryResult | null>(null)
@@ -101,6 +99,15 @@ export default function AutomationsPage() {
     useState(false)
 
   useEffect(() => {
+    const draft = loadBuilderDraft()
+    if (draft) {
+      if (draft.selectedWorkspace) setSelectedWorkspace(draft.selectedWorkspace)
+      if (draft.selectedDataset) setSelectedDataset(draft.selectedDataset)
+      if (Array.isArray(draft.selectedColumns)) setSelectedColumns(draft.selectedColumns)
+      if (Array.isArray(draft.selectedMeasures)) setSelectedMeasures(draft.selectedMeasures)
+      if (draft.activeTableName) setActiveTableName(draft.activeTableName)
+      if (Array.isArray(draft.filters)) setFilters(draft.filters)
+    }
     setMounted(true)
   }, [])
 

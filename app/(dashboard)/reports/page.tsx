@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import useSWR from "swr"
+import useSWR, { mutate as globalMutate } from "swr"
 import {
   FileBarChart2,
   ExternalLink,
@@ -16,6 +16,7 @@ import {
   Play,
   Clock,
   Database,
+  Copy,
 } from "lucide-react"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -134,6 +135,34 @@ export default function ReportsPage() {
       toast.error(error instanceof Error ? error.message : "Erro ao executar automacao")
     } finally {
       setRunningId(null)
+    }
+  }
+
+  async function handleDuplicateAutomation(auto: AutomationItem) {
+    try {
+      const res = await fetch("/api/automations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `Copia de ${auto.name}`,
+          dataset_id: auto.dataset_id,
+          workspace_id: auto.workspace_id,
+          selected_columns: auto.selected_columns ?? [],
+          selected_measures: auto.selected_measures ?? [],
+          filters: auto.filters ?? [],
+          dax_query: null,
+          cron_expression: auto.cron_expression,
+          export_format: auto.export_format,
+          message_template: null,
+          contact_ids: auto.contacts?.map((c) => c.id) ?? [],
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? "Erro ao duplicar")
+      toast.success("Automação duplicada!")
+      void globalMutate("/api/automations")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao duplicar automação")
     }
   }
 
@@ -440,6 +469,21 @@ export default function ReportsPage() {
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>Editar no construtor</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  onClick={() => void handleDuplicateAutomation(auto)}
+                                >
+                                  <Copy className="size-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Duplicar automação</TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                           <TooltipProvider>
