@@ -122,7 +122,12 @@ async function handleDispatch(request: NextRequest) {
     return NextResponse.json({ error: "schedule_id obrigatorio" }, { status: 400 })
   }
 
-  const headerSecret = request.headers.get("x-callback-secret")?.trim() || ""
+  // Read secret from header OR query param (nginx may strip custom headers)
+  const headerSecret = (() => {
+    const h = request.headers.get("x-callback-secret")?.trim()
+    if (h) return h
+    try { return new URL(request.url).searchParams.get("secret")?.trim() || "" } catch { return "" }
+  })()
 
   let companyId: string
   let source: string

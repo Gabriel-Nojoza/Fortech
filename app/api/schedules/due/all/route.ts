@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
-import { getTimePartsInTimeZone, isSameMinuteInTimeZone, matchesCronValue } from "@/lib/schedule-cron"
+import { isSameMinuteInTimeZone, matchesCronValue } from "@/lib/schedule-cron"
 
 type ScheduleRow = {
   id: string
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       source: "platform",
       evaluated_at: now.toISOString(),
-      dispatch_url: `${appUrl}/api/dispatch`,
+      dispatch_url: `${appUrl}/api/dispatch?secret=${encodeURIComponent(platformSecret)}`,
       total_due: dueSchedules.length,
       schedules: dueSchedules.map((schedule) => ({
         id: schedule.id,
