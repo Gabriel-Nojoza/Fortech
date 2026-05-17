@@ -122,6 +122,7 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
   }
 
   async function handleSend() {
+    if (!campaign) return
     const selected = clients.filter((_, i) => selectedIndexes.has(i))
     if (selected.length === 0) {
       toast.error("Selecione ao menos um cliente para enviar")
