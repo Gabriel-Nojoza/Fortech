@@ -163,8 +163,11 @@ export default function ReportsPage() {
       win.document.write(html)
       win.document.close()
     } catch (error) {
-      win.close()
-      toast.error(error instanceof Error ? error.message : "Erro ao visualizar automacao")
+      const msg = error instanceof Error ? error.message : "Erro ao visualizar automacao"
+      win.document.open()
+      win.document.write(`<p style="font-family:sans-serif;padding:2rem;color:#dc2626"><strong>Erro ao gerar relatorio</strong><br/><br/>${msg}</p>`)
+      win.document.close()
+      toast.error(msg)
     } finally {
       setPreviewingId(null)
     }
