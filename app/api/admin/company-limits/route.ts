@@ -22,6 +22,8 @@ export async function PUT(request: NextRequest) {
       reportExcessPrice?: number | null
       chatExcessPrice?: number | null
       reportBuilderEnabled?: boolean
+      campaignsEnabled?: boolean
+      sendingHours?: { enabled: boolean; windows: Array<{ startTime: string; endTime: string }> } | null
     }
 
     const companyId = String(body.companyId ?? "").trim()
@@ -73,7 +75,7 @@ export async function PUT(request: NextRequest) {
 
     if (error) throw error
 
-    if (body.reportBuilderEnabled !== undefined) {
+    if (body.reportBuilderEnabled !== undefined || body.campaignsEnabled !== undefined) {
       const { data: existingFeatures } = await supabase
         .from("company_settings")
         .select("value")
@@ -82,7 +84,11 @@ export async function PUT(request: NextRequest) {
         .maybeSingle()
 
       const currentFeatures = (existingFeatures?.value ?? {}) as Record<string, unknown>
-      const newFeaturesValue = { ...currentFeatures, report_builder: body.reportBuilderEnabled }
+      const newFeaturesValue = {
+        ...currentFeatures,
+        ...(body.reportBuilderEnabled !== undefined ? { report_builder: body.reportBuilderEnabled } : {}),
+        ...(body.campaignsEnabled !== undefined ? { campaigns: body.campaignsEnabled } : {}),
+      }
 
       let featuresError
       if (existingFeatures) {
@@ -102,6 +108,28 @@ export async function PUT(request: NextRequest) {
       if (featuresError) {
         console.error("Erro ao salvar features:", featuresError)
         throw featuresError
+      }
+    }
+
+    if (body.sendingHours !== undefined) {
+      const sh = body.sendingHours
+      const shValue = sh === null
+        ? { enabled: false, windows: [] }
+        : {
+            enabled: sh.enabled,
+            windows: (sh.windows ?? []).map((w) => ({ start_time: w.startTime, end_time: w.endTime })),
+          }
+
+      const { error: shError } = await supabase
+        .from("company_settings")
+        .upsert(
+          { company_id: companyId, key: "sending_hours", value: shValue },
+          { onConflict: "company_id,key" }
+        )
+
+      if (shError) {
+        console.error("Erro ao salvar horario de envio:", shError)
+        throw shError
       }
     }
 

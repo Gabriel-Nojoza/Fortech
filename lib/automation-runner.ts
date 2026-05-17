@@ -170,7 +170,7 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
       .in("id", contactIds)
       .eq("is_active", true)
 
-    if (botInstanceId) {
+    if (botInstanceId && contactIds.length === 0) {
       contactsQuery = contactsQuery.eq("bot_instance_id", botInstanceId)
     }
 
@@ -287,6 +287,8 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
     pdfBuffer = await buildPdfFromHtml(htmlReport)
   }
 
+  // Use botInstanceId as-is. Callers are responsible for resolving the preferred instance.
+  // Sending null here lets the bot service pick its default connected socket.
   const effectiveBotInstanceId = botInstanceId ?? null
 
   for (const [index, contact] of contacts.entries()) {

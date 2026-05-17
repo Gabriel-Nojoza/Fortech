@@ -125,6 +125,26 @@ export async function listCompanyWhatsAppBotInstances(
   return runtimeEntries
 }
 
+export async function resolveConnectedBotInstance(
+  supabase: SupabaseClient,
+  companyId: string,
+  preferredInstanceId?: string | null
+): Promise<WhatsAppBotInstanceWithRuntime | null> {
+  const instances = await listCompanyWhatsAppBotInstances(supabase, companyId).catch(() => [])
+  if (instances.length === 0) return null
+
+  if (preferredInstanceId) {
+    const preferred = instances.find((i) => i.id === preferredInstanceId)
+    if (preferred?.status === "connected") return preferred
+  }
+
+  return (
+    instances.find((i) => i.status === "connected") ??
+    instances.find((i) => i.is_default) ??
+    instances[0]
+  )
+}
+
 export async function getCompanyWhatsAppBotInstance(
   supabase: SupabaseClient,
   companyId: string,

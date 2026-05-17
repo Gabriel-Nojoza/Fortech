@@ -32,8 +32,9 @@ export default async function DashboardLayout({
       }
     : null
 
-  // Busca feature flag do construtor de relatórios
+  // Busca feature flags da empresa
   let reportBuilderEnabled = false
+  let campaignsEnabled = false
   const companyId =
     typeof user?.app_metadata?.company_id === "string"
       ? user.app_metadata.company_id
@@ -50,7 +51,9 @@ export default async function DashboardLayout({
         .eq("company_id", companyId)
         .eq("key", "features")
         .maybeSingle()
-      reportBuilderEnabled = (data?.value as Record<string, unknown>)?.report_builder === true
+      const features = data?.value as Record<string, unknown> | null
+      reportBuilderEnabled = features?.report_builder === true
+      campaignsEnabled = features?.campaigns === true
     } catch {
       // silently fallback
     }
@@ -60,7 +63,7 @@ export default async function DashboardLayout({
     <TabSessionGuard>
       <PowerBIAutoSyncWatcher />
       <SidebarProvider>
-        <AppSidebar currentUser={currentUser} reportBuilderEnabled={reportBuilderEnabled} />
+        <AppSidebar currentUser={currentUser} reportBuilderEnabled={reportBuilderEnabled} campaignsEnabled={campaignsEnabled} />
         <SidebarInset className="min-w-0 overflow-x-hidden">
           {children}
           <FloatingChatLauncher />

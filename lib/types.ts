@@ -205,3 +205,65 @@ export interface DAXQueryResult {
   columns: Array<{ name: string; dataType: string }>
   rows: Array<Record<string, unknown>>
 }
+
+// === Campanhas ===
+
+export interface Campaign {
+  id: string
+  company_id: string
+  name: string
+  description: string | null
+  dataset_id: string
+  workspace_id: string | null
+  dax_query: string | null
+  selected_columns: SelectedColumn[]
+  selected_measures: SelectedMeasure[]
+  filters: QueryFilter[]
+  customer_table: string | null
+  date_column: string | null
+  days_inactive: number | null
+  phone_column: string | null
+  name_column: string | null
+  message_template: string
+  image_url: string | null
+  bot_instance_id: string | null
+  cron_expression: string | null
+  is_active: boolean
+  last_run_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CampaignClient {
+  name: string | null
+  phone: string | null
+  data: Record<string, unknown>
+}
+
+export interface CampaignExecution {
+  id: string
+  campaign_id: string
+  company_id: string
+  status: "running" | "completed" | "failed"
+  total_clients: number
+  sent_count: number
+  failed_count: number
+  skipped_count: number
+  started_at: string
+  completed_at: string | null
+}
+
+export interface CampaignSend {
+  id: string
+  campaign_id: string
+  execution_id: string | null
+  company_id: string
+  client_name: string | null
+  client_phone: string | null
+  client_data: Record<string, unknown> | null
+  message: string
+  status: "pending" | "sent" | "failed"
+  error_message: string | null
+  sent_at: string | null
+  created_at: string
+}

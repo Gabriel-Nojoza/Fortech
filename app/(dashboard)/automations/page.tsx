@@ -87,6 +87,14 @@ export default function AutomationsPage() {
   const [selectedMeasures, setSelectedMeasures] = useState<SelectedMeasure[]>([])
   const [activeTableName, setActiveTableName] = useState<string | null>(null)
   const [filters, setFilters] = useState<QueryFilter[]>([])
+  const [editingAutomation, setEditingAutomation] = useState<{
+    id: string
+    name: string
+    cron_expression: string | null
+    export_format: string
+    message_template: string
+    contact_ids: string[]
+  } | null>(null)
   const [autoOpenFilterSignal, setAutoOpenFilterSignal] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
   const [result, setResult] = useState<DAXQueryResult | null>(null)
@@ -107,6 +115,18 @@ export default function AutomationsPage() {
       if (Array.isArray(draft.selectedMeasures)) setSelectedMeasures(draft.selectedMeasures)
       if (draft.activeTableName) setActiveTableName(draft.activeTableName)
       if (Array.isArray(draft.filters)) setFilters(draft.filters)
+      if (draft.editingAutomationId) {
+        setEditingAutomation({
+          id: draft.editingAutomationId,
+          name: draft.editingAutomationName ?? "",
+          cron_expression: draft.editingAutomationCron ?? null,
+          export_format: draft.editingAutomationFormat ?? "csv",
+          message_template: draft.editingAutomationMessage ?? "",
+          contact_ids: Array.isArray(draft.editingAutomationContactIds)
+            ? draft.editingAutomationContactIds
+            : [],
+        })
+      }
     }
     setMounted(true)
   }, [])
@@ -632,6 +652,24 @@ export default function AutomationsPage() {
     window.setTimeout(() => URL.revokeObjectURL(url), 30000)
   }, [reportHtml])
 
+  const clearEditingState = () => {
+    setEditingAutomation(null)
+    try {
+      const draft = loadBuilderDraft()
+      if (draft) {
+        delete draft.editingAutomationId
+        delete draft.editingAutomationName
+        delete draft.editingAutomationCron
+        delete draft.editingAutomationFormat
+        delete draft.editingAutomationMessage
+        delete draft.editingAutomationContactIds
+        localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify(draft))
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const handleSave = async (saveData: {
     name: string
     cron_expression: string | null
@@ -647,11 +685,14 @@ export default function AutomationsPage() {
       throw new Error("Monte uma query valida antes de salvar a automacao")
     }
 
+    const isEditing = !!editingAutomation?.id
+
     const res = await fetch("/api/automations", {
-      method: "POST",
+      method: isEditing ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...saveData,
+        ...(isEditing ? { id: editingAutomation!.id } : {}),
         dataset_id: selectedDataset,
         workspace_id: selectedWorkspace || null,
         selected_columns: selectedColumns,
@@ -674,7 +715,8 @@ export default function AutomationsPage() {
       throw new Error(message)
     }
 
-    toast.success("Automacao salva com sucesso!")
+    toast.success(isEditing ? "Automacao atualizada com sucesso!" : "Automacao salva com sucesso!")
+    if (isEditing) clearEditingState()
     await globalMutate("/api/automations")
   }
 
@@ -901,6 +943,8 @@ export default function AutomationsPage() {
                 showContacts={canShowContacts}
                 onSave={handleSave}
                 disabled={!hasQuery}
+                editingAutomation={editingAutomation}
+                onCancelEdit={clearEditingState}
               />
             </>
           )}

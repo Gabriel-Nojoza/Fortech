@@ -1,0 +1,193 @@
+import { NextRequest, NextResponse } from "next/server"
+import { createServiceClient } from "@/lib/supabase/server"
+import { getRequestContext, isAuthContextError } from "@/lib/tenant"
+import { getAccessToken, executeDAXQuery } from "@/lib/powerbi"
+import { buildCampaignDaxQuery } from "@/lib/campaign-dax"
+import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
+import type { CampaignClient } from "@/lib/types"
+
+function resolveMessage(template: string, row: Record<string, unknown>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+    const value = row[key]
+    return value != null ? String(value) : ""
+  })
+}
+
+function normalizePhone(raw: unknown): string | null {
+  if (!raw) return null
+  const phone = String(raw).replace(/\D/g, "")
+  return phone.length >= 8 ? phone : null
+}
+
+export async function POST(request: NextRequest) {
+  let executionId: string | null = null
+  let supabase: ReturnType<typeof createServiceClient> | null = null
+
+  try {
+    const ctx = await getRequestContext()
+    supabase = createServiceClient()
+
+    const body = await request.json()
+    const campaignId = typeof body?.campaign_id === "string" ? body.campaign_id.trim() : ""
+    if (!campaignId) {
+      return NextResponse.json({ error: "campaign_id obrigatorio" }, { status: 400 })
+    }
+
+    // selected_clients allows the caller (dispatch dialog) to pass pre-filtered rows
+    const selectedClients: CampaignClient[] | null = Array.isArray(body?.selected_clients)
+      ? (body.selected_clients as CampaignClient[])
+      : null
+
+    const { data: campaign, error: campaignError } = await supabase
+      .from("campaigns")
+      .select("*")
+      .eq("id", campaignId)
+      .eq("company_id", ctx.companyId)
+      .single()
+
+    if (campaignError || !campaign) {
+      return NextResponse.json({ error: "Campanha nao encontrada" }, { status: 404 })
+    }
+
+    let clients: CampaignClient[]
+
+    if (selectedClients !== null) {
+      // Use the pre-selected list from the dispatch dialog
+      clients = selectedClients
+    } else {
+      // Execute DAX query to get full list
+      const daxQuery = buildCampaignDaxQuery(campaign)
+
+      if (!daxQuery) {
+        return NextResponse.json({ error: "Campanha sem consulta configurada" }, { status: 422 })
+      }
+
+      const token = await getAccessToken(ctx.companyId)
+      const queryResult = await executeDAXQuery(token, campaign.dataset_id, daxQuery)
+      const rows = queryResult.rows ?? []
+
+      clients = rows.map((row) => ({
+        name: campaign.name_column ? (row[campaign.name_column] != null ? String(row[campaign.name_column]) : null) : null,
+        phone: normalizePhone(campaign.phone_column ? row[campaign.phone_column] : null),
+        data: row,
+      }))
+    }
+
+    const { data: execRow, error: execError } = await supabase
+      .from("campaign_executions")
+      .insert({
+        campaign_id: campaignId,
+        company_id: ctx.companyId,
+        status: "running",
+        total_clients: clients.length,
+      })
+      .select()
+      .single()
+
+    if (execError || !execRow) throw new Error("Erro ao criar execucao")
+    executionId = execRow.id
+
+    let sentCount = 0
+    let failedCount = 0
+    let skippedCount = 0
+
+    const imageUrl: string | null = campaign.image_url ?? null
+    const isImageMessage = !!imageUrl
+
+    for (const client of clients) {
+      const phone = client.phone
+      const message = resolveMessage(campaign.message_template, client.data)
+
+      if (!phone) {
+        skippedCount++
+        await supabase.from("campaign_sends").insert({
+          campaign_id: campaignId,
+          execution_id: executionId,
+          company_id: ctx.companyId,
+          client_name: client.name,
+          client_phone: null,
+          client_data: client.data,
+          message,
+          status: "failed",
+          error_message: "Telefone nao disponivel",
+        })
+        continue
+      }
+
+      try {
+        await sendWhatsAppBotMessage({
+          instance_id: campaign.bot_instance_id ?? null,
+          phone,
+          ...(isImageMessage
+            ? { document_url: imageUrl, caption: message, mimetype: "image/jpeg" }
+            : { message }),
+        })
+
+        sentCount++
+        await supabase.from("campaign_sends").insert({
+          campaign_id: campaignId,
+          execution_id: executionId,
+          company_id: ctx.companyId,
+          client_name: client.name,
+          client_phone: phone,
+          client_data: client.data,
+          message,
+          status: "sent",
+          sent_at: new Date().toISOString(),
+        })
+      } catch (sendError) {
+        failedCount++
+        await supabase.from("campaign_sends").insert({
+          campaign_id: campaignId,
+          execution_id: executionId,
+          company_id: ctx.companyId,
+          client_name: client.name,
+          client_phone: phone,
+          client_data: client.data,
+          message,
+          status: "failed",
+          error_message: sendError instanceof Error ? sendError.message : "Erro no envio",
+        })
+      }
+    }
+
+    await supabase
+      .from("campaign_executions")
+      .update({
+        status: "completed",
+        sent_count: sentCount,
+        failed_count: failedCount,
+        skipped_count: skippedCount,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", executionId)
+
+    await supabase
+      .from("campaigns")
+      .update({ last_run_at: new Date().toISOString() })
+      .eq("id", campaignId)
+
+    return NextResponse.json({
+      ok: true,
+      execution_id: executionId,
+      total: clients.length,
+      sent: sentCount,
+      failed: failedCount,
+      skipped: skippedCount,
+    })
+  } catch (error) {
+    if (isAuthContextError(error)) {
+      return NextResponse.json({ error: "Nao autenticado" }, { status: 401 })
+    }
+
+    if (executionId && supabase) {
+      void supabase
+        .from("campaign_executions")
+        .update({ status: "failed", completed_at: new Date().toISOString() })
+        .eq("id", executionId)
+    }
+
+    const message = error instanceof Error ? error.message : "Erro ao executar campanha"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}

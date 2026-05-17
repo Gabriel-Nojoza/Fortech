@@ -37,6 +37,8 @@ export type CompanyStatItem = {
   chatOverage: number
   chatOverageCharge: number | null
   reportBuilderEnabled: boolean
+  campaignsEnabled: boolean
+  sendingHours: { enabled: boolean; windows: Array<{ startTime: string; endTime: string }> } | null
 }
 
 export type DailyDispatchPoint = {
@@ -175,6 +177,7 @@ export async function GET(request: Request) {
     const chatMap = new Map<string, Record<string, unknown>>()
     const limitsMap = new Map<string, Record<string, unknown>>()
     const featuresMap = new Map<string, Record<string, unknown>>()
+    const sendingHoursMap = new Map<string, Record<string, unknown>>()
 
     if (!lite) {
       const [chatLogsResult, settingsResult] = await Promise.all([
@@ -187,7 +190,7 @@ export async function GET(request: Request) {
           .from("company_settings")
           .select("company_id, key, value")
           .in("company_id", companyIds)
-          .in("key", ["chat_ia", "usage_limits", "features"]),
+          .in("key", ["chat_ia", "usage_limits", "features", "sending_hours"]),
       ])
 
       for (const row of chatLogsResult.data ?? []) {
@@ -200,6 +203,7 @@ export async function GET(request: Request) {
         if (row.key === "chat_ia") chatMap.set(row.company_id, row.value as Record<string, unknown>)
         if (row.key === "usage_limits") limitsMap.set(row.company_id, row.value as Record<string, unknown>)
         if (row.key === "features") featuresMap.set(row.company_id, row.value as Record<string, unknown>)
+        if (row.key === "sending_hours") sendingHoursMap.set(row.company_id, row.value as Record<string, unknown>)
       }
     }
 
@@ -213,6 +217,18 @@ export async function GET(request: Request) {
       const chat = chatMap.get(company.id)
       const limits = limitsMap.get(company.id)
       const features = featuresMap.get(company.id)
+      const sh = sendingHoursMap.get(company.id)
+      const sendingHours = sh
+        ? {
+            enabled: sh.enabled === true,
+            windows: Array.isArray(sh.windows)
+              ? (sh.windows as Array<Record<string, unknown>>).map((w) => ({
+                  startTime: typeof w.start_time === "string" ? w.start_time : "08:00",
+                  endTime: typeof w.end_time === "string" ? w.end_time : "18:00",
+                }))
+              : [],
+          }
+        : null
 
       const reportLimit = typeof limits?.report_limit === "number" ? limits.report_limit : null
       const chatLimit = typeof limits?.chat_limit === "number" ? limits.chat_limit : null
@@ -271,6 +287,8 @@ export async function GET(request: Request) {
         chatOverage,
         chatOverageCharge,
         reportBuilderEnabled: features?.report_builder === true,
+        campaignsEnabled: features?.campaigns === true,
+        sendingHours,
       }
     })
 

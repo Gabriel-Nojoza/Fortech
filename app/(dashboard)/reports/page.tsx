@@ -15,7 +15,6 @@ import {
   Pencil,
   Play,
   Clock,
-  Database,
   Copy,
 } from "lucide-react"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -102,6 +101,7 @@ export default function ReportsPage() {
   const [wsFilter, setWsFilter] = useState("all")
   const [syncingPowerBi, setSyncingPowerBi] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
+  const [previewingId, setPreviewingId] = useState<string | null>(null)
 
   function handleEditAutomation(auto: AutomationItem) {
     try {
@@ -135,6 +135,38 @@ export default function ReportsPage() {
       toast.error(error instanceof Error ? error.message : "Erro ao executar automacao")
     } finally {
       setRunningId(null)
+    }
+  }
+
+  async function handlePreviewAutomation(auto: AutomationItem) {
+    // Abre a janela ANTES do fetch — navegadores permitem window.open apenas
+    // em resposta síncrona a um clique do usuário.
+    const win = window.open("", "_blank")
+    if (!win) {
+      toast.error("Navegador bloqueou o pop-up. Permita pop-ups para este site.")
+      return
+    }
+    win.document.write("<p style='font-family:sans-serif;padding:2rem'>Gerando relatorio...</p>")
+
+    setPreviewingId(auto.id)
+    try {
+      const res = await fetch("/api/automations/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ automation_id: auto.id, contact_ids: [] }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      const html = data.report?.html
+      if (!html) throw new Error("Relatorio sem conteudo HTML")
+      win.document.open()
+      win.document.write(html)
+      win.document.close()
+    } catch (error) {
+      win.close()
+      toast.error(error instanceof Error ? error.message : "Erro ao visualizar automacao")
+    } finally {
+      setPreviewingId(null)
     }
   }
 
@@ -456,6 +488,27 @@ export default function ReportsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5"
+                                  disabled={previewingId === auto.id}
+                                  onClick={() => void handlePreviewAutomation(auto)}
+                                >
+                                  {previewingId === auto.id ? (
+                                    <Loader2 className="size-3.5 animate-spin" />
+                                  ) : (
+                                    <Eye className="size-3.5" />
+                                  )}
+                                  Abrir
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Visualizar relatorio</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>

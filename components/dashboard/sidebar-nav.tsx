@@ -11,6 +11,7 @@ import {
   ScrollText,
   Activity,
   Workflow,
+  Megaphone,
   Moon,
   Sun,
   LogOut,
@@ -47,6 +48,7 @@ const automationNav = [
   { title: "Construtor de Relatorios", href: "/automations", icon: Workflow },
   { title: "Resumo operacional", href: "/operational-summary", icon: Activity },
   { title: "Rotinas de Disparo", href: "/schedules", icon: Clock },
+  { title: "Campanhas", href: "/campaigns", icon: Megaphone },
   { title: "Logs", href: "/logs", icon: ScrollText },
 ]
 
@@ -55,9 +57,10 @@ const automationNav = [
 type AppSidebarProps = {
   currentUser: CurrentUserSummaryData | null
   reportBuilderEnabled?: boolean
+  campaignsEnabled?: boolean
 }
 
-export function AppSidebar({ currentUser, reportBuilderEnabled = false }: AppSidebarProps) {
+export function AppSidebar({ currentUser, reportBuilderEnabled = false, campaignsEnabled = false }: AppSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const handleLogout = () => {
@@ -113,7 +116,11 @@ export function AppSidebar({ currentUser, reportBuilderEnabled = false }: AppSid
           <SidebarGroupContent>
             <SidebarMenu>
               {automationNav
-                .filter((item) => item.href !== "/automations" || reportBuilderEnabled)
+                .filter((item) => {
+                  if (item.href === "/automations") return reportBuilderEnabled
+                  if (item.href === "/campaigns") return campaignsEnabled
+                  return true
+                })
                 .map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton

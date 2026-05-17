@@ -28,6 +28,15 @@ import { toast } from "sonner"
 import type { Contact } from "@/lib/types"
 import { isValidCronValue } from "@/lib/schedule-cron"
 
+interface EditingAutomation {
+  id: string
+  name: string
+  cron_expression: string | null
+  export_format: string
+  message_template: string
+  contact_ids: string[]
+}
+
 interface SaveAutomationDialogProps {
   contacts: Contact[]
   showContacts: boolean
@@ -39,6 +48,8 @@ interface SaveAutomationDialogProps {
     contact_ids: string[]
   }) => Promise<void>
   disabled?: boolean
+  editingAutomation?: EditingAutomation | null
+  onCancelEdit?: () => void
 }
 
 export function SaveAutomationDialog({
@@ -46,6 +57,8 @@ export function SaveAutomationDialog({
   showContacts,
   onSave,
   disabled,
+  editingAutomation,
+  onCancelEdit,
 }: SaveAutomationDialogProps) {
   const defaultMessage = "Segue os dados da automacao {name} em anexo."
   const defaultCron = "0 8 * * 1-5"
@@ -66,6 +79,22 @@ export function SaveAutomationDialog({
       setSelectedContacts([])
     }
   }, [showContacts])
+
+  useEffect(() => {
+    if (open && editingAutomation) {
+      setName(editingAutomation.name)
+      setExportFormat(editingAutomation.export_format || "csv")
+      setMessage(editingAutomation.message_template || defaultMessage)
+      setSelectedContacts(editingAutomation.contact_ids || [])
+      if (editingAutomation.cron_expression) {
+        setEnableSchedule(true)
+        setCron(editingAutomation.cron_expression)
+      } else {
+        setEnableSchedule(false)
+        setCron(defaultCron)
+      }
+    }
+  }, [open, editingAutomation])
 
   const resetForm = () => {
     setName("")
@@ -117,6 +146,8 @@ export function SaveAutomationDialog({
     }
   }
 
+  const isEditing = !!editingAutomation
+
   return (
     <Dialog
       open={open}
@@ -124,20 +155,23 @@ export function SaveAutomationDialog({
         setOpen(nextOpen)
         if (!nextOpen && !saving) {
           resetForm()
+          if (isEditing) onCancelEdit?.()
         }
       }}
     >
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={disabled}>
           <Save className="size-3" />
-          Salvar Automacao
+          {isEditing ? "Editar Automacao" : "Salvar Automacao"}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Salvar Automacao</DialogTitle>
+          <DialogTitle>{isEditing ? "Editar Automacao" : "Salvar Automacao"}</DialogTitle>
           <DialogDescription>
-            Salve esta query como automacao para executar sob demanda ou agendar.
+            {isEditing
+              ? "Atualize os dados da automacao selecionada."
+              : "Salve esta query como automacao para executar sob demanda ou agendar."}
           </DialogDescription>
         </DialogHeader>
 
@@ -243,7 +277,7 @@ export function SaveAutomationDialog({
             disabled={saving || !name.trim() || (enableSchedule && !showContacts)}
           >
             {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
-            Salvar
+            {isEditing ? "Atualizar" : "Salvar"}
           </Button>
         </DialogFooter>
       </DialogContent>

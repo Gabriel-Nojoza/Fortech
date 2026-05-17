@@ -426,6 +426,31 @@ export async function POST(request: Request) {
     })
 
     if (contacts.length > 0) {
+      // Resolve fallback instance ID for contacts without bot_instance_id
+      let defaultBotInstanceId: string | null = null
+      if (contacts.some((c) => !c.bot_instance_id)) {
+        const { data: defaultInstance } = await supabase
+          .from("whatsapp_bot_instances")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("is_default", true)
+          .limit(1)
+          .maybeSingle()
+
+        if (defaultInstance?.id) {
+          defaultBotInstanceId = defaultInstance.id
+        } else {
+          const { data: firstInstance } = await supabase
+            .from("whatsapp_bot_instances")
+            .select("id")
+            .eq("company_id", companyId)
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle()
+          defaultBotInstanceId = firstInstance?.id ?? null
+        }
+      }
+
       const logEntries = contacts.map((contact) => ({
         company_id: companyId,
         schedule_id: scheduleIdOverride,
@@ -482,7 +507,7 @@ export async function POST(request: Request) {
         try {
           let sendPayload: Parameters<typeof sendWhatsAppBotMessage>[0]
 
-          const instanceId = contact.bot_instance_id ?? null
+          const instanceId = contact.bot_instance_id ?? defaultBotInstanceId
 
           if (exportFormat === "table") {
             sendPayload = {
@@ -513,7 +538,19 @@ export async function POST(request: Request) {
             }
           }
 
-          await sendWhatsAppBotMessage(sendPayload)
+          try {
+            await sendWhatsAppBotMessage(sendPayload)
+          } catch (sendErr) {
+            // If instance not connected, retry with default instance
+            const notConnected =
+              sendErr instanceof Error &&
+              (sendErr.message.includes("nao conectado") || sendErr.message.includes("not connected"))
+            if (notConnected && sendPayload.instance_id !== defaultBotInstanceId && defaultBotInstanceId) {
+              await sendWhatsAppBotMessage({ ...sendPayload, instance_id: defaultBotInstanceId })
+            } else {
+              throw sendErr
+            }
+          }
 
           if (log) {
             await supabase

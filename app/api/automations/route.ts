@@ -15,6 +15,61 @@ import {
   isWorkspaceAllowed,
 } from "@/lib/workspace-access"
 
+async function syncAutomationSchedule(
+  supabase: ReturnType<typeof createClient>,
+  companyId: string,
+  automationId: string,
+  automationName: string,
+  cronExpression: string | null,
+  exportFormat: string,
+  messageTemplate: string | null,
+  contactIds: string[]
+) {
+  try {
+    const { data: existing } = await supabase
+      .from("schedules")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("report_id", automationId)
+      .maybeSingle()
+
+    if (!cronExpression) {
+      if (existing) {
+        await supabase.from("schedule_contacts").delete().eq("schedule_id", existing.id)
+        await supabase.from("schedules").delete().eq("company_id", companyId).eq("id", existing.id)
+      }
+      return
+    }
+
+    let scheduleId: string
+    if (existing) {
+      await supabase
+        .from("schedules")
+        .update({ name: automationName, cron_expression: cronExpression, export_format: exportFormat, message_template: messageTemplate, is_active: true })
+        .eq("company_id", companyId)
+        .eq("id", existing.id)
+      scheduleId = existing.id
+    } else {
+      const { data: inserted, error } = await supabase
+        .from("schedules")
+        .insert({ company_id: companyId, name: automationName, report_id: automationId, cron_expression: cronExpression, export_format: exportFormat, message_template: messageTemplate, is_active: true })
+        .select("id")
+        .single()
+      if (error || !inserted) return
+      scheduleId = inserted.id
+    }
+
+    await supabase.from("schedule_contacts").delete().eq("schedule_id", scheduleId)
+    if (contactIds.length > 0) {
+      await supabase
+        .from("schedule_contacts")
+        .insert(contactIds.map((cid) => ({ schedule_id: scheduleId, contact_id: cid })))
+    }
+  } catch {
+    // Schedule sync is best-effort; don't fail the automation save
+  }
+}
+
 type AutomationRow = Record<string, unknown>
 type NormalizedAutomationRow = AutomationRow & {
   selected_columns: unknown[]
@@ -345,6 +400,14 @@ export async function POST(request: Request) {
       }
     }
 
+    await syncAutomationSchedule(
+      supabase, companyId, String(data.id), String(data.name),
+      typeof data.cron_expression === "string" ? data.cron_expression : null,
+      String(data.export_format || "csv"),
+      typeof data.message_template === "string" ? data.message_template : null,
+      Array.isArray(contact_ids) ? contact_ids : []
+    )
+
     return NextResponse.json(data, { status: 201 })
   } catch (error) {
     console.error("Error creating automation:", error)
@@ -481,7 +544,16 @@ export async function PUT(request: Request) {
       }
     }
 
-    return NextResponse.json(normalizeAutomationRecord(data as AutomationRow))
+    const normalized = normalizeAutomationRecord(data as AutomationRow)
+    await syncAutomationSchedule(
+      supabase, companyId, String(normalized.id), String(normalized.name),
+      normalized.cron_expression,
+      normalized.export_format,
+      normalized.message_template,
+      Array.isArray(contact_ids) ? contact_ids : []
+    )
+
+    return NextResponse.json(normalized)
   } catch (error) {
     console.error("Error updating automation:", error)
     return NextResponse.json(

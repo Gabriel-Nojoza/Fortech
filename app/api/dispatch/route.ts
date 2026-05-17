@@ -28,7 +28,7 @@ import { getAccessToken } from "@/lib/powerbi"
 import { getWorkspaceAccessScope } from "@/lib/workspace-access"
 import { normalizeDispatchSettings } from "@/lib/dispatch-config"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
-import { getCompanyWhatsAppBotInstance } from "@/lib/whatsapp-bot-instances"
+import { resolveConnectedBotInstance } from "@/lib/whatsapp-bot-instances"
 import { runStoredAutomation } from "@/lib/automation-runner"
 
 const EXPORT_DELAY_MS = Number(process.env.EXPORT_DELAY_MS || "8000")
@@ -110,6 +110,24 @@ export async function POST(request: NextRequest) {
       { error: error instanceof Error ? error.message : "Erro interno ao processar rotina" },
       { status: 500 }
     )
+  }
+}
+
+async function sendWithFallback(
+  payload: Parameters<typeof sendWhatsAppBotMessage>[0],
+  fallbackInstanceId: string | null
+) {
+  try {
+    await sendWhatsAppBotMessage(payload)
+  } catch (err) {
+    const notConnected =
+      err instanceof Error &&
+      (err.message.includes("nao conectado") || err.message.includes("not connected"))
+    if (notConnected && payload.instance_id !== fallbackInstanceId && fallbackInstanceId) {
+      await sendWhatsAppBotMessage({ ...payload, instance_id: fallbackInstanceId })
+    } else {
+      throw err
+    }
   }
 }
 
@@ -209,6 +227,39 @@ async function handleDispatch(request: NextRequest) {
     }
   }
 
+  // Verificar janela de horário de envio
+  const { data: sendingHoursRow } = await supabase
+    .from("company_settings")
+    .select("value")
+    .eq("company_id", companyId)
+    .eq("key", "sending_hours")
+    .maybeSingle()
+
+  const sendingHours = sendingHoursRow?.value as { enabled?: boolean; windows?: Array<{ start_time?: string; end_time?: string }> } | null
+  if (sendingHours?.enabled && Array.isArray(sendingHours.windows) && sendingHours.windows.length > 0) {
+    const nowBr = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }))
+    const currentMinutes = nowBr.getHours() * 60 + nowBr.getMinutes()
+
+    const isInAnyWindow = sendingHours.windows.some((w) => {
+      if (!w.start_time || !w.end_time) return false
+      const [sh, sm] = w.start_time.split(":").map(Number)
+      const [eh, em] = w.end_time.split(":").map(Number)
+      return currentMinutes >= sh * 60 + sm && currentMinutes <= eh * 60 + em
+    })
+
+    if (!isInAnyWindow) {
+      const windowsStr = sendingHours.windows
+        .filter((w) => w.start_time && w.end_time)
+        .map((w) => `${w.start_time}–${w.end_time}`)
+        .join(", ")
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: `Fora dos horarios de envio (${windowsStr})`,
+      })
+    }
+  }
+
   const { data: schedule } = await supabase
     .from("schedules")
     .select("*")
@@ -224,11 +275,13 @@ async function handleDispatch(request: NextRequest) {
     return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
   }
 
-  const resolvedBotInstance = await getCompanyWhatsAppBotInstance(
-    supabase,
-    companyId,
-    schedule.bot_instance_id ?? null
-  ).catch(() => null)
+  const originalBotInstanceId = schedule.bot_instance_id ?? null
+
+  // Only resolve to a different instance when the schedule already specifies a preference.
+  // When null, leave null so the bot service uses its default connected socket.
+  const resolvedBotInstance = originalBotInstanceId
+    ? await resolveConnectedBotInstance(supabase, companyId, originalBotInstanceId).catch(() => null)
+    : null
   if (resolvedBotInstance) {
     schedule.bot_instance_id = resolvedBotInstance.id
   }
@@ -303,8 +356,8 @@ async function handleDispatch(request: NextRequest) {
     .in("id", contactIds)
     .eq("is_active", true)
 
-  if (typeof schedule.bot_instance_id === "string" && schedule.bot_instance_id.trim()) {
-    contactsQuery = contactsQuery.eq("bot_instance_id", schedule.bot_instance_id.trim())
+  if (typeof originalBotInstanceId === "string" && originalBotInstanceId.trim()) {
+    contactsQuery = contactsQuery.eq("bot_instance_id", originalBotInstanceId.trim())
   }
 
   const { data: contacts } = await contactsQuery
@@ -584,7 +637,7 @@ async function handleDispatch(request: NextRequest) {
                 byteLength: exportedFile.buffer.byteLength,
               })
 
-              await sendWhatsAppBotMessage({
+              await sendWithFallback({
                 instance_id: schedule.bot_instance_id ?? null,
                 phone: contact.phone,
                 whatsapp_group_id: contact.whatsapp_group_id,
@@ -597,7 +650,7 @@ async function handleDispatch(request: NextRequest) {
                   exportedFile.extension
                 ),
                 mimetype: exportedFile.contentType,
-              })
+              }, resolvedBotInstance?.id ?? null)
             }
           } else {
             console.log("[dispatch] direct PDF generation", {
@@ -629,7 +682,7 @@ async function handleDispatch(request: NextRequest) {
               byteLength: exportedFile.buffer.byteLength,
             })
 
-            await sendWhatsAppBotMessage({
+            await sendWithFallback({
               instance_id: schedule.bot_instance_id ?? null,
               phone: contact.phone,
               whatsapp_group_id: contact.whatsapp_group_id,
@@ -637,7 +690,7 @@ async function handleDispatch(request: NextRequest) {
               document_base64: Buffer.from(exportedFile.buffer).toString("base64"),
               file_name: buildReportAttachmentFileName(target.report.name, exportedFile.extension),
               mimetype: exportedFile.contentType,
-            })
+            }, resolvedBotInstance?.id ?? null)
           }
 
           if (currentLog) {

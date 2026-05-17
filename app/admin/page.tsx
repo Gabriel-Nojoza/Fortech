@@ -67,6 +67,37 @@ function getUserInitials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
 }
 
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"))
+const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"))
+
+function TimeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const parts = value.split(":")
+  const h = parts[0] ?? "08"
+  const rawM = Number(parts[1] ?? 0)
+  const m = String(Math.round(rawM / 5) * 5 % 60).padStart(2, "0")
+  return (
+    <div className="flex items-center gap-1">
+      <Select value={h} onValueChange={(v) => onChange(`${v}:${m}`)}>
+        <SelectTrigger className="w-16 h-8 text-xs px-2">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {HOURS.map((hh) => <SelectItem key={hh} value={hh} className="text-xs">{hh}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <span className="text-muted-foreground font-medium">:</span>
+      <Select value={m} onValueChange={(v) => onChange(`${h}:${v}`)}>
+        <SelectTrigger className="w-16 h-8 text-xs px-2">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {MINUTES.map((mm) => <SelectItem key={mm} value={mm} className="text-xs">{mm}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
 function formatDate(iso: string | null) {
   if (!iso) return "—"
   return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -277,6 +308,72 @@ export default function AdminDashboardPage() {
   const [transferResult, setTransferResult] = useState<{ success?: boolean; message?: string } | null>(null)
   const [savingLimitFor, setSavingLimitFor] = useState<string | null>(null)
   const [builderOverrides, setBuilderOverrides] = useState<Record<string, boolean>>({})
+  const [campaignsOverrides, setCampaignsOverrides] = useState<Record<string, boolean>>({})
+
+  type TimeWindow = { startTime: string; endTime: string }
+  type SendingHoursDialog = {
+    companyId: string
+    companyName: string
+    enabled: boolean
+    windows: TimeWindow[]
+  }
+  const [sendingHoursDialog, setSendingHoursDialog] = useState<SendingHoursDialog | null>(null)
+  const [sendingHoursSaving, setSendingHoursSaving] = useState(false)
+
+  function openSendingHoursDialog(c: CompanyStatItem) {
+    setSendingHoursDialog({
+      companyId: c.companyId,
+      companyName: c.companyName,
+      enabled: c.sendingHours?.enabled ?? false,
+      windows: c.sendingHours?.windows?.length ? c.sendingHours.windows : [{ startTime: "08:00", endTime: "18:00" }],
+    })
+  }
+
+  function updateWindow(index: number, field: keyof TimeWindow, value: string) {
+    setSendingHoursDialog((prev) => {
+      if (!prev) return prev
+      const windows = prev.windows.map((w, i) => i === index ? { ...w, [field]: value } : w)
+      return { ...prev, windows }
+    })
+  }
+
+  function addWindow() {
+    setSendingHoursDialog((prev) => prev ? { ...prev, windows: [...prev.windows, { startTime: "08:00", endTime: "18:00" }] } : prev)
+  }
+
+  function removeWindow(index: number) {
+    setSendingHoursDialog((prev) => {
+      if (!prev || prev.windows.length <= 1) return prev
+      return { ...prev, windows: prev.windows.filter((_, i) => i !== index) }
+    })
+  }
+
+  async function saveSendingHours() {
+    if (!sendingHoursDialog) return
+    setSendingHoursSaving(true)
+    try {
+      const res = await fetch("/api/admin/company-limits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId: sendingHoursDialog.companyId,
+          sendingHours: {
+            enabled: sendingHoursDialog.enabled,
+            windows: sendingHoursDialog.windows,
+          },
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        console.error("Erro ao salvar horario:", data)
+      } else {
+        await mutate("/api/admin/company-stats")
+        setSendingHoursDialog(null)
+      }
+    } finally {
+      setSendingHoursSaving(false)
+    }
+  }
 
   async function handleTransfer() {
     if (!transferSource || !transferTarget) return
@@ -310,10 +407,13 @@ export default function AdminDashboardPage() {
     reportExcessPrice?: number | null
     chatExcessPrice?: number | null
     reportBuilderEnabled?: boolean
+    campaignsEnabled?: boolean
   }) {
-    // Atualiza estado local imediatamente para o toggle do Construtor
     if (fields.reportBuilderEnabled !== undefined) {
       setBuilderOverrides((prev) => ({ ...prev, [companyId]: fields.reportBuilderEnabled! }))
+    }
+    if (fields.campaignsEnabled !== undefined) {
+      setCampaignsOverrides((prev) => ({ ...prev, [companyId]: fields.campaignsEnabled! }))
     }
 
     setSavingLimitFor(companyId)
@@ -326,9 +426,15 @@ export default function AdminDashboardPage() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         console.error("Erro ao salvar limite:", res.status, body)
-        // Reverte override se falhou
         if (fields.reportBuilderEnabled !== undefined) {
           setBuilderOverrides((prev) => {
+            const next = { ...prev }
+            delete next[companyId]
+            return next
+          })
+        }
+        if (fields.campaignsEnabled !== undefined) {
+          setCampaignsOverrides((prev) => {
             const next = { ...prev }
             delete next[companyId]
             return next
@@ -623,6 +729,8 @@ export default function AdminDashboardPage() {
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Excedente</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">A cobrar</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Construtor</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Campanhas</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Horário</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Taxa</th>
                       </tr>
                     </thead>
@@ -698,6 +806,36 @@ export default function AdminDashboardPage() {
                               })()}
                             </td>
                             <td className="px-4 py-3 text-center">
+                              {(() => {
+                                const enabled = campaignsOverrides[c.companyId] ?? c.campaignsEnabled
+                                return (
+                                  <div className="inline-flex items-center gap-1.5">
+                                    <Switch
+                                      checked={enabled}
+                                      onCheckedChange={() => saveLimit(c.companyId, { campaignsEnabled: !enabled })}
+                                    />
+                                    <span className={`text-xs font-medium ${enabled ? "text-blue-500" : "text-muted-foreground"}`}>
+                                      {enabled ? "Ativado" : "Desativado"}
+                                    </span>
+                                  </div>
+                                )
+                              })()}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                onClick={() => openSendingHoursDialog(c)}
+                                className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted/50 transition-colors"
+                              >
+                                <Clock className="size-3 shrink-0" />
+                                {c.sendingHours?.enabled && c.sendingHours.windows.length > 0
+                                  ? c.sendingHours.windows.length === 1
+                                    ? <span className="text-blue-500">{c.sendingHours.windows[0].startTime}–{c.sendingHours.windows[0].endTime}</span>
+                                    : <span className="text-blue-500">{c.sendingHours.windows.length} janelas</span>
+                                  : <span className="text-muted-foreground">Livre</span>
+                                }
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-center">
                               <Badge
                                 variant={c.successRate >= 80 ? "default" : c.successRate >= 50 ? "secondary" : "destructive"}
                                 className="text-xs"
@@ -723,7 +861,7 @@ export default function AdminDashboardPage() {
                             </div>
                           </div>
                         </td>
-                        <td colSpan={6} />
+                        <td colSpan={9} />
                       </tr>
                     </tfoot>
                   </table>
@@ -907,6 +1045,62 @@ export default function AdminDashboardPage() {
 
       {/* Chat flutuante admin */}
       <AdminFloatingChat />
+
+      {/* Modal de horário de envio */}
+      <Dialog open={sendingHoursDialog !== null} onOpenChange={(open) => { if (!open) setSendingHoursDialog(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">Horário de Envio</DialogTitle>
+            <DialogDescription className="text-xs">{sendingHoursDialog?.companyName}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={sendingHoursDialog?.enabled ?? false}
+                onCheckedChange={(val) => setSendingHoursDialog((prev) => prev ? { ...prev, enabled: val } : prev)}
+              />
+              <span className="text-sm">
+                {sendingHoursDialog?.enabled ? "Restrição ativa" : "Sem restrição de horário"}
+              </span>
+            </div>
+            {sendingHoursDialog?.enabled && (
+              <div className="space-y-2">
+                {sendingHoursDialog.windows.map((w, i) => (
+                  <div key={i} className="flex items-end gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Das</Label>
+                      <TimeSelect value={w.startTime} onChange={(v) => updateWindow(i, "startTime", v)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Até</Label>
+                      <TimeSelect value={w.endTime} onChange={(v) => updateWindow(i, "endTime", v)} />
+                    </div>
+                    {sendingHoursDialog.windows.length > 1 && (
+                      <button
+                        onClick={() => removeWindow(i)}
+                        className="mb-0.5 p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" className="w-full text-xs" onClick={addWindow}>
+                  <Plus className="size-3 mr-1" /> Adicionar horário
+                </Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setSendingHoursDialog(null)} disabled={sendingHoursSaving}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={saveSendingHours} disabled={sendingHoursSaving}>
+              {sendingHoursSaving ? <Loader2 className="size-3 animate-spin" /> : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de transferência */}
       <Dialog open={transferOpen} onOpenChange={(open) => { setTransferOpen(open); if (!open) setTransferResult(null) }}>
