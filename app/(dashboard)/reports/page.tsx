@@ -191,19 +191,6 @@ export default function ReportsPage() {
     }
   }
 
-  async function handleDeleteAutomation() {
-    if (!deleteId) return
-    try {
-      const res = await fetch(`/api/automations?id=${deleteId}`, { method: "DELETE" })
-      if (!res.ok) throw new Error()
-      toast.success("Automacao excluida!")
-      void globalMutate("/api/automations")
-    } catch {
-      toast.error("Erro ao excluir automacao")
-    } finally {
-      setDeleteId(null)
-    }
-  }
 
   async function handleDuplicateAutomation(auto: AutomationItem) {
     try {
@@ -243,6 +230,23 @@ export default function ReportsPage() {
     const matchWs = wsFilter === "all" || report.workspace_id === wsFilter
     return matchSearch && matchWs
   })
+
+  async function handleDeleteAutomation() {
+    if (!deleteId) return
+    try {
+      const res = await fetch(`/api/automations/${deleteId}`, { method: "DELETE" })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error ?? "Erro ao excluir")
+      }
+      toast.success("Automação excluída!")
+      void globalMutate("/api/automations")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao excluir automação")
+    } finally {
+      setDeleteId(null)
+    }
+  }
 
   async function handleSyncPowerBi() {
     try {
