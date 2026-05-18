@@ -119,6 +119,7 @@ const OPTIONAL_AUTOMATION_COLUMNS = new Set([
   "cron_expression",
   "export_format",
   "message_template",
+  "bot_instance_id",
 ])
 
 function getErrorMessage(error: unknown) {
@@ -326,6 +327,8 @@ export async function POST(request: Request) {
       export_format,
       message_template,
       contact_ids,
+      is_active,
+      bot_instance_id,
     } = body
 
     if (!name || !dataset_id) {
@@ -367,6 +370,8 @@ export async function POST(request: Request) {
         cron_expression: cron_expression || null,
         export_format: export_format || "csv",
         message_template: message_template || null,
+        is_active: typeof is_active === "boolean" ? is_active : true,
+        bot_instance_id: bot_instance_id || null,
       })
     } catch (error) {
       if (!isMissingAutomationRelationError(error)) {

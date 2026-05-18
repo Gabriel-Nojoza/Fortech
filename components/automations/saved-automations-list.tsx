@@ -38,7 +38,7 @@ import {
 import { formatShortDateTimePtBr } from "@/lib/datetime"
 import { describeCronValue } from "@/lib/schedule-cron"
 
-interface Automation {
+export interface Automation {
   id: string
   name: string
   dataset_id: string
@@ -64,7 +64,7 @@ function describeExportFormat(format: string): string {
 
 const BUILDER_STORAGE_KEY = "report-builder-draft"
 
-export function SavedAutomationsList() {
+export function SavedAutomationsList({ onEdit }: { onEdit?: (auto: Automation) => void }) {
   const router = useRouter()
   const { data: automations, isLoading } = useSWR<Automation[]>(
     "/api/automations",
@@ -74,6 +74,10 @@ export function SavedAutomationsList() {
   const [runningId, setRunningId] = useState<string | null>(null)
 
   function handleEdit(auto: Automation) {
+    if (onEdit) {
+      onEdit(auto)
+      return
+    }
     try {
       localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify({
         selectedWorkspace: auto.workspace_id ?? "",

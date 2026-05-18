@@ -16,6 +16,7 @@ import {
   Play,
   Clock,
   Copy,
+  Trash2,
 } from "lucide-react"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -44,6 +45,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import type { Report, Workspace } from "@/lib/types"
 import { describeCronValue } from "@/lib/schedule-cron"
 import { toast } from "sonner"
@@ -102,6 +113,7 @@ export default function ReportsPage() {
   const [syncingPowerBi, setSyncingPowerBi] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
   const [previewingId, setPreviewingId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
 
   function handleEditAutomation(auto: AutomationItem) {
     try {
@@ -113,6 +125,12 @@ export default function ReportsPage() {
         selectedMeasures: auto.selected_measures ?? [],
         activeTableName: null,
         filters: auto.filters ?? [],
+        editingAutomationId: auto.id,
+        editingAutomationName: auto.name,
+        editingAutomationCron: auto.cron_expression ?? null,
+        editingAutomationFormat: auto.export_format ?? "csv",
+        editingAutomationMessage: "",
+        editingAutomationContactIds: auto.contacts?.map((c) => c.id) ?? [],
       }))
     } catch {
       // ignore storage errors
@@ -170,6 +188,20 @@ export default function ReportsPage() {
       toast.error(msg)
     } finally {
       setPreviewingId(null)
+    }
+  }
+
+  async function handleDeleteAutomation() {
+    if (!deleteId) return
+    try {
+      const res = await fetch(`/api/automations?id=${deleteId}`, { method: "DELETE" })
+      if (!res.ok) throw new Error()
+      toast.success("Automacao excluida!")
+      void globalMutate("/api/automations")
+    } catch {
+      toast.error("Erro ao excluir automacao")
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -260,6 +292,7 @@ export default function ReportsPage() {
   }
 
   return (
+    <>
     <div className="flex flex-1 flex-col">
       <PageHeader
         title="Relatorios"
@@ -562,6 +595,21 @@ export default function ReportsPage() {
                               <TooltipContent>Executar agora</TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  onClick={() => setDeleteId(auto.id)}
+                                >
+                                  <Trash2 className="size-3.5 text-destructive" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Excluir automacao</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -573,5 +621,23 @@ export default function ReportsPage() {
         </Card>
       </div>
     </div>
+
+    <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir automacao?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta acao nao pode ser desfeita. A automacao sera removida permanentemente.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void handleDeleteAutomation()}>
+            Excluir
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Save, Loader2 } from "lucide-react"
+import useSWR, { mutate as globalMutate } from "swr"
+import { Save, Loader2, Search, RefreshCw } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import {
   Select,
   SelectContent,
@@ -23,10 +25,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
 import { CronBuilder } from "@/components/schedules/cron-builder"
 import { toast } from "sonner"
-import type { Contact } from "@/lib/types"
+import type { Contact, WhatsAppBotInstance } from "@/lib/types"
 import { isValidCronValue } from "@/lib/schedule-cron"
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 interface EditingAutomation {
   id: string
@@ -35,17 +40,19 @@ interface EditingAutomation {
   export_format: string
   message_template: string
   contact_ids: string[]
+  bot_instance_id?: string | null
 }
 
 interface SaveAutomationDialogProps {
-  contacts: Contact[]
-  showContacts: boolean
+  botInstances: WhatsAppBotInstance[]
   onSave: (data: {
     name: string
     cron_expression: string | null
     export_format: string
     message_template: string
     contact_ids: string[]
+    is_active: boolean
+    bot_instance_id: string | null
   }) => Promise<void>
   disabled?: boolean
   editingAutomation?: EditingAutomation | null
@@ -53,8 +60,7 @@ interface SaveAutomationDialogProps {
 }
 
 export function SaveAutomationDialog({
-  contacts,
-  showContacts,
+  botInstances,
   onSave,
   disabled,
   editingAutomation,
@@ -70,15 +76,28 @@ export function SaveAutomationDialog({
   const [exportFormat, setExportFormat] = useState("csv")
   const [message, setMessage] = useState(defaultMessage)
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
-  const activeContacts = showContacts
-    ? contacts.filter((contact) => contact.is_active)
-    : []
+  const [contactSearch, setContactSearch] = useState("")
+  const [isActive, setIsActive] = useState(true)
+  const [syncingContacts, setSyncingContacts] = useState(false)
+  const [botInstanceId, setBotInstanceId] = useState<string>("")
+
+  const defaultInstance = botInstances.find((i) => i.is_default) ?? botInstances[0]
 
   useEffect(() => {
-    if (!showContacts) {
-      setSelectedContacts([])
+    if (open && !botInstanceId && defaultInstance) {
+      setBotInstanceId(defaultInstance.id)
     }
-  }, [showContacts])
+  }, [open, botInstanceId, defaultInstance])
+
+  const contactsKey = botInstanceId ? `/api/contacts?bot_instance_id=${botInstanceId}` : "/api/contacts"
+  const { data: rawContacts } = useSWR<Contact[]>(open ? contactsKey : null, fetcher)
+  const allContacts: Contact[] = Array.isArray(rawContacts) ? rawContacts : []
+  const activeContacts = allContacts.filter((c) => c.is_active)
+  const filteredContacts = activeContacts.filter((c) => {
+    const q = contactSearch.trim().toLowerCase()
+    if (!q) return true
+    return c.name?.toLowerCase().includes(q) || (c.phone ?? "").includes(q)
+  })
 
   useEffect(() => {
     if (open && editingAutomation) {
@@ -86,6 +105,7 @@ export function SaveAutomationDialog({
       setExportFormat(editingAutomation.export_format || "csv")
       setMessage(editingAutomation.message_template || defaultMessage)
       setSelectedContacts(editingAutomation.contact_ids || [])
+      if (editingAutomation.bot_instance_id) setBotInstanceId(editingAutomation.bot_instance_id)
       if (editingAutomation.cron_expression) {
         setEnableSchedule(true)
         setCron(editingAutomation.cron_expression)
@@ -103,12 +123,37 @@ export function SaveAutomationDialog({
     setExportFormat("csv")
     setMessage(defaultMessage)
     setSelectedContacts([])
+    setContactSearch("")
+    setIsActive(true)
+    setBotInstanceId(defaultInstance?.id ?? "")
   }
 
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
     )
+  }
+
+  const handleSyncContacts = async () => {
+    if (!botInstanceId) {
+      toast.error("Selecione o WhatsApp antes de sincronizar.")
+      return
+    }
+    setSyncingContacts(true)
+    try {
+      const res = await fetch("/api/contacts/sync-bot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot_instance_id: botInstanceId }),
+      })
+      if (!res.ok) throw new Error()
+      await globalMutate(contactsKey)
+      toast.success("Contatos sincronizados!")
+    } catch {
+      toast.error("Erro ao sincronizar. Verifique se o WhatsApp esta conectado.")
+    } finally {
+      setSyncingContacts(false)
+    }
   }
 
   const handleSave = async () => {
@@ -118,10 +163,6 @@ export function SaveAutomationDialog({
     }
     if (enableSchedule && (!cron.trim() || !isValidCronValue(cron))) {
       toast.error("Defina uma frequencia valida para o agendamento")
-      return
-    }
-    if (enableSchedule && !showContacts) {
-      toast.error("Conecte o WhatsApp pela leitura do QR Code para liberar os contatos")
       return
     }
     if (enableSchedule && activeContacts.length > 0 && selectedContacts.length === 0) {
@@ -136,6 +177,8 @@ export function SaveAutomationDialog({
         export_format: exportFormat,
         message_template: message,
         contact_ids: selectedContacts,
+        is_active: isActive,
+        bot_instance_id: botInstanceId || null,
       })
       setOpen(false)
       resetForm()
@@ -153,10 +196,7 @@ export function SaveAutomationDialog({
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen)
-        if (!nextOpen && !saving) {
-          resetForm()
-          if (isEditing) onCancelEdit?.()
-        }
+        if (!nextOpen && !saving) resetForm()
       }}
     >
       <DialogTrigger asChild>
@@ -165,8 +205,8 @@ export function SaveAutomationDialog({
           {isEditing ? "Editar Automacao" : "Salvar Automacao"}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-lg">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{isEditing ? "Editar Automacao" : "Salvar Automacao"}</DialogTitle>
           <DialogDescription>
             {isEditing
@@ -175,7 +215,7 @@ export function SaveAutomationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-2 pr-1">
           <div className="space-y-2">
             <Label htmlFor="auto-name">Nome da automacao</Label>
             <Input
@@ -185,6 +225,22 @@ export function SaveAutomationDialog({
               placeholder="Ex: Vendas por regiao - Semanal"
             />
           </div>
+
+          {botInstances.length > 0 && (
+            <div className="space-y-2">
+              <Label>WhatsApp de Envio</Label>
+              <Select value={botInstanceId} onValueChange={(v) => { setBotInstanceId(v); setSelectedContacts([]) }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecionar WhatsApp" />
+                </SelectTrigger>
+                <SelectContent>
+                  {botInstances.map((inst) => (
+                    <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Formato de exportacao</Label>
@@ -201,23 +257,20 @@ export function SaveAutomationDialog({
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
+            <CronBuilder value={cron} onChange={setCron} />
+            <div className="flex items-center gap-2 px-1 pt-1">
+              <Switch
                 id="enable-schedule"
                 checked={enableSchedule}
-                onCheckedChange={(v) => {
-                  const checked = v === true
+                onCheckedChange={(checked) => {
                   setEnableSchedule(checked)
-                  if (checked && !cron.trim()) {
-                    setCron(defaultCron)
-                  }
+                  if (checked && !cron.trim()) setCron(defaultCron)
                 }}
               />
-              <Label htmlFor="enable-schedule">Agendar execucao automatica</Label>
+              <Label htmlFor="enable-schedule" className="cursor-pointer text-sm">
+                Agendar execucao automatica
+              </Label>
             </div>
-            {enableSchedule && (
-              <CronBuilder value={cron} onChange={setCron} />
-            )}
           </div>
 
           <div className="space-y-2">
@@ -230,52 +283,81 @@ export function SaveAutomationDialog({
             />
           </div>
 
-          {showContacts && (
-            <div className="space-y-2">
-              <Label>Contatos para envio</Label>
-              {activeContacts.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Nenhum contato ativo cadastrado. Adicione na pagina de Contatos.
-                </p>
-              ) : (
-                <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border p-2">
-                  {activeContacts.map((contact) => (
-                    <label
-                      key={contact.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent"
-                    >
-                      <Checkbox
-                        checked={selectedContacts.includes(contact.id)}
-                        onCheckedChange={() => toggleContact(contact.id)}
-                      />
-                      <span className="text-sm">{contact.name}</span>
-                      {contact.phone && (
-                        <span className="ml-auto text-xs text-muted-foreground">
-                          {contact.phone}
-                        </span>
-                      )}
-                    </label>
-                  ))}
-                </div>
-              )}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>
+                Contatos ({selectedContacts.length} selecionado{selectedContacts.length !== 1 ? "s" : ""})
+              </Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                disabled={syncingContacts}
+                onClick={handleSyncContacts}
+              >
+                <RefreshCw className={`size-3 ${syncingContacts ? "animate-spin" : ""}`} />
+                Sincronizar do bot
+              </Button>
             </div>
-          )}
+            {activeContacts.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Nenhum contato ativo. Sincronize ou adicione na pagina de Contatos.
+              </p>
+            ) : (
+              <>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={contactSearch}
+                    onChange={(e) => setContactSearch(e.target.value)}
+                    placeholder="Pesquisar contato ou grupo..."
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+                <div className="max-h-28 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                  {filteredContacts.length === 0 ? (
+                    <p className="py-2 text-center text-xs text-muted-foreground">Nenhum encontrado</p>
+                  ) : (
+                    filteredContacts.map((contact) => (
+                      <label
+                        key={contact.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent"
+                      >
+                        <Checkbox
+                          checked={selectedContacts.includes(contact.id)}
+                          onCheckedChange={() => toggleContact(contact.id)}
+                        />
+                        <span className="truncate text-sm">{contact.name}</span>
+                        {contact.type === "group" && (
+                          <Badge variant="outline" className="ml-auto shrink-0 text-[10px]">Grupo</Badge>
+                        )}
+                      </label>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Switch id="auto-active" checked={isActive} onCheckedChange={setIsActive} />
+            <Label htmlFor="auto-active" className="cursor-pointer">Ativa</Label>
+          </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button
             variant="outline"
             onClick={() => {
               setOpen(false)
               resetForm()
+              if (isEditing) onCancelEdit?.()
             }}
           >
             Cancelar
           </Button>
-          <Button
-            onClick={handleSave}
-            disabled={saving || !name.trim() || (enableSchedule && !showContacts)}
-          >
+          <Button onClick={handleSave} disabled={saving || !name.trim()}>
             {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
             {isEditing ? "Atualizar" : "Salvar"}
           </Button>

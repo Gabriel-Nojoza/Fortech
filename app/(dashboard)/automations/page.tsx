@@ -27,9 +27,8 @@ import { MeasuresPanel } from "@/components/automations/measures-panel"
 import { FiltersPanel } from "@/components/automations/filters-panel"
 import { ResultsPanel } from "@/components/automations/results-panel"
 import { SaveAutomationDialog } from "@/components/automations/save-automation-dialog"
-import { SavedAutomationsList } from "@/components/automations/saved-automations-list"
+import { SavedAutomationsList, type Automation as SavedAutomation } from "@/components/automations/saved-automations-list"
 import { DispatchDialog } from "@/components/automations/dispatch-dialog"
-import { ScheduleDialog } from "@/components/automations/schedule-dialog"
 import { buildDAXQuery } from "@/lib/dax-builder"
 import { createId } from "@/lib/id"
 import {
@@ -49,6 +48,7 @@ import type {
   DatasetColumn,
   DatasetMeasure,
   DAXQueryResult,
+  WhatsAppBotInstance,
 } from "@/lib/types"
 
 const fetcher = async (url: string) => {
@@ -94,6 +94,7 @@ export default function AutomationsPage() {
     export_format: string
     message_template: string
     contact_ids: string[]
+    bot_instance_id?: string | null
   } | null>(null)
   const [autoOpenFilterSignal, setAutoOpenFilterSignal] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
@@ -135,7 +136,7 @@ export default function AutomationsPage() {
   useEffect(() => {
     if (!mounted) return
     try {
-      localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify({
+      const state: Record<string, unknown> = {
         selectedWorkspace,
         selectedDataset,
         selectedExecutionDataset,
@@ -143,15 +144,25 @@ export default function AutomationsPage() {
         selectedMeasures,
         activeTableName,
         filters,
-      }))
+      }
+      if (editingAutomation) {
+        state.editingAutomationId = editingAutomation.id
+        state.editingAutomationName = editingAutomation.name
+        state.editingAutomationCron = editingAutomation.cron_expression
+        state.editingAutomationFormat = editingAutomation.export_format
+        state.editingAutomationMessage = editingAutomation.message_template
+        state.editingAutomationContactIds = editingAutomation.contact_ids
+      }
+      localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify(state))
     } catch {
       // ignore storage errors
     }
-  }, [mounted, selectedWorkspace, selectedDataset, selectedExecutionDataset, selectedColumns, selectedMeasures, activeTableName, filters])
+  }, [mounted, selectedWorkspace, selectedDataset, selectedExecutionDataset, selectedColumns, selectedMeasures, activeTableName, filters, editingAutomation])
 
   const SWR_OPTS = { revalidateOnFocus: false }
   const { data: rawWorkspaces } = useSWR("/api/workspaces", fetcher, SWR_OPTS)
   const { data: rawContacts } = useSWR("/api/contacts", fetcher, SWR_OPTS)
+  const { data: rawBotInstances } = useSWR<WhatsAppBotInstance[]>("/api/bot/instances", fetcher, SWR_OPTS)
   const { data: stats } = useSWR<{
     n8nConfigured?: boolean
     canSyncAllPowerBi?: boolean
@@ -163,6 +174,7 @@ export default function AutomationsPage() {
 
   const workspaces: Workspace[] = Array.isArray(rawWorkspaces) ? rawWorkspaces : []
   const contacts: Contact[] = Array.isArray(rawContacts) ? rawContacts : []
+  const botInstances: WhatsAppBotInstance[] = Array.isArray(rawBotInstances) ? rawBotInstances : []
   const canShowContacts = botQrConfig?.status === "connected"
 
   const selectedWs = workspaces.find((w) => w.id === selectedWorkspace)
@@ -670,12 +682,36 @@ export default function AutomationsPage() {
     }
   }
 
+  const handleEditFromList = useCallback((auto: SavedAutomation) => {
+    setEditingAutomation({
+      id: auto.id,
+      name: auto.name,
+      cron_expression: auto.cron_expression ?? null,
+      export_format: auto.export_format ?? "csv",
+      message_template: auto.message_template ?? "",
+      contact_ids: auto.contacts?.map((c) => c.id) ?? [],
+    })
+    setSelectedWorkspace(auto.workspace_id ?? "")
+    setSelectedDataset(auto.dataset_id ?? "")
+    setSelectedExecutionDataset("")
+    setSelectedColumns(auto.selected_columns ?? [])
+    setSelectedMeasures(auto.selected_measures ?? [])
+    setActiveTableName(null)
+    setFilters((auto.filters as QueryFilter[]) ?? [])
+    setAutoOpenFilterSignal(null)
+    setResult(null)
+    setReportHtml(null)
+    setActiveTab("builder")
+  }, [])
+
   const handleSave = async (saveData: {
     name: string
     cron_expression: string | null
     export_format: string
     message_template: string
     contact_ids: string[]
+    is_active?: boolean
+    bot_instance_id?: string | null
   }) => {
     if (!selectedDataset) {
       throw new Error("Selecione um dataset antes de salvar a automacao")
@@ -931,16 +967,8 @@ export default function AutomationsPage() {
                 disabled={!hasQuery}
               />
 
-              <ScheduleDialog
-                contacts={contacts}
-                showContacts={canShowContacts}
-                onSave={handleSave}
-                disabled={!hasQuery}
-              />
-
-              <SaveAutomationDialog
-                contacts={contacts}
-                showContacts={canShowContacts}
+<SaveAutomationDialog
+                botInstances={botInstances}
                 onSave={handleSave}
                 disabled={!hasQuery}
                 editingAutomation={editingAutomation}
@@ -1252,7 +1280,7 @@ export default function AutomationsPage() {
 
       {activeTab === "saved" && (
         <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-          <SavedAutomationsList />
+          <SavedAutomationsList onEdit={handleEditFromList} />
         </div>
       )}
     </div>
