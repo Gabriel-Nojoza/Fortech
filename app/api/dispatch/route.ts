@@ -370,58 +370,65 @@ async function handleDispatch(request: NextRequest) {
     return NextResponse.json({ error: "Nenhum contato ativo vinculado" }, { status: 400 })
   }
 
-  if (!primaryReport && scheduleReportConfigs.length === 1) {
-    let automation:
-      | { id: string; name: string; export_format?: string | null }
-      | null = null
+  const powerBiTargets = scheduleReportConfigs.flatMap((reportConfig) => {
+    const report = reportMap.get(reportConfig.report_id)
+    if (!report) return []
+    return [{ config: reportConfig, report }]
+  })
 
-    const { data: dbAutomation, error: automationError } = await supabase
-      .from("automations")
-      .select("id, name, export_format")
-      .eq("company_id", companyId)
-      .eq("id", primaryScheduleReportConfig.report_id)
-      .maybeSingle()
+  if (powerBiTargets.length !== scheduleReportConfigs.length) {
+    // Nao mistura relatorios Power BI com automacoes
+    if (powerBiTargets.length > 0) {
+      return NextResponse.json(
+        { error: "Todos os relatorios da rotina precisam existir no Power BI para o envio conjunto." },
+        { status: 404 }
+      )
+    }
 
-    if (automationError) {
-      if (!isMissingAutomationRelationError(automationError)) {
-        return NextResponse.json({ error: automationError.message }, { status: 500 })
+    // Nenhum relatorio encontrado no Power BI — tenta como automacoes
+    const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || new URL(request.url).origin
+    let totalNotified = 0
+
+    for (const reportConfig of scheduleReportConfigs) {
+      let automation: { id: string; name: string; export_format?: string | null } | null = null
+
+      const { data: dbAutomation, error: automationError } = await supabase
+        .from("automations")
+        .select("id, name, export_format")
+        .eq("company_id", companyId)
+        .eq("id", reportConfig.report_id)
+        .maybeSingle()
+
+      if (automationError) {
+        if (!isMissingAutomationRelationError(automationError)) {
+          return NextResponse.json({ error: automationError.message }, { status: 500 })
+        }
+        const stored = await getStoredAutomationById(supabase, companyId, reportConfig.report_id)
+        automation = stored ? { id: stored.id, name: stored.name, export_format: stored.export_format } : null
+      } else {
+        automation = dbAutomation
       }
 
-      const storedAutomation = await getStoredAutomationById(
-        supabase,
+      if (!automation) {
+        return NextResponse.json(
+          { error: scheduleReportConfigs.length > 1 ? "Um ou mais relatorios da rotina nao foram encontrados." : "Relatorio nao encontrado" },
+          { status: 404 }
+        )
+      }
+
+      const runResult = await runStoredAutomation({
         companyId,
-        primaryScheduleReportConfig.report_id
-      )
+        automationId: automation.id,
+        exportFormat: normalizeAutomationExportFormat(schedule.export_format || automation.export_format),
+        messageOverride: schedule.message_template ?? `Segue o relatorio ${automation.name}.`,
+        contactIds,
+        scheduleId: schedule.id,
+        botInstanceId: schedule.bot_instance_id ?? null,
+        appBaseUrl,
+      })
 
-      automation = storedAutomation
-        ? {
-            id: storedAutomation.id,
-            name: storedAutomation.name,
-            export_format: storedAutomation.export_format,
-          }
-        : null
-    } else {
-      automation = dbAutomation
+      totalNotified += runResult.contacts_notified
     }
-
-    if (!automation) {
-      return NextResponse.json({ error: "Relatorio nao encontrado" }, { status: 404 })
-    }
-
-    const appBaseUrl =
-      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-      new URL(request.url).origin
-
-    const runResult = await runStoredAutomation({
-      companyId,
-      automationId: automation.id,
-      exportFormat: normalizeAutomationExportFormat(schedule.export_format || automation.export_format),
-      messageOverride: schedule.message_template ?? `Segue o relatorio ${automation.name}.`,
-      contactIds,
-      scheduleId: schedule.id,
-      botInstanceId: schedule.bot_instance_id ?? null,
-      appBaseUrl,
-    })
 
     await supabase
       .from("schedules")
@@ -431,36 +438,9 @@ async function handleDispatch(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      logs_created: runResult.contacts_notified,
-      report_name: runResult.report_name,
+      logs_created: totalNotified,
       source: "created",
     })
-  }
-
-  const powerBiTargets = scheduleReportConfigs.flatMap((reportConfig) => {
-    const report = reportMap.get(reportConfig.report_id)
-    if (!report) {
-      return []
-    }
-
-    return [
-      {
-        config: reportConfig,
-        report,
-      },
-    ]
-  })
-
-  if (powerBiTargets.length !== scheduleReportConfigs.length) {
-    return NextResponse.json(
-      {
-        error:
-          scheduleReportConfigs.length > 1
-            ? "Todos os relatorios da rotina precisam existir no Power BI para o envio conjunto."
-            : "Relatorio nao encontrado",
-      },
-      { status: 404 }
-    )
   }
 
   const primarySelectedPageNames = primaryScheduleReportConfig.pbi_page_names ?? []

@@ -1,6 +1,7 @@
 ﻿"use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import useSWR, { mutate as globalMutate } from "swr"
 import {
   Workflow,
@@ -76,6 +77,7 @@ function loadBuilderDraft() {
 }
 
 export default function AutomationsPage() {
+  const router = useRouter()
   const lastExecutedSignatureRef = useRef("")
   const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState("builder")
@@ -754,6 +756,9 @@ export default function AutomationsPage() {
     toast.success(isEditing ? "Automacao atualizada com sucesso!" : "Automacao salva com sucesso!")
     if (isEditing) clearEditingState()
     await globalMutate("/api/automations")
+    if (saveData.cron_expression) {
+      router.push("/schedules")
+    }
   }
 
   const handleWorkspaceChange = (value: string) => {
