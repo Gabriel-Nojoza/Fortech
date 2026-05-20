@@ -164,6 +164,7 @@ export default function AutomationsPage() {
   const SWR_OPTS = { revalidateOnFocus: false }
   const { data: rawWorkspaces } = useSWR("/api/workspaces", fetcher, SWR_OPTS)
   const { data: rawContacts } = useSWR("/api/contacts", fetcher, SWR_OPTS)
+  const { data: companySettings } = useSWR("/api/settings", fetcher, SWR_OPTS)
   const { data: rawBotInstances } = useSWR<WhatsAppBotInstance[]>("/api/bot/instances", fetcher, SWR_OPTS)
   const { data: stats } = useSWR<{
     n8nConfigured?: boolean
@@ -292,6 +293,12 @@ export default function AutomationsPage() {
     }).filter((item) => item.key === "date")
   }, [columns, filters, linkedTableNames])
 
+  const isFCA = String(
+    (companySettings as Record<string, Record<string, unknown>> | null)?.general?.app_name ?? ""
+  )
+    .toUpperCase()
+    .includes("FCA")
+
   const daxQuery = useMemo(
     () =>
       buildDAXQuery({
@@ -299,8 +306,9 @@ export default function AutomationsPage() {
         measures: selectedMeasures,
         filters,
         limit: 100,
+        hideZeroRows: isFCA,
       }),
-    [selectedColumns, selectedMeasures, filters]
+    [selectedColumns, selectedMeasures, filters, isFCA]
   )
 
   const hasQuery =
@@ -1207,6 +1215,10 @@ export default function AutomationsPage() {
                   isGeneratingPdf={isGeneratingPdf}
                   onRemoveColumn={toggleColumn}
                   onRemoveMeasure={toggleMeasure}
+                  onReorder={(cols, msrs) => {
+                    setSelectedColumns(cols)
+                    setSelectedMeasures(msrs)
+                  }}
                 />
               </div>
 
@@ -1275,6 +1287,10 @@ export default function AutomationsPage() {
                     isGeneratingPdf={isGeneratingPdf}
                     onRemoveColumn={toggleColumn}
                     onRemoveMeasure={toggleMeasure}
+                    onReorder={(cols, msrs) => {
+                      setSelectedColumns(cols)
+                      setSelectedMeasures(msrs)
+                    }}
                   />
                 </ResizablePanel>
               </ResizablePanelGroup>

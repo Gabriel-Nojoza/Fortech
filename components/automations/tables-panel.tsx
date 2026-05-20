@@ -54,6 +54,22 @@ function isSystemTable(tableName: string) {
   )
 }
 
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>
+  const lower = text.toLowerCase()
+  const idx = lower.indexOf(query)
+  if (idx === -1) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, idx)}
+      <span className="rounded-[2px] bg-primary/30 font-semibold text-primary">
+        {text.slice(idx, idx + query.length)}
+      </span>
+      {text.slice(idx + query.length)}
+    </>
+  )
+}
+
 export function TablesPanel({
   tables,
   columns,
@@ -99,13 +115,27 @@ export function TablesPanel({
         if (!showHidden && table.isHidden) return false
 
         if (normalizedSearch) {
-          return normalizeName(table.name).includes(normalizedSearch)
+          const tableMatch = normalizeName(table.name).includes(normalizedSearch)
+          const columnMatch = normalizedColumns.some(
+            (c) =>
+              c.__normalizedTableName === normalizeName(table.name) &&
+              c.__normalizedColumnName.includes(normalizedSearch)
+          )
+          return tableMatch || columnMatch
         }
 
         return true
       })
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [tables, normalizedColumns, normalizedSearch, showHidden])
+
+  // When searching: auto-expand all matching tables
+  const effectiveExpanded = useMemo(() => {
+    if (!normalizedSearch) return expanded
+    const next = new Set(expanded)
+    for (const table of visibleTables) next.add(table.name)
+    return next
+  }, [normalizedSearch, expanded, visibleTables])
 
   const toggleExpand = (tableName: string) => {
     onActivateTable(tableName)
@@ -139,11 +169,15 @@ export function TablesPanel({
   const getTableColumns = (tableName: string) => {
     const normalizedTableName = normalizeName(tableName)
 
+    const tableNameMatches = normalizedTableName.includes(normalizedSearch)
     return normalizedColumns
       .filter((column) => {
         if (column.__normalizedTableName !== normalizedTableName) return false
         if (!showHidden && column.isHidden) return false
-
+        // When search is active and table name didn't match, show only matching columns
+        if (normalizedSearch && !tableNameMatches) {
+          return column.__normalizedColumnName.includes(normalizedSearch)
+        }
         return true
       })
       .sort((a, b) => a.columnName.localeCompare(b.columnName))
@@ -191,6 +225,7 @@ export function TablesPanel({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-8 bg-muted/50 pl-8 text-xs"
+            autoComplete="off"
           />
         </div>
       </div>
@@ -199,7 +234,7 @@ export function TablesPanel({
         <div className="space-y-0.5 px-1 pb-2">
           {visibleTables.map((table) => {
             const tableColumns = getTableColumns(table.name)
-            const isExpanded = expanded.has(table.name)
+            const isExpanded = effectiveExpanded.has(table.name)
             const isActive = normalizeName(activeTableName) === normalizeName(table.name)
             const hasSelected = hasSelectedColumnInTable(table.name)
 
@@ -230,7 +265,7 @@ export function TablesPanel({
                       table.isHidden ? "text-muted-foreground line-through" : ""
                     }`}
                   >
-                    {table.name}
+                    <Highlight text={table.name} query={normalizedSearch} />
                   </span>
                   {isActive && <Link2 className="size-3 text-primary" />}
                   <span className="ml-auto text-[10px] text-muted-foreground">
@@ -266,7 +301,7 @@ export function TablesPanel({
                             column.isHidden ? "text-muted-foreground italic" : ""
                           }`}
                         >
-                          {column.columnName}
+                          <Highlight text={column.columnName} query={normalizedSearch} />
                         </span>
                         <span className="text-[10px] text-muted-foreground">
                           {column.dataType}

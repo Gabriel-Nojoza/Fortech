@@ -13,7 +13,25 @@ import {
   Loader2,
   X,
   Terminal,
+  GripHorizontal,
 } from "lucide-react"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  horizontalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -44,6 +62,58 @@ interface ResultsPanelProps {
   isGeneratingPdf?: boolean
   onRemoveColumn: (tableName: string, columnName: string) => void
   onRemoveMeasure: (tableName: string, measureName: string) => void
+  onReorder: (newColumns: SelectedColumn[], newMeasures: SelectedMeasure[]) => void
+}
+
+type SortableEntry =
+  | { id: string; kind: "column"; data: SelectedColumn }
+  | { id: string; kind: "measure"; data: SelectedMeasure }
+
+function SortableItemBadge({
+  entry,
+  onRemove,
+}: {
+  entry: SortableEntry
+  onRemove: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: entry.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  }
+
+  const label =
+    entry.kind === "column"
+      ? `${entry.data.tableName}.${entry.data.columnName}`
+      : entry.data.measureName
+
+  const badgeClass =
+    entry.kind === "column"
+      ? "gap-1 text-[10px]"
+      : "gap-1 bg-chart-2/15 text-[10px] text-chart-2 hover:bg-chart-2/25"
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex">
+      <Badge variant={entry.kind === "column" ? "outline" : undefined} className={badgeClass}>
+        <button
+          type="button"
+          className="cursor-grab touch-none text-muted-foreground/40 hover:text-muted-foreground/70 active:cursor-grabbing"
+          {...attributes}
+          {...listeners}
+        >
+          <GripHorizontal className="size-2.5" />
+        </button>
+        {label}
+        <button type="button" onClick={onRemove}>
+          <X className="size-2.5" />
+        </button>
+      </Badge>
+    </div>
+  )
 }
 
 function isNumericLikeType(dataType: string) {
@@ -203,9 +273,44 @@ export function ResultsPanel({
   isGeneratingPdf,
   onRemoveColumn,
   onRemoveMeasure,
+  onReorder,
 }: ResultsPanelProps) {
   const [showDax, setShowDax] = useState(true)
   const totalItems = selectedColumns.length + selectedMeasures.length
+
+  const sortableItems = useMemo<SortableEntry[]>(
+    () => [
+      ...selectedColumns.map((c) => ({
+        id: `col-${c.tableName}.${c.columnName}`,
+        kind: "column" as const,
+        data: c,
+      })),
+      ...selectedMeasures.map((m) => ({
+        id: `msr-${m.tableName}.${m.measureName}`,
+        kind: "measure" as const,
+        data: m,
+      })),
+    ],
+    [selectedColumns, selectedMeasures]
+  )
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIdx = sortableItems.findIndex((i) => i.id === active.id)
+    const newIdx = sortableItems.findIndex((i) => i.id === over.id)
+    const reordered = arrayMove(sortableItems, oldIdx, newIdx)
+    onReorder(
+      reordered.filter((i): i is Extract<SortableEntry, { kind: "column" }> => i.kind === "column").map((i) => i.data),
+      reordered.filter((i): i is Extract<SortableEntry, { kind: "measure" }> => i.kind === "measure").map((i) => i.data)
+    )
+  }
+
   const selectedMeasureNames = useMemo(
     () => new Set(selectedMeasures.map((measure) => normalizeMetricName(measure.measureName))),
     [selectedMeasures]
@@ -263,32 +368,30 @@ export function ResultsPanel({
             Nenhum item selecionado
           </p>
         ) : (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {selectedColumns.map((c) => (
-              <Badge
-                key={`col-${c.tableName}.${c.columnName}`}
-                variant="outline"
-                className="gap-1 text-[10px]"
-              >
-                {c.tableName}.{c.columnName}
-                <button onClick={() => onRemoveColumn(c.tableName, c.columnName)}>
-                  <X className="size-2.5" />
-                </button>
-              </Badge>
-            ))}
-
-            {selectedMeasures.map((m) => (
-              <Badge
-                key={`msr-${m.tableName}.${m.measureName}`}
-                className="gap-1 bg-chart-2/15 text-[10px] text-chart-2 hover:bg-chart-2/25"
-              >
-                {m.measureName}
-                <button onClick={() => onRemoveMeasure(m.tableName, m.measureName)}>
-                  <X className="size-2.5" />
-                </button>
-              </Badge>
-            ))}
-          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={sortableItems.map((i) => i.id)}
+              strategy={horizontalListSortingStrategy}
+            >
+              <div className="mt-2 flex flex-wrap gap-1">
+                {sortableItems.map((entry) => (
+                  <SortableItemBadge
+                    key={entry.id}
+                    entry={entry}
+                    onRemove={() =>
+                      entry.kind === "column"
+                        ? onRemoveColumn(entry.data.tableName, entry.data.columnName)
+                        : onRemoveMeasure(entry.data.tableName, entry.data.measureName)
+                    }
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
       </div>
 

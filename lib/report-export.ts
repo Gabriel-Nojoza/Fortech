@@ -333,7 +333,7 @@ function filterZeroRows(rows: Array<Record<string, unknown>>, columns: ReportCol
     return rows.filter((row) => {
       const meta = Number(row[metaCol.name] ?? 0)
       const venda = Number(row[vendasCol.name] ?? 0)
-      return meta > 0 && venda > 0
+      return meta + venda >= 1
     })
   }
 

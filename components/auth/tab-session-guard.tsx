@@ -8,7 +8,6 @@ import {
   clearTabSessionMarker,
   getOrCreateTabSessionId,
   hasSupabaseAuthCookies,
-  hasOtherActiveTabs,
   hasTabSessionMarker,
   markTabSessionActive,
   releaseTabSession,
@@ -16,6 +15,21 @@ import {
 } from "@/lib/supabase/tab-session"
 
 const TAB_REVALIDATE_INTERVAL_MS = 5 * 60 * 1000
+
+function isNetworkError(err: unknown): boolean {
+  if (err instanceof TypeError) return true
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase()
+    return (
+      msg.includes("failed to fetch") ||
+      msg.includes("networkerror") ||
+      msg.includes("network request failed") ||
+      msg.includes("load failed") ||
+      msg.includes("fetch")
+    )
+  }
+  return false
+}
 
 export function TabSessionGuard({
   children,
@@ -80,10 +94,6 @@ export function TabSessionGuard({
 
         const shouldValidateWithSupabase = forceValidate || !hasTabSessionMarker()
 
-        if (!hasTabSessionMarker() && tabId && !hasOtherActiveTabs(tabId)) {
-          throw new Error("Sessao encerrada ao fechar a ultima aba")
-        }
-
         if (!shouldValidateWithSupabase) {
           if (isMounted) {
             setIsReady(true)
@@ -110,13 +120,23 @@ export function TabSessionGuard({
         if (refreshOnSuccess && typeof window !== "undefined") {
           window.location.reload()
         }
-      } catch {
+      } catch (err) {
+        // Transient network errors (sleep/wake, flaky connection) must NOT force logout.
+        // The middleware handles truly invalid sessions on the next server request.
+        if (isNetworkError(err)) {
+          if (isMounted) {
+            setIsReady(true)
+          }
+          isValidatingRef.current = false
+          return
+        }
+
         const supabase = createClient()
 
         try {
           await supabase.auth.signOut()
         } catch {
-          // The local cookie cleanup below is enough to force a fresh login.
+          // Cookie cleanup below is enough for a fresh login.
         }
 
         clearSupabaseAuthCookies()
@@ -146,14 +166,24 @@ export function TabSessionGuard({
         Date.now() - hiddenAtRef.current >= TAB_REVALIDATE_INTERVAL_MS
 
       hiddenAtRef.current = null
-      void verifyTabSession({
-        forceValidate: true,
-        refreshOnSuccess: hiddenForLong,
-      })
+
+      // Delay slightly so the network can stabilize after sleep/wake.
+      setTimeout(
+        () => {
+          void verifyTabSession({
+            forceValidate: true,
+            refreshOnSuccess: hiddenForLong,
+          })
+        },
+        hiddenForLong ? 2000 : 500
+      )
     }
 
     const handleWindowFocus = () => {
-      void verifyTabSession({ forceValidate: true })
+      // Small delay: network may not be ready immediately after the OS wakes.
+      setTimeout(() => {
+        void verifyTabSession({ forceValidate: true })
+      }, 1000)
     }
 
     const heartbeatInterval = window.setInterval(() => {

@@ -34,6 +34,7 @@ type BuildParams = {
   measures: Measure[]
   filters: Filter[]
   limit?: number
+  hideZeroRows?: boolean
 }
 
 function escapeDaxName(value: string) {
@@ -256,6 +257,30 @@ function buildSumcolFilterArgs(filters: Filter[]): string[] {
   return result
 }
 
+function normalizeForCondition(name: string) {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+}
+
+function buildHideZeroRowsCondition(measures: Measure[]): string {
+  if (measures.length === 0) return ""
+
+  // Usa apenas medidas de valor principal — exclui percentuais (%) e devoluções
+  // para que a condição reflita exatamente [Meta] + [Vl Pedidos] >= 1
+  const valueMeasures = measures.filter((m) => {
+    const n = normalizeForCondition(m.measureName)
+    return !n.includes("%") && !n.includes("devolu")
+  })
+
+  const effective = valueMeasures.length > 0 ? valueMeasures : measures
+  const parts = effective.map((m) => `[${escapeDaxName(m.measureName)}]`)
+  return parts.length === 1
+    ? `${parts[0]} >= 1`
+    : `(${parts.join(" + ")}) >= 1`
+}
+
 function buildMeasureAlias(measureName: string) {
   return `"${escapeDaxString(measureName)}", COALESCE(CALCULATE(${measureRef(measureName)}), 0)`
 }
@@ -269,6 +294,7 @@ export function buildDAXQuery({
   measures,
   filters,
   limit = 100,
+  hideZeroRows = false,
 }: BuildParams): string {
   const hasColumns = columns.length > 0
   const hasMeasures = measures.length > 0
@@ -319,11 +345,18 @@ export function buildDAXQuery({
       const summarizeBody = [...groupByRefs, ...measureAliases].join(",\n")
       const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
 
+      const wrapWithHideZero = (inner: string) => {
+        if (!hideZeroRows) return inner
+        const cond = buildHideZeroRowsCondition(measures)
+        return `FILTER(\n  ${inner.replace(/\n/g, "\n  ")},\n  ${cond}\n)`
+      }
+
       if (wrappedFilters.length === 0) {
+        const topNInner = wrapWithHideZero(summarizeExpression)
         return [
           "EVALUATE",
           `TOPN(${limit},`,
-          `  ${summarizeExpression.replace(/\n/g, "\n  ")},`,
+          `  ${topNInner.replace(/\n/g, "\n  ")},`,
           `  ${measureRef(measures[0].measureName)}, DESC`,
           ")",
           "ORDER BY",
@@ -331,13 +364,17 @@ export function buildDAXQuery({
         ].join("\n")
       }
 
+      const calcTable = [
+        "CALCULATETABLE(",
+        `  ${summarizeExpression.replace(/\n/g, "\n  ")},`,
+        `  ${wrappedFilters.join(",\n  ")}`,
+        ")",
+      ].join("\n")
+      const topNInner = wrapWithHideZero(calcTable)
       return [
         "EVALUATE",
         `TOPN(${limit},`,
-        "  CALCULATETABLE(",
-        `    ${summarizeExpression.replace(/\n/g, "\n    ")},`,
-        `    ${wrappedFilters.join(",\n    ")}`,
-        "  ),",
+        `  ${topNInner.replace(/\n/g, "\n  ")},`,
         `  ${measureRef(measures[0].measureName)}, DESC`,
         ")",
         "ORDER BY",
@@ -347,13 +384,21 @@ export function buildDAXQuery({
 
     // Tabela única: FILTER(ALL()) dentro do SUMMARIZECOLUMNS evita zeros em datasets de empresa única.
     const filterArgs = buildSumcolFilterArgs(filters).map((f) => `    ${f}`)
-    const summarizeBody = [...groupByRefs, ...filterArgs, ...measureAliases].join(",\n")
+    // hideZeroRows: força ALL(primaryTable) para quebrar cross-filter implícito via relacionamento
+    // (ex: filtro de data na tabela META excluindo vendedores sem meta pelo relacionamento).
+    // Filtros explícitos do usuário em outras tabelas são preservados.
+    const forceAllArgs = hideZeroRows ? [`    ALL(${tableRef(primaryTable)})`] : []
+    const summarizeBody = [...groupByRefs, ...forceAllArgs, ...filterArgs, ...measureAliases].join(",\n")
     const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
+
+    const topNInner = hideZeroRows
+      ? `FILTER(\n  ${summarizeExpression.replace(/\n/g, "\n  ")},\n  ${buildHideZeroRowsCondition(measures)}\n)`
+      : summarizeExpression
 
     return [
       "EVALUATE",
       `TOPN(${limit},`,
-      `  ${summarizeExpression.replace(/\n/g, "\n  ")},`,
+      `  ${topNInner.replace(/\n/g, "\n  ")},`,
       `  ${measureRef(measures[0].measureName)}, DESC`,
       ")",
       "ORDER BY",
