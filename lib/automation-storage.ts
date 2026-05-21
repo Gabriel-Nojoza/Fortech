@@ -123,7 +123,7 @@ function normalizeContactIds(input: unknown) {
 
 function normalizeExportFormat(value: unknown): Automation["export_format"] {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : ""
-  if (normalized === "table" || normalized === "csv" || normalized === "pdf") {
+  if (normalized === "table" || normalized === "csv" || normalized === "pdf" || normalized === "xlsx") {
     return normalized
   }
   return "csv"
@@ -157,6 +157,10 @@ function normalizeStoredAutomation(input: unknown): StoredAutomation | null {
     workspace_id:
       typeof record.workspace_id === "string" && record.workspace_id.trim()
         ? record.workspace_id
+        : null,
+    bot_instance_id:
+      typeof record.bot_instance_id === "string" && record.bot_instance_id.trim()
+        ? record.bot_instance_id
         : null,
     selected_columns: normalizeSelectedColumns(record.selected_columns),
     selected_measures: normalizeSelectedMeasures(record.selected_measures),

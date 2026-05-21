@@ -39,12 +39,11 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // Always validate the cookie-backed session with getUser().
   let user = null
 
   try {
-    const { data } = await supabase.auth.getUser()
-    user = data?.user ?? null
+    const { data } = await supabase.auth.getSession()
+    user = data?.session?.user ?? null
   } catch {
     // Invalid or stale auth cookies should not break page rendering.
     clearSupabaseAuthCookies(request, supabaseResponse)

@@ -309,6 +309,7 @@ export default function AdminDashboardPage() {
   const [savingLimitFor, setSavingLimitFor] = useState<string | null>(null)
   const [builderOverrides, setBuilderOverrides] = useState<Record<string, boolean>>({})
   const [campaignsOverrides, setCampaignsOverrides] = useState<Record<string, boolean>>({})
+  const [excelOverrides, setExcelOverrides] = useState<Record<string, boolean>>({})
 
   type TimeWindow = { startTime: string; endTime: string }
   type SendingHoursDialog = {
@@ -408,12 +409,16 @@ export default function AdminDashboardPage() {
     chatExcessPrice?: number | null
     reportBuilderEnabled?: boolean
     campaignsEnabled?: boolean
+    excelExportEnabled?: boolean
   }) {
     if (fields.reportBuilderEnabled !== undefined) {
       setBuilderOverrides((prev) => ({ ...prev, [companyId]: fields.reportBuilderEnabled! }))
     }
     if (fields.campaignsEnabled !== undefined) {
       setCampaignsOverrides((prev) => ({ ...prev, [companyId]: fields.campaignsEnabled! }))
+    }
+    if (fields.excelExportEnabled !== undefined) {
+      setExcelOverrides((prev) => ({ ...prev, [companyId]: fields.excelExportEnabled! }))
     }
 
     setSavingLimitFor(companyId)
@@ -435,6 +440,13 @@ export default function AdminDashboardPage() {
         }
         if (fields.campaignsEnabled !== undefined) {
           setCampaignsOverrides((prev) => {
+            const next = { ...prev }
+            delete next[companyId]
+            return next
+          })
+        }
+        if (fields.excelExportEnabled !== undefined) {
+          setExcelOverrides((prev) => {
             const next = { ...prev }
             delete next[companyId]
             return next
@@ -730,6 +742,7 @@ export default function AdminDashboardPage() {
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">A cobrar</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Construtor</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Campanhas</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Excel</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Horário</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-muted-foreground">Taxa</th>
                       </tr>
@@ -822,6 +835,22 @@ export default function AdminDashboardPage() {
                               })()}
                             </td>
                             <td className="px-4 py-3 text-center">
+                              {(() => {
+                                const enabled = excelOverrides[c.companyId] ?? c.excelExportEnabled
+                                return (
+                                  <div className="inline-flex items-center gap-1.5">
+                                    <Switch
+                                      checked={enabled}
+                                      onCheckedChange={() => saveLimit(c.companyId, { excelExportEnabled: !enabled })}
+                                    />
+                                    <span className={`text-xs font-medium ${enabled ? "text-blue-500" : "text-muted-foreground"}`}>
+                                      {enabled ? "Ativado" : "Desativado"}
+                                    </span>
+                                  </div>
+                                )
+                              })()}
+                            </td>
+                            <td className="px-4 py-3 text-center">
                               <button
                                 onClick={() => openSendingHoursDialog(c)}
                                 className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted/50 transition-colors"
@@ -861,7 +890,7 @@ export default function AdminDashboardPage() {
                             </div>
                           </div>
                         </td>
-                        <td colSpan={9} />
+                        <td colSpan={10} />
                       </tr>
                     </tfoot>
                   </table>

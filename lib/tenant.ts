@@ -62,29 +62,30 @@ export function isAuthContextError(error: unknown) {
 
 export async function getRequestContext(): Promise<RequestContext> {
   const supabase = await createClient()
-  const { data, error } = await supabase.auth.getUser()
+  const { data, error } = await supabase.auth.getSession()
+  const user = data?.session?.user ?? null
 
-  if (error || !data.user) {
+  if (error || !user) {
     throw new Error("Nao autenticado")
   }
 
-  const companyId = getCompanyId(data.user)
-  const email = data.user.email || ""
+  const companyId = getCompanyId(user)
+  const email = user.email || ""
 
   if (!companyId) {
     throw new Error("Usuario sem empresa vinculada (company_id)")
   }
 
   return {
-    userId: data.user.id,
+    userId: user.id,
     email,
-    role: getRole(data.user),
+    role: getRole(user),
     companyId,
     isPlatformAdmin: isPlatformAdminEmail(email),
-    workspaceAccessConfigured: isWorkspaceAccessConfigured(data.user),
-    datasetAccessConfigured: isDatasetAccessConfigured(data.user),
-    selectedPbiWorkspaceIds: getSelectedPbiWorkspaceIds(data.user),
-    selectedPbiDatasetIds: getSelectedPbiDatasetIds(data.user),
+    workspaceAccessConfigured: isWorkspaceAccessConfigured(user),
+    datasetAccessConfigured: isDatasetAccessConfigured(user),
+    selectedPbiWorkspaceIds: getSelectedPbiWorkspaceIds(user),
+    selectedPbiDatasetIds: getSelectedPbiDatasetIds(user),
   }
 }
 

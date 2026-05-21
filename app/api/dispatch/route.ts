@@ -47,7 +47,7 @@ function getDispatchLogTarget(contact: {
 
 function normalizeAutomationExportFormat(value: unknown) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : ""
-  if (normalized === "table" || normalized === "csv" || normalized === "pdf") {
+  if (normalized === "table" || normalized === "csv" || normalized === "pdf" || normalized === "xlsx") {
     return normalized
   }
   if (normalized === "png" || normalized === "pptx") {
@@ -419,7 +419,7 @@ async function handleDispatch(request: NextRequest) {
       const runResult = await runStoredAutomation({
         companyId,
         automationId: automation.id,
-        exportFormat: normalizeAutomationExportFormat(schedule.export_format || automation.export_format),
+        exportFormat: normalizeAutomationExportFormat(automation.export_format || schedule.export_format),
         messageOverride: schedule.message_template ?? `Segue o relatorio ${automation.name}.`,
         contactIds,
         scheduleId: schedule.id,

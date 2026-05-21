@@ -32,6 +32,7 @@ interface DispatchDialogProps {
   datasetId: string
   executionDatasetId?: string
   disabled?: boolean
+  excelExportEnabled?: boolean
 }
 
 export function DispatchDialog({
@@ -41,6 +42,7 @@ export function DispatchDialog({
   datasetId,
   executionDatasetId,
   disabled,
+  excelExportEnabled = false,
 }: DispatchDialogProps) {
   const [open, setOpen] = useState(false)
   const [sending, setSending] = useState(false)
@@ -124,8 +126,8 @@ export function DispatchDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="table">Tabela (texto)</SelectItem>
                 <SelectItem value="csv">CSV</SelectItem>
+                {excelExportEnabled && <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>}
                 <SelectItem value="pdf">PDF</SelectItem>
               </SelectContent>
             </Select>

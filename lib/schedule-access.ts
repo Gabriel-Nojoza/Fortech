@@ -116,6 +116,20 @@ export async function getScheduleAccessMaps(
       visibleTargetIds.add(automation.id)
       automationNames.set(automation.id, automation.name)
     }
+
+    // Also include stored automations (company_settings) for backwards compatibility
+    // when automations exist in both storage paths
+    try {
+      const storedAutomations = await loadStoredAutomations(supabase, companyId)
+      for (const automation of storedAutomations) {
+        if (visibleTargetIds.has(automation.id)) continue
+        if (!isTargetVisible(automation, scope)) continue
+        visibleTargetIds.add(automation.id)
+        automationNames.set(automation.id, automation.name)
+      }
+    } catch {
+      // stored automations are best-effort when the automations table exists
+    }
   }
 
   return {

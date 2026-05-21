@@ -1,7 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server"
 import { getAccessToken, executeDAXQuery, getDatasetMetadata, getDatasetLastRefresh } from "@/lib/powerbi"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
-import { buildCsvContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
+import { buildCsvContent, buildExcelContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
 import { buildPdfFromHtml } from "@/lib/report-pdf"
 import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
@@ -138,9 +138,18 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
     throw new Error("Automacao sem query DAX definida e sem campos suficientes para reconstruir a consulta")
   }
 
+  const { data: featureRows } = await supabase
+    .from("company_settings")
+    .select("key, value")
+    .eq("company_id", companyId)
+    .eq("key", "features")
+    .maybeSingle()
+  const companyFeatures = (featureRows?.value ?? {}) as Record<string, unknown>
+  const useCalculatetable = companyFeatures.dax_calculatetable === true
+
   let query: string
   if (!automation.dax_query) {
-    query = buildDAXQuery({ columns: savedSelectedColumns, measures: savedSelectedMeasures, filters: savedFilters })
+    query = buildDAXQuery({ columns: savedSelectedColumns, measures: savedSelectedMeasures, filters: savedFilters, useCalculatetable })
     if (!query || query.startsWith("--")) {
       throw new Error("Nao foi possivel reconstruir a query da automacao")
     }
@@ -286,10 +295,35 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
   if (exportFormat === "pdf") {
     pdfBuffer = await buildPdfFromHtml(htmlReport)
   }
+  let xlsxBuffer: Buffer | null = null
+  if (exportFormat === "xlsx") {
+    xlsxBuffer = buildExcelContent(result, automationName)
+  }
 
-  // Use botInstanceId as-is. Callers are responsible for resolving the preferred instance.
-  // Sending null here lets the bot service pick its default connected socket.
-  const effectiveBotInstanceId = botInstanceId ?? null
+  // Resolve bot instance: schedule param → automation's own → company default → first
+  const automationBotInstanceId = automation.bot_instance_id ? String(automation.bot_instance_id) : null
+  let effectiveBotInstanceId: string | null = botInstanceId ?? automationBotInstanceId
+  if (!effectiveBotInstanceId) {
+    const { data: defaultInst } = await supabase
+      .from("whatsapp_bot_instances")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("is_default", true)
+      .limit(1)
+      .maybeSingle()
+    effectiveBotInstanceId = defaultInst?.id ?? null
+
+    if (!effectiveBotInstanceId) {
+      const { data: firstInst } = await supabase
+        .from("whatsapp_bot_instances")
+        .select("id")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      effectiveBotInstanceId = firstInst?.id ?? null
+    }
+  }
 
   for (const [index, contact] of contacts.entries()) {
     const log = logs?.[index]
@@ -322,6 +356,16 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
           document_base64: Buffer.from(csvContent, "utf-8").toString("base64"),
           file_name: `${automationName}.csv`,
           mimetype: "text/csv",
+        }
+      } else if (exportFormat === "xlsx") {
+        sendPayload = {
+          instance_id: instanceId,
+          phone: contact.phone,
+          whatsapp_group_id: contact.whatsapp_group_id,
+          message,
+          document_base64: xlsxBuffer!.toString("base64"),
+          file_name: `${automationName}.xlsx`,
+          mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }
       } else {
         sendPayload = {

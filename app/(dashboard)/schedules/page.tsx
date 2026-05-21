@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
 import useSWR, { mutate } from "swr"
 import {
   Plus,
@@ -16,8 +15,6 @@ import {
   ChevronDown,
   X,
   Workflow,
-  Database,
-  ExternalLink,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -323,6 +320,7 @@ type AutomationItem = {
   selected_columns: { tableName: string; columnName: string }[]
   selected_measures: { tableName: string; measureName: string }[]
   filters: unknown[]
+  bot_instance_id?: string | null
   cron_expression: string | null
   export_format: string
   is_active: boolean
@@ -331,7 +329,6 @@ type AutomationItem = {
 }
 
 export default function SchedulesPage() {
-  const router = useRouter()
   const { data: schedules, isLoading } = useSWR<
     ScheduleListItem[]
   >("/api/schedules", fetcher)
@@ -346,44 +343,6 @@ export default function SchedulesPage() {
   const reportList = Array.isArray(reports) ? reports : []
   const instanceList = Array.isArray(botInstances) ? botInstances : []
   const automationList = Array.isArray(automations) ? automations : []
-
-  function handleOpenEditAutomation(auto: AutomationItem) {
-    setEditAutomation(auto)
-    setEditAutoName(auto.name)
-    setEditAutoFormat(auto.export_format || "pdf")
-    const hasCron = !!auto.cron_expression
-    setEditAutoEnableSchedule(hasCron)
-    setEditAutoCron(auto.cron_expression || "0 8 * * 1-5")
-    setEditAutoMessage("")
-    setEditAutoContactIds(auto.contacts?.map((c) => c.id) ?? [])
-  }
-
-  async function handleSaveEditAutomation() {
-    if (!editAutomation || !editAutoName.trim()) return
-    setSavingEditAuto(true)
-    try {
-      const { response, data } = await fetchApi("/api/automations", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: editAutomation.id,
-          name: editAutoName.trim(),
-          export_format: editAutoFormat,
-          cron_expression: editAutoEnableSchedule ? editAutoCron : null,
-          message_template: editAutoMessage || null,
-          contact_ids: editAutoContactIds,
-        }),
-      })
-      if (!response.ok) throw new Error(extractApiErrorMessage(data) ?? "Erro ao salvar")
-      toast.success("Automacao atualizada!")
-      void mutate("/api/automations")
-      setEditAutomation(null)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Erro ao salvar automacao")
-    } finally {
-      setSavingEditAuto(false)
-    }
-  }
 
   async function handleDuplicateAutomation(auto: AutomationItem) {
     try {
@@ -412,21 +371,109 @@ export default function SchedulesPage() {
     }
   }
 
-  function handleEditInConstructor(auto: AutomationItem) {
+  const [editAutomation, setEditAutomation] = useState<AutomationItem | null>(null)
+  const [editAutoName, setEditAutoName] = useState("")
+  const [editAutoBotInstanceId, setEditAutoBotInstanceId] = useState("")
+  const [editAutoFormat, setEditAutoFormat] = useState("csv")
+  const [editAutoEnableSchedule, setEditAutoEnableSchedule] = useState(false)
+  const [editAutoCron, setEditAutoCron] = useState("0 8 * * 1-5")
+  const [editAutoMessage, setEditAutoMessage] = useState("")
+  const [editAutoContactIds, setEditAutoContactIds] = useState<string[]>([])
+  const [editAutoContactSearch, setEditAutoContactSearch] = useState("")
+  const [savingEditAuto, setSavingEditAuto] = useState(false)
+  const [syncingEditAutoContacts, setSyncingEditAutoContacts] = useState(false)
+
+  const editAutoContactsKey =
+    editAutomation && editAutoBotInstanceId
+      ? `/api/contacts?bot_instance_id=${editAutoBotInstanceId}`
+      : null
+  const editAutoBotQrKey =
+    editAutomation && editAutoBotInstanceId
+      ? `/api/bot/qr?instance_id=${editAutoBotInstanceId}`
+      : null
+  const { data: editAutoContactsData, isLoading: isLoadingEditAutoContacts } = useSWR<Contact[]>(
+    editAutoContactsKey,
+    fetcher
+  )
+  const { data: editAutoBotQr } = useSWR<BotQrStatus>(editAutoBotQrKey, fetcher)
+  const editAutoContactList = Array.isArray(editAutoContactsData) ? editAutoContactsData : []
+  const activeEditAutoContacts = editAutoBotInstanceId
+    ? editAutoContactList.filter((c) => c.is_active)
+    : []
+  const canSyncEditAutoContacts =
+    Boolean(editAutoBotInstanceId) && editAutoBotQr?.status === "connected"
+  const filteredEditAutoContacts = activeEditAutoContacts.filter((contact) => {
+    const search = editAutoContactSearch.trim().toLowerCase()
+    if (!search) return true
+    return (
+      contact.name.toLowerCase().includes(search) ||
+      (contact.phone ?? "").toLowerCase().includes(search)
+    )
+  })
+
+  function handleOpenEditAutomation(auto: AutomationItem) {
+    setEditAutomation(auto)
+    setEditAutoName(auto.name)
+    setEditAutoBotInstanceId(auto.bot_instance_id ?? "")
+    setEditAutoFormat(auto.export_format || "csv")
+    const hasCron = !!auto.cron_expression
+    setEditAutoEnableSchedule(hasCron)
+    setEditAutoCron(auto.cron_expression || "0 8 * * 1-5")
+    setEditAutoMessage("")
+    setEditAutoContactIds(auto.contacts?.map((c) => c.id) ?? [])
+    setEditAutoContactSearch("")
+  }
+
+  async function handleSaveEditAutomation() {
+    if (!editAutomation || !editAutoName.trim()) return
+    setSavingEditAuto(true)
     try {
-      localStorage.setItem("report-builder-draft", JSON.stringify({
-        selectedWorkspace: auto.workspace_id ?? "",
-        selectedDataset: auto.dataset_id ?? "",
-        selectedExecutionDataset: "",
-        selectedColumns: auto.selected_columns ?? [],
-        selectedMeasures: auto.selected_measures ?? [],
-        activeTableName: null,
-        filters: auto.filters ?? [],
-      }))
-    } catch {
-      // ignore storage errors
+      const { response, data } = await fetchApi("/api/automations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editAutomation.id,
+          name: editAutoName.trim(),
+          bot_instance_id: editAutoBotInstanceId || null,
+          export_format: editAutoFormat,
+          cron_expression: editAutoEnableSchedule ? editAutoCron : null,
+          message_template: editAutoMessage || null,
+          contact_ids: editAutoContactIds,
+        }),
+      })
+      if (!response.ok) throw new Error(extractApiErrorMessage(data) ?? "Erro ao salvar")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const scheduleWarning = (data as any)?._schedule_warning
+      if (typeof scheduleWarning === "string" && scheduleWarning) {
+        toast.warning(`Automação salva, mas houve um problema com a rotina: ${scheduleWarning}`)
+      } else {
+        toast.success("Automação atualizada!")
+      }
+      void mutate("/api/automations")
+      setEditAutomation(null)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar automação")
+    } finally {
+      setSavingEditAuto(false)
     }
-    router.push("/automations")
+  }
+
+  async function syncEditAutoContacts() {
+    if (!editAutoBotInstanceId || !canSyncEditAutoContacts) return
+    setSyncingEditAutoContacts(true)
+    try {
+      const { response, data } = await fetchApi("/api/contacts/sync-bot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot_instance_id: editAutoBotInstanceId }),
+      })
+      if (!response.ok) throw new Error(extractApiErrorMessage(data) ?? "Erro ao sincronizar")
+      if (editAutoContactsKey) await mutate(editAutoContactsKey)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao sincronizar contatos")
+    } finally {
+      setSyncingEditAutoContacts(false)
+    }
   }
 
   const reportOptions = useMemo<ScheduleReportOption[]>(
@@ -441,15 +488,18 @@ export default function SchedulesPage() {
 
   const [deleteAutomationId, setDeleteAutomationId] = useState<string | null>(null)
   const [runningAutomationId, setRunningAutomationId] = useState<string | null>(null)
-  const [editAutomation, setEditAutomation] = useState<AutomationItem | null>(null)
-  const [editAutoName, setEditAutoName] = useState("")
-  const [editAutoFormat, setEditAutoFormat] = useState("pdf")
-  const [editAutoCron, setEditAutoCron] = useState("0 8 * * 1-5")
-  const [editAutoEnableSchedule, setEditAutoEnableSchedule] = useState(false)
-  const [editAutoMessage, setEditAutoMessage] = useState("")
-  const [editAutoContactIds, setEditAutoContactIds] = useState<string[]>([])
-  const [editAutoContactSearch, setEditAutoContactSearch] = useState("")
-  const [savingEditAuto, setSavingEditAuto] = useState(false)
+
+  const [scheduleSearch, setScheduleSearch] = useState("")
+
+  const filteredSchedules = useMemo(() => {
+    const q = scheduleSearch.trim().toLowerCase()
+    if (!q) return scheduleList
+    return scheduleList.filter((schedule) => {
+      const name = schedule.name.toLowerCase()
+      const reportName = buildScheduleReportSummary(schedule).toLowerCase()
+      return name.includes(q) || reportName.includes(q)
+    })
+  }, [scheduleList, scheduleSearch])
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -1173,6 +1223,16 @@ export default function SchedulesPage() {
       </PageHeader>
 
       <div className="flex flex-1 flex-col gap-4 p-4 sm:p-6">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={scheduleSearch}
+            onChange={(e) => setScheduleSearch(e.target.value)}
+            placeholder="Pesquisar por nome ou relatorio..."
+            className="pl-9"
+          />
+        </div>
+
         <Card>
           <CardContent className="p-0">
             {isLoading ? (
@@ -1191,6 +1251,16 @@ export default function SchedulesPage() {
                   </p>
                 </div>
               </div>
+            ) : filteredSchedules.length === 0 ? (
+              <div className="flex flex-col items-center gap-4 py-12">
+                <Search className="size-12 text-muted-foreground" />
+                <div className="text-center">
+                  <p className="font-medium">Nenhuma rotina encontrada</p>
+                  <p className="text-sm text-muted-foreground">
+                    Tente pesquisar por outro nome ou relatorio.
+                  </p>
+                </div>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
@@ -1206,7 +1276,7 @@ export default function SchedulesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {scheduleList.map((schedule) => (
+                    {filteredSchedules.map((schedule) => (
                       <TableRow key={schedule.id}>
                         <TableCell className="font-medium">{schedule.name}</TableCell>
                         <TableCell className="hidden text-muted-foreground sm:table-cell">
@@ -1304,6 +1374,126 @@ export default function SchedulesPage() {
                               size="icon"
                               onClick={() => setDeleteId(schedule.id)}
                               title="Excluir rotina"
+                            >
+                              <Trash2 className="size-4 text-destructive" />
+                              <span className="sr-only">Excluir</span>
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Automações DAX</h2>
+        </div>
+
+        <Card>
+          <CardContent className="p-0">
+            {isLoadingAutomations ? (
+              <div className="space-y-3 p-6">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 rounded" />
+                ))}
+              </div>
+            ) : automationList.length === 0 ? (
+              <div className="flex flex-col items-center gap-4 py-12">
+                <Workflow className="size-12 text-muted-foreground" />
+                <div className="text-center">
+                  <p className="font-medium">Nenhuma automação configurada</p>
+                  <p className="text-sm text-muted-foreground">
+                    Crie automações DAX no Construtor de Relatórios.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead className="hidden lg:table-cell">Formato</TableHead>
+                      <TableHead className="hidden md:table-cell">Frequência</TableHead>
+                      <TableHead className="hidden md:table-cell">Contatos</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {automationList.map((auto) => (
+                      <TableRow key={auto.id}>
+                        <TableCell className="font-medium">{auto.name}</TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          <Badge variant="outline">{auto.export_format.toUpperCase()}</Badge>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {auto.cron_expression ? (
+                            <div className="flex flex-wrap gap-1">
+                              {describeCronValue(auto.cron_expression).map((item, index) => (
+                                <Badge key={`${auto.id}-cron-${index}`} variant="outline">
+                                  {item}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Sob demanda</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <Badge variant="secondary">
+                            {auto.contacts?.length ?? 0} contato(s)
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Switch
+                            checked={auto.is_active}
+                            onCheckedChange={() => void handleToggleAutomation(auto.id, auto.is_active)}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => void handleRunAutomation(auto.id)}
+                              disabled={runningAutomationId === auto.id}
+                              title="Disparar agora"
+                            >
+                              {runningAutomationId === auto.id ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <Play className="size-4" />
+                              )}
+                              <span className="sr-only">Disparar</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenEditAutomation(auto)}
+                              title="Editar automação"
+                            >
+                              <Pencil className="size-4" />
+                              <span className="sr-only">Editar</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => void handleDuplicateAutomation(auto)}
+                              title="Duplicar automação"
+                            >
+                              <Copy className="size-4" />
+                              <span className="sr-only">Duplicar</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteAutomationId(auto.id)}
+                              title="Excluir automação"
                             >
                               <Trash2 className="size-4 text-destructive" />
                               <span className="sr-only">Excluir</span>
@@ -1822,6 +2012,200 @@ export default function SchedulesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete}>Excluir</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={!!editAutomation}
+        onOpenChange={(open) => { if (!open) setEditAutomation(null) }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Automação</DialogTitle>
+            <DialogDescription>
+              Ajuste o nome, formato, agendamento, mensagem e contatos desta automação.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 pt-2">
+            <div className="flex flex-col gap-2">
+              <Label>Nome da automação</Label>
+              <Input
+                value={editAutoName}
+                onChange={(e) => setEditAutoName(e.target.value)}
+                placeholder="Ex: Vendas por região - Semanal"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label>WhatsApp de Envio</Label>
+              <Select
+                value={editAutoBotInstanceId}
+                onValueChange={(value) => {
+                  setEditAutoBotInstanceId(value)
+                  setEditAutoContactIds([])
+                  setEditAutoContactSearch("")
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecionar WhatsApp" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectLabel>WhatsApps conectados</SelectLabel>
+                    {instanceList.map((instance) => (
+                      <SelectItem key={instance.id} value={instance.id}>
+                        {instance.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label>Formato de exportação</Label>
+              <Select value={editAutoFormat} onValueChange={setEditAutoFormat}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="csv">CSV</SelectItem>
+                  <SelectItem value="xlsx">XLSX</SelectItem>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="table">Tabela (texto)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={editAutoEnableSchedule}
+                onCheckedChange={setEditAutoEnableSchedule}
+                id="edit-auto-schedule"
+              />
+              <Label htmlFor="edit-auto-schedule">Agendar execução automática</Label>
+            </div>
+
+            {editAutoEnableSchedule && (
+              <CronBuilder
+                key={`edit-auto-cron-${editAutomation?.id}`}
+                value={editAutoCron}
+                onChange={setEditAutoCron}
+              />
+            )}
+
+            <div className="flex flex-col gap-2">
+              <Label>Mensagem do disparo</Label>
+              <Textarea
+                value={editAutoMessage}
+                onChange={(e) => setEditAutoMessage(e.target.value)}
+                placeholder="Segue os dados da automação {name} em anexo."
+                rows={3}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <Label>Contatos ({editAutoContactIds.length} selecionado(s))</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => void syncEditAutoContacts()}
+                  disabled={syncingEditAutoContacts || !canSyncEditAutoContacts}
+                >
+                  {syncingEditAutoContacts ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3.5" />
+                  )}
+                  Sincronizar do bot
+                </Button>
+              </div>
+
+              <div className="max-h-[200px] overflow-y-auto rounded-lg border p-3">
+                {!editAutoBotInstanceId ? (
+                  <p className="text-sm text-muted-foreground">
+                    Selecione primeiro o WhatsApp de envio.
+                  </p>
+                ) : isLoadingEditAutoContacts ? (
+                  <p className="text-sm text-muted-foreground">Carregando contatos...</p>
+                ) : (
+                  <>
+                    <div className="relative mb-3">
+                      <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={editAutoContactSearch}
+                        onChange={(e) => setEditAutoContactSearch(e.target.value)}
+                        placeholder="Pesquisar contato ou grupo..."
+                        className="pl-9"
+                      />
+                    </div>
+                    {filteredEditAutoContacts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        {activeEditAutoContacts.length === 0
+                          ? "Nenhum contato salvo. Conecte o WhatsApp e clique em 'Sincronizar do bot'."
+                          : "Nenhum contato encontrado para essa pesquisa."}
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {filteredEditAutoContacts.map((contact) => (
+                          <label
+                            key={contact.id}
+                            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-accent"
+                          >
+                            <Checkbox
+                              checked={editAutoContactIds.includes(contact.id)}
+                              onCheckedChange={() => {
+                                setEditAutoContactIds((prev) =>
+                                  prev.includes(contact.id)
+                                    ? prev.filter((id) => id !== contact.id)
+                                    : [...prev, contact.id]
+                                )
+                              }}
+                            />
+                            <span className="text-sm">{contact.name}</span>
+                            <Badge variant="outline" className="ml-auto text-xs">
+                              {contact.type === "group" ? "Grupo" : "Individual"}
+                            </Badge>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditAutomation(null)}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => void handleSaveEditAutomation()}
+                disabled={savingEditAuto || !editAutoName.trim()}
+              >
+                {savingEditAuto ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteAutomationId} onOpenChange={() => setDeleteAutomationId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir automação?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acao nao pode ser desfeita. A automacao e seus vinculos serao removidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteAutomation}>Excluir</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -35,6 +35,7 @@ type BuildParams = {
   filters: Filter[]
   limit?: number
   hideZeroRows?: boolean
+  useCalculatetable?: boolean
 }
 
 function escapeDaxName(value: string) {
@@ -295,6 +296,7 @@ export function buildDAXQuery({
   filters,
   limit = 100,
   hideZeroRows = false,
+  useCalculatetable = false,
 }: BuildParams): string {
   const hasColumns = columns.length > 0
   const hasMeasures = measures.length > 0
@@ -382,12 +384,63 @@ export function buildDAXQuery({
       ].join("\n")
     }
 
+    if (useCalculatetable) {
+      // Modo CALCULATETABLE: filtros ficam fora do SUMMARIZECOLUMNS para evitar que o autoexist
+      // restrinja a dimensão de GROUP BY via relacionamento bidirecional (ex: DEVOLUCAO ↔ Gerente).
+      // ALL(primaryTable) dentro do SUMMARIZECOLUMNS garante que todos os Gerentes apareçam
+      // mesmo que o CALCULATETABLE propague o filtro de volta via relacionamento.
+      const wrappedFilters = buildWrappedFilters(filters)
+      const summarizeBody = [
+        ...groupByRefs,
+        `    ALL(${tableRef(primaryTable)})`,
+        ...measureAliases,
+      ].join(",\n")
+      const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
+
+      const topNInner = hideZeroRows
+        ? `FILTER(\n  ${summarizeExpression.replace(/\n/g, "\n  ")},\n  ${buildHideZeroRowsCondition(measures)}\n)`
+        : summarizeExpression
+
+      if (wrappedFilters.length === 0) {
+        return [
+          "EVALUATE",
+          `TOPN(${limit},`,
+          `  ${topNInner.replace(/\n/g, "\n  ")},`,
+          `  ${measureRef(measures[0].measureName)}, DESC`,
+          ")",
+          "ORDER BY",
+          `  ${measureRef(measures[0].measureName)} DESC`,
+        ].join("\n")
+      }
+
+      const calcTable = [
+        "CALCULATETABLE(",
+        `  ${topNInner.replace(/\n/g, "\n  ")},`,
+        `  ${wrappedFilters.join(",\n  ")}`,
+        ")",
+      ].join("\n")
+      return [
+        "EVALUATE",
+        `TOPN(${limit},`,
+        `  ${calcTable.replace(/\n/g, "\n  ")},`,
+        `  ${measureRef(measures[0].measureName)}, DESC`,
+        ")",
+        "ORDER BY",
+        `  ${measureRef(measures[0].measureName)} DESC`,
+      ].join("\n")
+    }
+
     // Tabela única: FILTER(ALL()) dentro do SUMMARIZECOLUMNS evita zeros em datasets de empresa única.
     const filterArgs = buildSumcolFilterArgs(filters).map((f) => `    ${f}`)
-    // hideZeroRows: força ALL(primaryTable) para quebrar cross-filter implícito via relacionamento
-    // (ex: filtro de data na tabela META excluindo vendedores sem meta pelo relacionamento).
-    // Filtros explícitos do usuário em outras tabelas são preservados.
-    const forceAllArgs = hideZeroRows ? [`    ALL(${tableRef(primaryTable)})`] : []
+    // ALL(primaryTable) quebra cross-filter implícito via relacionamento — necessário quando há filtros
+    // em tabelas diferentes da tabela de GROUP BY (ex: CODUSUR em PEDIDOS enquanto GROUP BY é 'Gerente').
+    // Sem isso, o FILTER(ALL(outraTabela)) restringe a dimensão do GROUP BY pelo relacionamento.
+    const hasOtherTableFilters = filters.some(
+      (f) =>
+        (String(f.value ?? "").trim() !== "" || String(f.valueTo ?? "").trim() !== "") &&
+        f.tableName !== primaryTable
+    )
+    const forceAllArgs = hideZeroRows || hasOtherTableFilters ? [`    ALL(${tableRef(primaryTable)})`] : []
     const summarizeBody = [...groupByRefs, ...forceAllArgs, ...filterArgs, ...measureAliases].join(",\n")
     const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
 

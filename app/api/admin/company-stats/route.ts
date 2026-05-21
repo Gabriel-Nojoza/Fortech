@@ -38,6 +38,7 @@ export type CompanyStatItem = {
   chatOverageCharge: number | null
   reportBuilderEnabled: boolean
   campaignsEnabled: boolean
+  excelExportEnabled: boolean
   sendingHours: { enabled: boolean; windows: Array<{ startTime: string; endTime: string }> } | null
 }
 
@@ -288,6 +289,7 @@ export async function GET(request: Request) {
         chatOverageCharge,
         reportBuilderEnabled: features?.report_builder === true,
         campaignsEnabled: features?.campaigns === true,
+        excelExportEnabled: features?.excel_export === true,
         sendingHours,
       }
     })

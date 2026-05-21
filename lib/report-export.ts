@@ -1,3 +1,4 @@
+import { utils as xlsxUtils, write as xlsxWrite } from "xlsx"
 import { describePrimaryDateFilter } from "@/lib/query-filters"
 import type { QueryFilter, SelectedColumn } from "@/lib/types"
 
@@ -606,6 +607,48 @@ export function buildCsvContent(result: ReportResult): string {
   )
 
   return [header, ...rows].join("\n")
+}
+
+export function buildExcelContent(result: ReportResult, sheetName = "Relatório"): Buffer {
+  const headerRow = result.columns.map((c) => c.name)
+  const dataRows = result.rows.map((row) =>
+    result.columns.map((c) => {
+      const v = row[c.name]
+      if (v === null || v === undefined) return ""
+      if (typeof v === "number") return v
+      const parsed = parseFloat(String(v).replace(",", "."))
+      if (!isNaN(parsed) && String(v).trim() !== "") return parsed
+      return String(v)
+    })
+  )
+
+  const worksheet = xlsxUtils.aoa_to_sheet([headerRow, ...dataRows])
+
+  const colCount = result.columns.length
+  const rowCount = result.rows.length
+
+  for (let ci = 0; ci < colCount; ci++) {
+    const colName = result.columns[ci].name
+    const isPercent = colName.includes("%")
+
+    for (let ri = 0; ri < rowCount; ri++) {
+      const cellAddr = xlsxUtils.encode_cell({ r: ri + 1, c: ci })
+      const cell = worksheet[cellAddr]
+      if (!cell || cell.t !== "n") continue
+
+      if (isPercent) {
+        cell.z = "0.00%"
+      } else {
+        const val = cell.v as number
+        const hasDecimals = Math.abs(val - Math.round(val)) > 1e-9
+        cell.z = hasDecimals ? "#,##0.00" : "#,##0"
+      }
+    }
+  }
+
+  const workbook = xlsxUtils.book_new()
+  xlsxUtils.book_append_sheet(workbook, worksheet, sheetName.slice(0, 31))
+  return Buffer.from(xlsxWrite(workbook, { type: "buffer", bookType: "xlsx" }))
 }
 
 export function buildTextReport(result: ReportResult, maxRows = 100): string {

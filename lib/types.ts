@@ -186,12 +186,13 @@ export interface Automation {
   name: string
   dataset_id: string
   workspace_id: string | null
+  bot_instance_id?: string | null
   selected_columns: SelectedColumn[]
   selected_measures: SelectedMeasure[]
   filters: QueryFilter[]
   dax_query: string | null
   cron_expression: string | null
-  export_format: "table" | "csv" | "pdf"
+  export_format: "table" | "csv" | "pdf" | "xlsx"
   message_template: string | null
   is_active: boolean
   last_run_at: string | null

@@ -23,39 +23,56 @@ async function syncAutomationSchedule(
   cronExpression: string | null,
   exportFormat: string,
   messageTemplate: string | null,
-  contactIds: string[]
-) {
+  contactIds: string[],
+  botInstanceId?: string | null
+): Promise<{ scheduleId?: string; warning?: string }> {
   try {
-    const { data: existing } = await supabase
+    const { data: existing, error: lookupError } = await supabase
       .from("schedules")
       .select("id")
       .eq("company_id", companyId)
       .eq("report_id", automationId)
       .maybeSingle()
 
+    if (lookupError) {
+      console.error("[syncAutomationSchedule] lookup error:", lookupError.message)
+      return { warning: `Erro ao buscar rotina: ${lookupError.message}` }
+    }
+
     if (!cronExpression) {
       if (existing) {
         await supabase.from("schedule_contacts").delete().eq("schedule_id", existing.id)
         await supabase.from("schedules").delete().eq("company_id", companyId).eq("id", existing.id)
       }
-      return
+      return {}
     }
+
+    // Store a DB-safe format; dispatch reads the automation's format directly at send time
+    const safeFormat = exportFormat === "xlsx" ? "csv" : exportFormat
 
     let scheduleId: string
     if (existing) {
-      await supabase
+      const { error: updateError } = await supabase
         .from("schedules")
-        .update({ name: automationName, cron_expression: cronExpression, export_format: exportFormat, message_template: messageTemplate, is_active: true })
+        .update({ name: automationName, cron_expression: cronExpression, export_format: safeFormat, message_template: messageTemplate, is_active: true, ...(botInstanceId ? { bot_instance_id: botInstanceId } : {}) })
         .eq("company_id", companyId)
         .eq("id", existing.id)
+      if (updateError) {
+        console.error("[syncAutomationSchedule] update error:", updateError.message)
+        return { warning: `Erro ao atualizar rotina: ${updateError.message}` }
+      }
       scheduleId = existing.id
     } else {
-      const { data: inserted, error } = await supabase
+      const { data: inserted, error: insertError } = await supabase
         .from("schedules")
-        .insert({ company_id: companyId, name: automationName, report_id: automationId, cron_expression: cronExpression, export_format: exportFormat, message_template: messageTemplate, is_active: true })
+        .insert({ company_id: companyId, name: automationName, report_id: automationId, cron_expression: cronExpression, export_format: safeFormat, message_template: messageTemplate, is_active: true, ...(botInstanceId ? { bot_instance_id: botInstanceId } : {}) })
         .select("id")
         .single()
-      if (error || !inserted) return
+      if (insertError || !inserted) {
+        const msg = insertError?.message ?? "Sem dados retornados"
+        console.error("[syncAutomationSchedule] insert error:", msg)
+        return { warning: `Erro ao criar rotina: ${msg}` }
+      }
       scheduleId = inserted.id
     }
 
@@ -65,8 +82,12 @@ async function syncAutomationSchedule(
         .from("schedule_contacts")
         .insert(contactIds.map((cid) => ({ schedule_id: scheduleId, contact_id: cid })))
     }
-  } catch {
-    // Schedule sync is best-effort; don't fail the automation save
+
+    return { scheduleId }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Erro desconhecido"
+    console.error("[syncAutomationSchedule] unexpected error:", msg)
+    return { warning: `Erro inesperado ao sincronizar rotina: ${msg}` }
   }
 }
 
@@ -80,6 +101,7 @@ type NormalizedAutomationRow = AutomationRow & {
   export_format: string
   message_template: string | null
   is_active: boolean
+  bot_instance_id?: string | null
 }
 
 function isAutomationVisible(
@@ -183,6 +205,10 @@ function normalizeAutomationRecord(automation: AutomationRow): NormalizedAutomat
     message_template:
       typeof automation.message_template === "string" ? automation.message_template : null,
     is_active: typeof automation.is_active === "boolean" ? automation.is_active : true,
+    bot_instance_id:
+      typeof automation.bot_instance_id === "string" && automation.bot_instance_id.trim()
+        ? automation.bot_instance_id
+        : null,
   }
 }
 
@@ -405,15 +431,16 @@ export async function POST(request: Request) {
       }
     }
 
-    await syncAutomationSchedule(
+    const syncResult = await syncAutomationSchedule(
       supabase, companyId, String(data.id), String(data.name),
       typeof data.cron_expression === "string" ? data.cron_expression : null,
       String(data.export_format || "csv"),
       typeof data.message_template === "string" ? data.message_template : null,
-      Array.isArray(contact_ids) ? contact_ids : []
+      Array.isArray(contact_ids) ? contact_ids : [],
+      typeof data.bot_instance_id === "string" ? data.bot_instance_id : null
     )
 
-    return NextResponse.json(data, { status: 201 })
+    return NextResponse.json({ ...data, _schedule_warning: syncResult.warning ?? null }, { status: 201 })
   } catch (error) {
     console.error("Error creating automation:", error)
     return NextResponse.json(
@@ -491,10 +518,11 @@ export async function PUT(request: Request) {
       .eq("company_id", companyId)
       .eq("id", id)
       .select()
-      .single()
+      .maybeSingle()
 
-    if (error) {
-      if (!isMissingAutomationRelationError(error)) {
+    const notFoundInTable = !error && dbData === null
+    if (error || notFoundInTable) {
+      if (error && !isMissingAutomationRelationError(error)) {
         throw error
       }
 
@@ -550,15 +578,16 @@ export async function PUT(request: Request) {
     }
 
     const normalized = normalizeAutomationRecord(data as AutomationRow)
-    await syncAutomationSchedule(
+    const syncResult = await syncAutomationSchedule(
       supabase, companyId, String(normalized.id), String(normalized.name),
       normalized.cron_expression,
       normalized.export_format,
       normalized.message_template,
-      Array.isArray(contact_ids) ? contact_ids : []
+      Array.isArray(contact_ids) ? contact_ids : [],
+      typeof normalized.bot_instance_id === "string" ? normalized.bot_instance_id : null
     )
 
-    return NextResponse.json(normalized)
+    return NextResponse.json({ ...normalized, _schedule_warning: syncResult.warning ?? null })
   } catch (error) {
     console.error("Error updating automation:", error)
     return NextResponse.json(

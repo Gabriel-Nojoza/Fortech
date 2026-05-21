@@ -57,6 +57,7 @@ interface SaveAutomationDialogProps {
   disabled?: boolean
   editingAutomation?: EditingAutomation | null
   onCancelEdit?: () => void
+  excelExportEnabled?: boolean
 }
 
 export function SaveAutomationDialog({
@@ -65,6 +66,7 @@ export function SaveAutomationDialog({
   disabled,
   editingAutomation,
   onCancelEdit,
+  excelExportEnabled = false,
 }: SaveAutomationDialogProps) {
   const defaultMessage = "Segue os dados da automacao {name} em anexo."
   const defaultCron = "0 8 * * 1-5"
@@ -249,8 +251,8 @@ export function SaveAutomationDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="table">Tabela (texto)</SelectItem>
                 <SelectItem value="csv">CSV</SelectItem>
+                {excelExportEnabled && <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>}
                 <SelectItem value="pdf">PDF</SelectItem>
               </SelectContent>
             </Select>

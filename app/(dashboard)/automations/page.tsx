@@ -164,7 +164,7 @@ export default function AutomationsPage() {
   const SWR_OPTS = { revalidateOnFocus: false }
   const { data: rawWorkspaces } = useSWR("/api/workspaces", fetcher, SWR_OPTS)
   const { data: rawContacts } = useSWR("/api/contacts", fetcher, SWR_OPTS)
-  const { data: companySettings } = useSWR("/api/settings", fetcher, SWR_OPTS)
+  const { data: companyFeatures } = useSWR("/api/features", fetcher, SWR_OPTS)
   const { data: rawBotInstances } = useSWR<WhatsAppBotInstance[]>("/api/bot/instances", fetcher, SWR_OPTS)
   const { data: stats } = useSWR<{
     n8nConfigured?: boolean
@@ -293,11 +293,12 @@ export default function AutomationsPage() {
     }).filter((item) => item.key === "date")
   }, [columns, filters, linkedTableNames])
 
-  const isFCA = String(
-    (companySettings as Record<string, Record<string, unknown>> | null)?.general?.app_name ?? ""
-  )
-    .toUpperCase()
-    .includes("FCA")
+  const features = companyFeatures as { reportBuilder?: boolean; campaigns?: boolean; excelExport?: boolean; appName?: string; daxCalculatetable?: boolean } | null
+
+  const isFCA = String(features?.appName ?? "").toUpperCase().includes("FCA")
+  const useCalculatetable = features?.daxCalculatetable === true
+
+  const excelExportEnabled = features?.excelExport === true
 
   const daxQuery = useMemo(
     () =>
@@ -307,8 +308,9 @@ export default function AutomationsPage() {
         filters,
         limit: 100,
         hideZeroRows: isFCA,
+        useCalculatetable,
       }),
-    [selectedColumns, selectedMeasures, filters, isFCA]
+    [selectedColumns, selectedMeasures, filters, isFCA, useCalculatetable]
   )
 
   const hasQuery =
@@ -978,14 +980,16 @@ export default function AutomationsPage() {
                 datasetId={selectedDataset}
                 executionDatasetId={selectedExecutionDataset || selectedDataset}
                 disabled={!hasQuery}
+                excelExportEnabled={excelExportEnabled}
               />
 
-<SaveAutomationDialog
+              <SaveAutomationDialog
                 botInstances={botInstances}
                 onSave={handleSave}
                 disabled={!hasQuery}
                 editingAutomation={editingAutomation}
                 onCancelEdit={clearEditingState}
+                excelExportEnabled={excelExportEnabled}
               />
             </>
           )}

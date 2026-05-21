@@ -23,6 +23,7 @@ export async function PUT(request: NextRequest) {
       chatExcessPrice?: number | null
       reportBuilderEnabled?: boolean
       campaignsEnabled?: boolean
+      excelExportEnabled?: boolean
       sendingHours?: { enabled: boolean; windows: Array<{ startTime: string; endTime: string }> } | null
     }
 
@@ -75,7 +76,7 @@ export async function PUT(request: NextRequest) {
 
     if (error) throw error
 
-    if (body.reportBuilderEnabled !== undefined || body.campaignsEnabled !== undefined) {
+    if (body.reportBuilderEnabled !== undefined || body.campaignsEnabled !== undefined || body.excelExportEnabled !== undefined) {
       const { data: existingFeatures } = await supabase
         .from("company_settings")
         .select("value")
@@ -88,6 +89,7 @@ export async function PUT(request: NextRequest) {
         ...currentFeatures,
         ...(body.reportBuilderEnabled !== undefined ? { report_builder: body.reportBuilderEnabled } : {}),
         ...(body.campaignsEnabled !== undefined ? { campaigns: body.campaignsEnabled } : {}),
+        ...(body.excelExportEnabled !== undefined ? { excel_export: body.excelExportEnabled } : {}),
       }
 
       let featuresError

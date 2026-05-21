@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getAccessToken, executeDAXQuery, getDatasetMetadata, getDatasetLastRefresh } from "@/lib/powerbi"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
-import { buildCsvContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
+import { buildCsvContent, buildExcelContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
 import { buildPdfFromHtml } from "@/lib/report-pdf"
 import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
@@ -492,6 +492,10 @@ export async function POST(request: Request) {
       if (exportFormat === "pdf") {
         pdfBuffer = await buildPdfFromHtml(htmlReport)
       }
+      let xlsxBuffer: Buffer | null = null
+      if (exportFormat === "xlsx") {
+        xlsxBuffer = buildExcelContent(result, reportTitle)
+      }
 
       for (const [index, contact] of contacts.entries()) {
         const log = logs?.[index]
@@ -525,6 +529,16 @@ export async function POST(request: Request) {
               document_base64: Buffer.from(csvContent, "utf-8").toString("base64"),
               file_name: `${reportTitle}.csv`,
               mimetype: "text/csv",
+            }
+          } else if (exportFormat === "xlsx") {
+            sendPayload = {
+              instance_id: instanceId,
+              phone: contact.phone,
+              whatsapp_group_id: contact.whatsapp_group_id,
+              message,
+              document_base64: xlsxBuffer!.toString("base64"),
+              file_name: `${reportTitle}.xlsx`,
+              mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             }
           } else {
             sendPayload = {
