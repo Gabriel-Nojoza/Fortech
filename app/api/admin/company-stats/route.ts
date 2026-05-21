@@ -39,6 +39,7 @@ export type CompanyStatItem = {
   reportBuilderEnabled: boolean
   campaignsEnabled: boolean
   excelExportEnabled: boolean
+  hideZeroRowsEnabled: boolean
   sendingHours: { enabled: boolean; windows: Array<{ startTime: string; endTime: string }> } | null
 }
 
@@ -290,6 +291,7 @@ export async function GET(request: Request) {
         reportBuilderEnabled: features?.report_builder === true,
         campaignsEnabled: features?.campaigns === true,
         excelExportEnabled: features?.excel_export === true,
+        hideZeroRowsEnabled: features?.hide_zero_rows === true,
         sendingHours,
       }
     })

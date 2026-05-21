@@ -24,6 +24,7 @@ export async function PUT(request: NextRequest) {
       reportBuilderEnabled?: boolean
       campaignsEnabled?: boolean
       excelExportEnabled?: boolean
+      hideZeroRowsEnabled?: boolean
       sendingHours?: { enabled: boolean; windows: Array<{ startTime: string; endTime: string }> } | null
     }
 
@@ -76,7 +77,7 @@ export async function PUT(request: NextRequest) {
 
     if (error) throw error
 
-    if (body.reportBuilderEnabled !== undefined || body.campaignsEnabled !== undefined || body.excelExportEnabled !== undefined) {
+    if (body.reportBuilderEnabled !== undefined || body.campaignsEnabled !== undefined || body.excelExportEnabled !== undefined || body.hideZeroRowsEnabled !== undefined) {
       const { data: existingFeatures } = await supabase
         .from("company_settings")
         .select("value")
@@ -90,6 +91,7 @@ export async function PUT(request: NextRequest) {
         ...(body.reportBuilderEnabled !== undefined ? { report_builder: body.reportBuilderEnabled } : {}),
         ...(body.campaignsEnabled !== undefined ? { campaigns: body.campaignsEnabled } : {}),
         ...(body.excelExportEnabled !== undefined ? { excel_export: body.excelExportEnabled } : {}),
+        ...(body.hideZeroRowsEnabled !== undefined ? { hide_zero_rows: body.hideZeroRowsEnabled } : {}),
       }
 
       let featuresError

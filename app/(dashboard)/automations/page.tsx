@@ -293,10 +293,10 @@ export default function AutomationsPage() {
     }).filter((item) => item.key === "date")
   }, [columns, filters, linkedTableNames])
 
-  const features = companyFeatures as { reportBuilder?: boolean; campaigns?: boolean; excelExport?: boolean; appName?: string; daxCalculatetable?: boolean } | null
+  const features = companyFeatures as { reportBuilder?: boolean; campaigns?: boolean; excelExport?: boolean; appName?: string; daxCalculatetable?: boolean; hideZeroRows?: boolean } | null
 
-  const isFCA = String(features?.appName ?? "").toUpperCase().includes("FCA")
   const useCalculatetable = features?.daxCalculatetable === true
+  const hideZeroRows = features?.hideZeroRows === true
 
   const excelExportEnabled = features?.excelExport === true
 
@@ -307,10 +307,10 @@ export default function AutomationsPage() {
         measures: selectedMeasures,
         filters,
         limit: 100,
-        hideZeroRows: isFCA,
+        hideZeroRows,
         useCalculatetable,
       }),
-    [selectedColumns, selectedMeasures, filters, isFCA, useCalculatetable]
+    [selectedColumns, selectedMeasures, filters, hideZeroRows, useCalculatetable]
   )
 
   const hasQuery =

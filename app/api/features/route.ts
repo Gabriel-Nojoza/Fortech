@@ -8,6 +8,7 @@ export type CompanyFeatures = {
   excelExport: boolean
   appName: string
   daxCalculatetable: boolean
+  hideZeroRows: boolean
 }
 
 export async function GET() {
@@ -35,6 +36,7 @@ export async function GET() {
       excelExport: features.excel_export === true,
       appName: typeof general.app_name === "string" ? general.app_name : "",
       daxCalculatetable: features.dax_calculatetable === true,
+      hideZeroRows: features.hide_zero_rows === true,
     } satisfies CompanyFeatures)
   } catch (error) {
     if (isAuthContextError(error)) {
