@@ -162,11 +162,13 @@ type FormReportSelection = {
 type ScheduleDialogMode = "create" | "edit" | "duplicate"
 
 const POWERBI_FORMATS: ScheduleExportFormat[] = ["PDF", "PNG", "PPTX"]
+const AUTOMATION_FORMATS: ScheduleExportFormat[] = ["csv", "xlsx", "pdf", "table"]
 const DEFAULT_SCHEDULE_CRON = "0 8 * * 1-5"
 const DEFAULT_SCHEDULE_MESSAGE = "Segue o relatorio {report_name} em anexo."
 
 function formatLabel(format: ScheduleExportFormat) {
   if (format === "table") return "Tabela (texto)"
+  if (format === "xlsx") return "Excel (.xlsx)"
   return format.toUpperCase()
 }
 
@@ -477,13 +479,19 @@ export default function SchedulesPage() {
   }
 
   const reportOptions = useMemo<ScheduleReportOption[]>(
-    () =>
-      reportList.map((report) => ({
+    () => [
+      ...reportList.map((report) => ({
         id: report.id,
         name: report.name,
-        defaultFormat: "PDF" as const,
+        defaultFormat: "PDF" as ScheduleExportFormat,
       })),
-    [reportList]
+      ...automationList.map((auto) => ({
+        id: auto.id,
+        name: auto.name,
+        defaultFormat: (auto.export_format || "csv") as ScheduleExportFormat,
+      })),
+    ],
+    [reportList, automationList]
   )
 
   const [deleteAutomationId, setDeleteAutomationId] = useState<string | null>(null)
@@ -557,8 +565,6 @@ export default function SchedulesPage() {
     Record<string, string>
   >({})
 
-  const formatOptions = POWERBI_FORMATS
-
   useEffect(() => {
     if (!selectedBotInstanceId && instanceList.length > 0) {
       setSelectedBotInstanceId(
@@ -604,6 +610,22 @@ export default function SchedulesPage() {
         .filter((selection) => selection.reportId),
     [formReportSelections]
   )
+
+  const hasAutomationSelected = useMemo(
+    () =>
+      normalizedFormReportSelections.some((selection) =>
+        automationList.some((a) => a.id === selection.reportId)
+      ),
+    [normalizedFormReportSelections, automationList]
+  )
+
+  const formatOptions = hasAutomationSelected ? AUTOMATION_FORMATS : POWERBI_FORMATS
+
+  useEffect(() => {
+    const options = hasAutomationSelected ? AUTOMATION_FORMATS : POWERBI_FORMATS
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setFormFormat((current) => (options.includes(current) ? current : options[0]))
+  }, [hasAutomationSelected])
 
   const filteredContacts = activeContacts.filter((contact) => {
     const search = contactSearch.trim().toLowerCase()
@@ -760,6 +782,7 @@ export default function SchedulesPage() {
       errors.cron = "Cada horario deve ter uma expressao CRON valida com 5 campos"
     }
     if (
+      !hasAutomationSelected &&
       formFormat !== "PDF" &&
       (normalizedFormReportSelections.length > 1 || hasMultiReportPages)
     ) {

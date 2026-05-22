@@ -59,6 +59,7 @@ export type ScheduleExportFormat =
   | "table"
   | "csv"
   | "pdf"
+  | "xlsx"
 
 export interface ScheduleReportConfig {
   report_id: string

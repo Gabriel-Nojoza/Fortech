@@ -125,7 +125,7 @@ const baseScheduleSchema = z.object({
   pbi_page_names: pageNamesSchema,
   cron_expression: z.string().min(1),
   export_format: z
-    .enum(["PDF", "PNG", "PPTX", "table", "csv", "pdf"])
+    .enum(["PDF", "PNG", "PPTX", "table", "csv", "pdf", "xlsx"])
     .default("PDF"),
   message_template: z.string().nullable().optional(),
   is_active: z.boolean().default(true),
