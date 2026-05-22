@@ -419,7 +419,7 @@ async function handleDispatch(request: NextRequest) {
       const runResult = await runStoredAutomation({
         companyId,
         automationId: automation.id,
-        exportFormat: normalizeAutomationExportFormat(automation.export_format || schedule.export_format),
+        exportFormat: normalizeAutomationExportFormat(schedule.export_format || automation.export_format),
         messageOverride: schedule.message_template ?? `Segue o relatorio ${automation.name}.`,
         contactIds,
         scheduleId: schedule.id,
