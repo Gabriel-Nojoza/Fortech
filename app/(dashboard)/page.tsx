@@ -31,7 +31,7 @@ const fetcher = async (url: string) => {
 
 export default function DashboardPage() {
   const swrOptions = {
-    refreshInterval: 30000,
+    refreshInterval: 90000,
     revalidateOnFocus: false,
     shouldRetryOnError: (error: FetchError) => error.status !== 401,
   }

@@ -162,6 +162,9 @@ function getScheduleReportLabel(
 // Brazil is UTC-3 (America/Sao_Paulo — no DST since 2019)
 const BRAZIL_OFFSET_MS = 3 * 60 * 60 * 1000
 
+// Cache de ocorrências de cron por dia — evita 1440 iterações × N rotinas a cada refresh
+const _cronOccurrenceCache = new Map<string, { result: Date[]; expiresAt: number }>()
+
 function getBrazilDayStart(date: Date): Date {
   const brazilTime = new Date(date.getTime() - BRAZIL_OFFSET_MS)
   const midnight = new Date(Date.UTC(
@@ -178,6 +181,12 @@ function listScheduleOccurrencesToday(
   dayEnd: Date,
   timeZone: string
 ) {
+  const cacheKey = `${cronExpression}|${dayStart.toISOString()}|${timeZone}`
+  const cached = _cronOccurrenceCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result
+  }
+
   const occurrences: Date[] = []
 
   for (let minuteOffset = 0; minuteOffset < 24 * 60; minuteOffset += 1) {
@@ -192,6 +201,7 @@ function listScheduleOccurrencesToday(
     }
   }
 
+  _cronOccurrenceCache.set(cacheKey, { result: occurrences, expiresAt: Date.now() + 5 * 60 * 1000 })
   return occurrences
 }
 
@@ -394,7 +404,7 @@ export async function GET(request: Request) {
            })()
     const dispatchLogsQuery = supabase
       .from("dispatch_logs")
-      .select("*")
+      .select("schedule_id, status, error_message, created_at, started_at, completed_at")
       .eq("company_id", companyId)
       .gte("created_at", thirtyDaysAgo.toISOString())
     const schedulesQuery = supabase
