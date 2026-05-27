@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
-import { getAccessToken, executeDAXQuery, getDatasetMetadata, getDatasetLastRefresh } from "@/lib/powerbi"
+import { getAccessToken, executeDAXQuery, getDatasetLastRefresh } from "@/lib/powerbi"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
-import { buildCsvContent, buildExcelContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
+import { buildCsvContent, buildExcelContent, buildHtmlReport, buildSummaryCardsFromResult, buildTextReport } from "@/lib/report-export"
 import { buildPdfFromHtml } from "@/lib/report-pdf"
-import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
 import { buildDAXQuery } from "@/lib/dax-builder"
 import { resolveRequestCompanyContext, type RequestCompanyContext } from "@/lib/n8n-auth"
@@ -381,10 +380,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const token = await getAccessToken()
-    const executionMetadata = await getDatasetMetadata(token, executionDatasetId, {
-      includeCustomChatMeasures: false,
-    })
+    const token = await getAccessToken(companyId)
     const execution = await executeWithQueryFallback({
       runQuery: (nextQuery) => executeDAXQuery(token, executionDatasetId, nextQuery),
       query,
@@ -398,17 +394,10 @@ export async function POST(request: Request) {
     const reportTitle = automationName
     const csvContent = buildCsvContent(result)
     const textReport = buildTextReport(result)
-    const [summaryCards, datasetRefreshedAt] = await Promise.all([
-      fetchReportSummaryCards({
-        availableMeasures: executionMetadata.measures,
-        selectedMeasures: selectedMeasuresForExecution,
-        filters: execution.appliedFilters,
-        runQuery: (summaryQuery) => executeDAXQuery(token, executionDatasetId, summaryQuery),
-      }).catch(() => []),
-      executionWorkspaceId
-        ? getDatasetLastRefresh(token, executionWorkspaceId, executionDatasetId)
-        : Promise.resolve(null),
-    ])
+    const summaryCards = buildSummaryCardsFromResult(result)
+    const datasetRefreshedAt = await (executionWorkspaceId
+      ? getDatasetLastRefresh(token, executionWorkspaceId, executionDatasetId)
+      : Promise.resolve(null))
     const htmlReport = buildHtmlReport({
       title: reportTitle,
       subtitle:

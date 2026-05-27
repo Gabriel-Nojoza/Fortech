@@ -9,6 +9,8 @@ export type CompanyFeatures = {
   appName: string
   daxCalculatetable: boolean
   hideZeroRows: boolean
+  hideZeroRowsIncludeDevolution: boolean
+  campaignClientPreview: boolean
 }
 
 export async function GET() {
@@ -37,6 +39,8 @@ export async function GET() {
       appName: typeof general.app_name === "string" ? general.app_name : "",
       daxCalculatetable: features.dax_calculatetable === true,
       hideZeroRows: features.hide_zero_rows === true,
+      hideZeroRowsIncludeDevolution: features.hide_zero_rows_include_devolution === true,
+      campaignClientPreview: features.campaign_client_preview === true,
     } satisfies CompanyFeatures)
   } catch (error) {
     if (isAuthContextError(error)) {

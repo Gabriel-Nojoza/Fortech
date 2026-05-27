@@ -425,7 +425,6 @@ export default function AdminDashboardPage() {
     if (fields.hideZeroRowsEnabled !== undefined) {
       setHideZeroOverrides((prev) => ({ ...prev, [companyId]: fields.hideZeroRowsEnabled! }))
     }
-
     setSavingLimitFor(companyId)
     try {
       const res = await fetch("/api/admin/company-limits", {

@@ -25,6 +25,7 @@ export async function PUT(request: NextRequest) {
       campaignsEnabled?: boolean
       excelExportEnabled?: boolean
       hideZeroRowsEnabled?: boolean
+      campaignClientPreviewEnabled?: boolean
       sendingHours?: { enabled: boolean; windows: Array<{ startTime: string; endTime: string }> } | null
     }
 
@@ -77,7 +78,7 @@ export async function PUT(request: NextRequest) {
 
     if (error) throw error
 
-    if (body.reportBuilderEnabled !== undefined || body.campaignsEnabled !== undefined || body.excelExportEnabled !== undefined || body.hideZeroRowsEnabled !== undefined) {
+    if (body.reportBuilderEnabled !== undefined || body.campaignsEnabled !== undefined || body.excelExportEnabled !== undefined || body.hideZeroRowsEnabled !== undefined || body.campaignClientPreviewEnabled !== undefined) {
       const { data: existingFeatures } = await supabase
         .from("company_settings")
         .select("value")
@@ -92,6 +93,7 @@ export async function PUT(request: NextRequest) {
         ...(body.campaignsEnabled !== undefined ? { campaigns: body.campaignsEnabled } : {}),
         ...(body.excelExportEnabled !== undefined ? { excel_export: body.excelExportEnabled } : {}),
         ...(body.hideZeroRowsEnabled !== undefined ? { hide_zero_rows: body.hideZeroRowsEnabled } : {}),
+        ...(body.campaignClientPreviewEnabled !== undefined ? { campaign_client_preview: body.campaignClientPreviewEnabled } : {}),
       }
 
       let featuresError

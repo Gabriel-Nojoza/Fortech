@@ -35,6 +35,7 @@ type BuildParams = {
   filters: Filter[]
   limit?: number
   hideZeroRows?: boolean
+  hideZeroRowsIncludeDevolution?: boolean
   useCalculatetable?: boolean
 }
 
@@ -265,14 +266,12 @@ function normalizeForCondition(name: string) {
     .replace(/[̀-ͯ]/g, "")
 }
 
-function buildHideZeroRowsCondition(measures: Measure[]): string {
+function buildHideZeroRowsCondition(measures: Measure[], includeDevolution = false): string {
   if (measures.length === 0) return ""
 
-  // Usa apenas medidas de valor principal — exclui percentuais (%) e devoluções
-  // para que a condição reflita exatamente [Meta] + [Vl Pedidos] >= 1
   const valueMeasures = measures.filter((m) => {
     const n = normalizeForCondition(m.measureName)
-    return !n.includes("%") && !n.includes("devolu")
+    return !n.includes("%") && (includeDevolution || !n.includes("devolu"))
   })
 
   const effective = valueMeasures.length > 0 ? valueMeasures : measures
@@ -296,6 +295,7 @@ export function buildDAXQuery({
   filters,
   limit = 100,
   hideZeroRows = false,
+  hideZeroRowsIncludeDevolution = false,
   useCalculatetable = false,
 }: BuildParams): string {
   const hasColumns = columns.length > 0
@@ -349,7 +349,7 @@ export function buildDAXQuery({
 
       const wrapWithHideZero = (inner: string) => {
         if (!hideZeroRows) return inner
-        const cond = buildHideZeroRowsCondition(measures)
+        const cond = buildHideZeroRowsCondition(measures, hideZeroRowsIncludeDevolution)
         return `FILTER(\n  ${inner.replace(/\n/g, "\n  ")},\n  ${cond}\n)`
       }
 
@@ -398,7 +398,7 @@ export function buildDAXQuery({
       const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
 
       const topNInner = hideZeroRows
-        ? `FILTER(\n  ${summarizeExpression.replace(/\n/g, "\n  ")},\n  ${buildHideZeroRowsCondition(measures)}\n)`
+        ? `FILTER(\n  ${summarizeExpression.replace(/\n/g, "\n  ")},\n  ${buildHideZeroRowsCondition(measures, hideZeroRowsIncludeDevolution)}\n)`
         : summarizeExpression
 
       if (wrappedFilters.length === 0) {
@@ -445,7 +445,7 @@ export function buildDAXQuery({
     const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")
 
     const topNInner = hideZeroRows
-      ? `FILTER(\n  ${summarizeExpression.replace(/\n/g, "\n  ")},\n  ${buildHideZeroRowsCondition(measures)}\n)`
+      ? `FILTER(\n  ${summarizeExpression.replace(/\n/g, "\n  ")},\n  ${buildHideZeroRowsCondition(measures, hideZeroRowsIncludeDevolution)}\n)`
       : summarizeExpression
 
     return [

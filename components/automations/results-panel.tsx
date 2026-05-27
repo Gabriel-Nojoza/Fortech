@@ -63,6 +63,7 @@ interface ResultsPanelProps {
   onRemoveColumn: (tableName: string, columnName: string) => void
   onRemoveMeasure: (tableName: string, measureName: string) => void
   onReorder: (newColumns: SelectedColumn[], newMeasures: SelectedMeasure[]) => void
+  onClearAll?: () => void
 }
 
 type SortableEntry =
@@ -274,6 +275,7 @@ export function ResultsPanel({
   onRemoveColumn,
   onRemoveMeasure,
   onReorder,
+  onClearAll,
 }: ResultsPanelProps) {
   const [showDax, setShowDax] = useState(true)
   const totalItems = selectedColumns.length + selectedMeasures.length
@@ -358,9 +360,20 @@ export function ResultsPanel({
             <Settings2 className="size-4 text-primary" />
             <h3 className="text-sm font-semibold">ITENS SELECIONADOS</h3>
           </div>
-          <Badge variant="secondary" className="text-xs">
-            {totalItems}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {totalItems > 0 && onClearAll && (
+              <button
+                type="button"
+                onClick={onClearAll}
+                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+              >
+                Limpar tudo
+              </button>
+            )}
+            <Badge variant="secondary" className="text-xs">
+              {totalItems}
+            </Badge>
+          </div>
         </div>
 
         {totalItems === 0 ? (

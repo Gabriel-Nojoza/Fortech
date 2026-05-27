@@ -9,6 +9,8 @@ import {
   AlertCircle,
   Database,
   ListFilter,
+  Code2,
+  X,
 } from "lucide-react"
 import {
   Select,
@@ -18,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -108,6 +111,8 @@ export default function AutomationsPage() {
   const [importingScannerCatalog, setImportingScannerCatalog] = useState(false)
   const [importingWorkspaceScannerCatalog, setImportingWorkspaceScannerCatalog] =
     useState(false)
+  const [customDaxQuery, setCustomDaxQuery] = useState("")
+  const [showCustomDax, setShowCustomDax] = useState(false)
 
   useEffect(() => {
     const draft = loadBuilderDraft()
@@ -293,10 +298,11 @@ export default function AutomationsPage() {
     }).filter((item) => item.key === "date")
   }, [columns, filters, linkedTableNames])
 
-  const features = companyFeatures as { reportBuilder?: boolean; campaigns?: boolean; excelExport?: boolean; appName?: string; daxCalculatetable?: boolean; hideZeroRows?: boolean } | null
+  const features = companyFeatures as { reportBuilder?: boolean; campaigns?: boolean; excelExport?: boolean; appName?: string; daxCalculatetable?: boolean; hideZeroRows?: boolean; hideZeroRowsIncludeDevolution?: boolean } | null
 
   const useCalculatetable = features?.daxCalculatetable === true
   const hideZeroRows = features?.hideZeroRows === true
+  const hideZeroRowsIncludeDevolution = features?.hideZeroRowsIncludeDevolution === true
 
   const excelExportEnabled = features?.excelExport === true
 
@@ -308,15 +314,18 @@ export default function AutomationsPage() {
         filters,
         limit: 100,
         hideZeroRows,
+        hideZeroRowsIncludeDevolution,
         useCalculatetable,
       }),
-    [selectedColumns, selectedMeasures, filters, hideZeroRows, useCalculatetable]
+    [selectedColumns, selectedMeasures, filters, hideZeroRows, hideZeroRowsIncludeDevolution, useCalculatetable]
   )
 
+  const effectiveDaxQuery = customDaxQuery.trim() || daxQuery
+
   const hasQuery =
-    typeof daxQuery === "string" &&
-    daxQuery.trim().length > 0 &&
-    !daxQuery.startsWith("--")
+    typeof effectiveDaxQuery === "string" &&
+    effectiveDaxQuery.trim().length > 0 &&
+    !effectiveDaxQuery.startsWith("--")
 
   const activateTable = useCallback((tableName: string) => {
     setActiveTableName(tableName)
@@ -474,7 +483,7 @@ export default function AutomationsPage() {
         }
 
         let { response: res, data } = await requestExecution(
-          daxQuery,
+          effectiveDaxQuery,
           selectedColumns,
           selectedMeasures
         )
@@ -530,7 +539,7 @@ export default function AutomationsPage() {
       }
     },
     [
-      daxQuery,
+      effectiveDaxQuery,
       filters,
       hasQuery,
       pbiWorkspaceId,
@@ -601,7 +610,7 @@ export default function AutomationsPage() {
       return
     }
 
-    const signature = `${selectedDataset}::${daxQuery}`
+    const signature = `${selectedDataset}::${effectiveDaxQuery}`
 
     if (lastExecutedSignatureRef.current === signature) {
       return
@@ -613,7 +622,7 @@ export default function AutomationsPage() {
     }, 600)
 
     return () => window.clearTimeout(timeoutId)
-  }, [mounted, selectedDataset, hasQuery, daxQuery, isExecuting, executeQuery])
+  }, [mounted, selectedDataset, hasQuery, effectiveDaxQuery, isExecuting, executeQuery])
 
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
 
@@ -746,7 +755,7 @@ export default function AutomationsPage() {
         selected_columns: selectedColumns,
         selected_measures: selectedMeasures,
         filters,
-        dax_query: daxQuery,
+        dax_query: effectiveDaxQuery,
       }),
     })
 
@@ -965,6 +974,20 @@ export default function AutomationsPage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {activeTab === "builder" && (
+            <Button
+              type="button"
+              variant={showCustomDax ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => setShowCustomDax((prev) => !prev)}
+              title="Colar query do Power BI Performance Analyzer"
+            >
+              <Code2 className="size-3" />
+              <span className="hidden sm:inline">Query DAX</span>
+            </Button>
+          )}
+
           {activeTab === "builder" && stats?.n8nConfigured === false && (
             <span className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive">
               Webhook N8N nao configurado para este cliente
@@ -976,7 +999,7 @@ export default function AutomationsPage() {
               <DispatchDialog
                 contacts={contacts}
                 showContacts={canShowContacts}
-                daxQuery={daxQuery}
+                daxQuery={effectiveDaxQuery}
                 datasetId={selectedDataset}
                 executionDatasetId={selectedExecutionDataset || selectedDataset}
                 disabled={!hasQuery}
@@ -995,6 +1018,41 @@ export default function AutomationsPage() {
           )}
         </div>
       </div>
+
+      {activeTab === "builder" && showCustomDax && (
+        <div className="border-b border-border bg-muted/20 px-3 py-2 sm:px-4">
+          <div className="flex items-center justify-between pb-1.5">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Code2 className="size-3" />
+              Query DAX personalizada
+              {customDaxQuery.trim() && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">ativa</span>
+              )}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-5 w-5 p-0"
+              onClick={() => { setCustomDaxQuery(""); setShowCustomDax(false) }}
+              title="Fechar"
+            >
+              <X className="size-3" />
+            </Button>
+          </div>
+          <Textarea
+            className="h-28 resize-none font-mono text-xs"
+            placeholder={"Cole aqui a query copiada do Power BI Performance Analyzer...\n\nEsta query substitui a gerada automaticamente pelo construtor."}
+            value={customDaxQuery}
+            onChange={(e) => {
+              setCustomDaxQuery(e.target.value)
+              lastExecutedSignatureRef.current = ""
+              setResult(null)
+              setReportHtml(null)
+            }}
+          />
+        </div>
+      )}
 
       {activeTab === "builder" && (
         <>
@@ -1209,7 +1267,7 @@ export default function AutomationsPage() {
                 <ResultsPanel
                   selectedColumns={selectedColumns}
                   selectedMeasures={selectedMeasures}
-                  daxQuery={daxQuery}
+                  daxQuery={effectiveDaxQuery}
                   result={result}
                   reportHtml={reportHtml}
                   isExecuting={isExecuting}
@@ -1223,6 +1281,7 @@ export default function AutomationsPage() {
                     setSelectedColumns(cols)
                     setSelectedMeasures(msrs)
                   }}
+                  onClearAll={() => { setSelectedColumns([]); setSelectedMeasures([]) }}
                 />
               </div>
 
@@ -1281,7 +1340,7 @@ export default function AutomationsPage() {
                   <ResultsPanel
                     selectedColumns={selectedColumns}
                     selectedMeasures={selectedMeasures}
-                    daxQuery={daxQuery}
+                    daxQuery={effectiveDaxQuery}
                     result={result}
                     reportHtml={reportHtml}
                     isExecuting={isExecuting}
@@ -1295,6 +1354,7 @@ export default function AutomationsPage() {
                       setSelectedColumns(cols)
                       setSelectedMeasures(msrs)
                     }}
+                    onClearAll={() => { setSelectedColumns([]); setSelectedMeasures([]) }}
                   />
                 </ResizablePanel>
               </ResizablePanelGroup>

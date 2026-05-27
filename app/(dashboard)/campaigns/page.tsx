@@ -3,15 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import useSWR, { mutate } from "swr"
 import {
-  Megaphone,
-  Plus,
-  Trash2,
-  Pencil,
-  Play,
-  Loader2,
-  ImageIcon,
-  X,
-  Clock,
+  Megaphone, Plus, Trash2, Pencil, Play, Loader2,
+  ImageIcon, X, Clock, Users, ArrowLeft, MessageSquare, Send,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -24,42 +17,22 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectGroup, SelectItem,
+  SelectLabel, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead,
+  TableHeader, TableRow,
 } from "@/components/ui/table"
 import { CampaignDispatchDialog } from "@/components/campaigns/dispatch-dialog"
 import { ColumnSelect } from "@/components/campaigns/column-select"
 import type { Campaign, Workspace, WhatsAppBotInstance, DatasetTable, DatasetColumn } from "@/lib/types"
+import type { CompanyFeatures } from "@/app/api/features/route"
 
 async function fetchApi(url: string, init?: RequestInit) {
   const response = await fetch(url, init)
@@ -90,6 +63,33 @@ const DAYS_OPTIONS = [
   { label: "Personalizado", value: 0 },
 ]
 
+const MESSAGE_TEMPLATES = [
+  {
+    label: "Reativacao simples",
+    text: "Ola {{nome}}, faz muito tempo que nao te vemos! Venha nos visitar. 😊",
+  },
+  {
+    label: "Novidades",
+    text: "Oi {{nome}}! Sentimos sua falta. Temos novidades esperando por voce. Venha conferir! 🛍️",
+  },
+  {
+    label: "Oferta especial",
+    text: "{{nome}}, que saudades! Ja faz um tempo que voce nao aparece. Temos condicoes especiais preparadas so para voce! 🎁",
+  },
+  {
+    label: "Convite",
+    text: "Ola {{nome}}! Gostaríamos de te convidar para conhecer nossas novidades. Estamos com condicoes especiais este mes. Esperamos voce! 🤝",
+  },
+  {
+    label: "Lembrete gentil",
+    text: "Oi {{nome}}, tudo bem? Notamos que faz um tempo que nao te vemos. Que tal nos dar uma visita? Estamos com novidades! 🙏",
+  },
+  {
+    label: "Promocao relampago",
+    text: "{{nome}}, nao perca! Temos uma promocao especial so para clientes que saudamos com carinho. Aproveite enquanto durar! ⚡",
+  },
+]
+
 const EMPTY_FORM = {
   name: "",
   description: "",
@@ -108,6 +108,7 @@ const EMPTY_FORM = {
 }
 
 type FormState = typeof EMPTY_FORM
+type PreviewClient = { name: string | null; phone: string | null }
 
 function formatDate(iso: string | null) {
   if (!iso) return "—"
@@ -129,12 +130,15 @@ export default function CampaignsPage() {
   const { data: campaigns, isLoading } = useSWR<Campaign[]>("/api/campaigns", fetcher)
   const { data: workspaces } = useSWR<Workspace[]>("/api/workspaces", fetcher)
   const { data: botInstances } = useSWR<WhatsAppBotInstance[]>("/api/bot/instances", fetcher)
+  const { data: features } = useSWR<CompanyFeatures>("/api/features", fetcher)
 
   const campaignList = Array.isArray(campaigns) ? campaigns : []
   const workspaceList = Array.isArray(workspaces) ? workspaces : []
   const instanceList = Array.isArray(botInstances) ? botInstances : []
 
-  const [dialogOpen, setDialogOpen] = useState(false)
+  // View mode: list or form (create/edit)
+  const [viewMode, setViewMode] = useState<"list" | "form">("list")
+  const [formTab, setFormTab] = useState<"mensagem" | "imagem">("mensagem")
   const [editId, setEditId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [dispatchCampaign, setDispatchCampaign] = useState<Campaign | null>(null)
@@ -152,6 +156,42 @@ export default function CampaignsPage() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [previewClients, setPreviewClients] = useState<PreviewClient[] | null>(null)
+  const [removedIndexes, setRemovedIndexes] = useState<Set<number>>(new Set())
+  const [loadingPreview, setLoadingPreview] = useState(false)
+
+  // Reset preview when leaving form
+  useEffect(() => {
+    if (viewMode !== "form") { setPreviewClients(null); setRemovedIndexes(new Set()) }
+  }, [viewMode])
+
+
+  // Auto-preview when fields are filled
+  useEffect(() => {
+    if (!form.name_column || !form.phone_column || !form.customer_table || !form.date_column || !features?.campaigns) {
+      setPreviewClients(null)
+      return
+    }
+    const days = getDaysValue(form)
+    if (!days) { setPreviewClients(null); return }
+    void handlePreview()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.name_column, form.phone_column, form.customer_table, form.date_column, form.days_inactive, form.days_custom, features?.campaigns])
+
+  // Auto-select first workspace
+  useEffect(() => {
+    if (workspaceList.length > 0 && !form.workspace_id) {
+      setForm((prev) => ({ ...prev, workspace_id: workspaceList[0].pbi_workspace_id ?? "" }))
+    }
+  }, [workspaceList, form.workspace_id])
+
+  // Auto-select first dataset
+  useEffect(() => {
+    if (datasets.length > 0 && !form.dataset_id) {
+      setForm((prev) => ({ ...prev, dataset_id: datasets[0].id }))
+    }
+  }, [datasets, form.dataset_id])
+
   // Load datasets when workspace changes
   useEffect(() => {
     if (!form.workspace_id) { setDatasets([]); return }
@@ -163,7 +203,7 @@ export default function CampaignsPage() {
       .finally(() => setLoadingDatasets(false))
   }, [form.workspace_id])
 
-  // Load metadata (tables + columns) when dataset changes
+  // Load metadata when dataset changes
   useEffect(() => {
     if (!form.dataset_id || !form.workspace_id) { setTables([]); setColumns([]); return }
     setLoadingMeta(true)
@@ -178,20 +218,18 @@ export default function CampaignsPage() {
   }, [form.dataset_id, form.workspace_id])
 
   const tableOptions = tables.filter((t) => !t.isHidden)
-
-  const columnsForTable = (tableName: string) =>
-    columns.filter((c) => c.tableName === tableName && !c.isHidden)
-
-  const dateColumnsForTable = (tableName: string) =>
-    columnsForTable(tableName).filter((c) => DATE_TYPES.includes(c.dataType))
-
+  const columnsForTable = (tableName: string) => columns.filter((c) => c.tableName === tableName && !c.isHidden)
+  const dateColumnsForTable = (tableName: string) => columnsForTable(tableName).filter((c) => DATE_TYPES.includes(c.dataType))
   const allColumnsForTable = (tableName: string) => columnsForTable(tableName)
 
   function openCreate() {
     setEditId(null)
     setForm(EMPTY_FORM)
     setFormErrors({})
-    setDialogOpen(true)
+    setFormTab("mensagem")
+    setPreviewClients(null)
+    setRemovedIndexes(new Set())
+    setViewMode("form")
   }
 
   function openEdit(campaign: Campaign) {
@@ -215,7 +253,10 @@ export default function CampaignsPage() {
       is_active: campaign.is_active,
     })
     setFormErrors({})
-    setDialogOpen(true)
+    setFormTab("mensagem")
+    setPreviewClients(null)
+    setRemovedIndexes(new Set())
+    setViewMode("form")
   }
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -259,6 +300,35 @@ export default function CampaignsPage() {
     }
   }
 
+  async function handlePreview() {
+    const days = getDaysValue(form)
+    if (!form.dataset_id || !form.customer_table || !form.date_column || !days || !form.name_column || !form.phone_column) return
+    setLoadingPreview(true)
+    setPreviewClients(null)
+    try {
+      const { response, data } = await fetchApi("/api/campaigns/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dataset_id: form.dataset_id,
+          customer_table: form.customer_table,
+          date_column: form.date_column,
+          days_inactive: days,
+          name_column: form.name_column,
+          phone_column: form.phone_column,
+        }),
+      })
+      if (!response.ok) throw new Error(extractError(data) || "Erro ao buscar clientes")
+      const result = data as { clients: PreviewClient[]; total: number }
+      setPreviewClients(result.clients)
+      setRemovedIndexes(new Set())
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao buscar clientes")
+    } finally {
+      setLoadingPreview(false)
+    }
+  }
+
   async function handleSave() {
     if (!validate()) return
     setSaving(true)
@@ -287,7 +357,7 @@ export default function CampaignsPage() {
       })
       if (!response.ok) throw new Error(extractError(data) || "Erro ao salvar")
       toast.success(editId ? "Campanha atualizada!" : "Campanha criada!")
-      setDialogOpen(false)
+      setViewMode("list")
       void mutate("/api/campaigns")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao salvar campanha")
@@ -324,12 +394,406 @@ export default function CampaignsPage() {
     }
   }
 
-  function describeCampaign(campaign: Campaign): string {
-    const days = campaign.days_inactive
-    if (!days) return campaign.description ?? ""
-    return `Clientes sem compra ha ${days} dias`
+  // ─── VIEW MODO FORMULÁRIO (tela cheia estilo Disparo de Mensagens) ───
+  if (viewMode === "form") {
+    return (
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Header */}
+        <div className="shrink-0 flex items-center gap-4 border-b px-6 py-4">
+          <button
+            type="button"
+            onClick={() => setViewMode("list")}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="size-4" />
+            Campanhas
+          </button>
+          <div className="h-4 w-px bg-border" />
+          <div>
+            <h1 className="text-base font-bold leading-tight">
+              {editId ? "Editar Campanha" : "Nova Campanha"}
+            </h1>
+            <p className="text-xs text-muted-foreground">Configure a mensagem e os destinatarios</p>
+          </div>
+        </div>
+
+        {/* Body — split panel */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+
+          {/* ─── Coluna esquerda: mensagem / imagem ─── */}
+          <div className="flex flex-col flex-1 min-w-0">
+            {/* Tabs */}
+            <div className="shrink-0 grid grid-cols-2 border-b">
+              <button
+                type="button"
+                onClick={() => setFormTab("mensagem")}
+                className={`flex items-center justify-center gap-2 py-3.5 text-sm font-medium transition-colors ${
+                  formTab === "mensagem" ? "bg-muted/50 text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <MessageSquare className="size-4" />
+                Mensagem
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormTab("imagem")}
+                className={`flex items-center justify-center gap-2 py-3.5 text-sm font-medium transition-colors ${
+                  formTab === "imagem" ? "bg-muted/50 text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ImageIcon className="size-4" />
+                Imagem
+              </button>
+            </div>
+
+            {/* Conteúdo da tab */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {formTab === "mensagem" ? (
+                <div className="flex flex-col gap-4">
+                  <Textarea
+                    value={form.message_template}
+                    onChange={(e) => setField("message_template", e.target.value)}
+                    placeholder="Use {{NomeColuna}} para inserir valores. Ex: Ola {{nome}}!"
+                    className={`min-h-48 resize-none text-sm ${formErrors.message_template ? "border-destructive" : ""}`}
+                    rows={8}
+                  />
+                  {formErrors.message_template ? (
+                    <p className="text-xs text-destructive">{formErrors.message_template}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Use {"{{NomeColuna}}"} para valores dinamicos. Ex:{" "}
+                      <span className="font-mono text-foreground">{"{{" + (form.name_column || "nome") + "}}"}</span>
+                    </p>
+                  )}
+
+                  {/* Modelos de mensagem */}
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Modelos de mensagem
+                    </p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {MESSAGE_TEMPLATES.map((tpl) => (
+                        <button
+                          key={tpl.label}
+                          type="button"
+                          onClick={() => setField("message_template", tpl.text)}
+                          className="group flex flex-col gap-1 rounded-xl border border-border bg-muted/20 px-3 py-2.5 text-left transition-colors hover:border-primary/50 hover:bg-muted/40"
+                        >
+                          <span className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">
+                            {tpl.label}
+                          </span>
+                          <span className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                            {tpl.text}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {form.image_url ? (
+                    <div className="flex items-start gap-4 rounded-xl border bg-muted/20 p-4">
+                      <img
+                        src={form.image_url}
+                        alt="Preview"
+                        className="h-32 w-32 shrink-0 rounded-lg object-cover"
+                      />
+                      <div className="flex flex-1 flex-col gap-3">
+                        <p className="text-sm text-muted-foreground">Imagem sera enviada junto com a mensagem.</p>
+                        <button
+                          type="button"
+                          onClick={() => setField("image_url", "")}
+                          className="flex w-fit items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+                        >
+                          <X className="size-3.5" /> Remover imagem
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-dashed p-10 transition-colors hover:bg-muted/30"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {uploadingImage
+                        ? <Loader2 className="size-10 animate-spin text-muted-foreground" />
+                        : <ImageIcon className="size-10 text-muted-foreground/50" />}
+                      <div className="text-center">
+                        <p className="text-sm font-medium">
+                          {uploadingImage ? "Enviando..." : "Clique para fazer upload ou arraste a imagem"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">PNG, JPG ou GIF (max. 10MB)</p>
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                    disabled={uploadingImage}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Botão salvar */}
+            <div className="shrink-0 border-t px-6 py-4">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || uploadingImage}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? (
+                  <><Loader2 className="size-4 animate-spin" /> Salvando...</>
+                ) : (
+                  <><Send className="size-4" /> {editId ? "Salvar Alteracoes" : "Criar Campanha"}</>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* ─── Coluna direita: configurações ─── */}
+          <div className="flex w-96 shrink-0 flex-col border-l overflow-y-auto">
+            <div className="flex flex-col gap-5 p-5">
+
+              {/* Nome */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Nome da Campanha</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setField("name", e.target.value)}
+                  placeholder="Ex: Reativacao 30 dias"
+                  className={formErrors.name ? "border-destructive" : ""}
+                />
+                {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
+              </div>
+
+              {/* WhatsApp */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">WhatsApp de Envio</Label>
+                <Select value={form.bot_instance_id} onValueChange={(v) => setField("bot_instance_id", v)}>
+                  <SelectTrigger className={formErrors.bot_instance_id ? "border-destructive" : ""}>
+                    <SelectValue placeholder="Selecionar numero de WhatsApp" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>WhatsApps conectados</SelectLabel>
+                      {instanceList.map((inst) => (
+                        <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                {formErrors.bot_instance_id && <p className="text-xs text-destructive">{formErrors.bot_instance_id}</p>}
+              </div>
+
+              {/* Separador */}
+              <div className="border-t pt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">Quais clientes vao receber?</p>
+
+                {/* Tabela */}
+                <div className="flex flex-col gap-1.5 mb-3">
+                  <Label className="text-xs">Tabela de clientes</Label>
+                  <ColumnSelect
+                    columns={tableOptions.map((t) => t.name)}
+                    value={form.customer_table}
+                    onChange={(v) => {
+                      setField("customer_table", v)
+                      setField("date_column", "")
+                      setField("phone_column", "")
+                      setField("name_column", "")
+                    }}
+                    placeholder={loadingDatasets || loadingMeta ? "Carregando..." : "Buscar tabela..."}
+                    disabled={!form.dataset_id || loadingDatasets || loadingMeta}
+                    error={!!formErrors.customer_table}
+                  />
+                  {formErrors.customer_table && <p className="text-xs text-destructive">{formErrors.customer_table}</p>}
+                </div>
+
+                {/* Coluna de data */}
+                <div className="flex flex-col gap-1.5 mb-3">
+                  <Label className="text-xs">Coluna da ultima compra</Label>
+                  <ColumnSelect
+                    columns={(dateColumnsForTable(form.customer_table).length > 0
+                      ? dateColumnsForTable(form.customer_table)
+                      : allColumnsForTable(form.customer_table)
+                    ).map((c) => c.columnName)}
+                    value={form.date_column}
+                    onChange={(v) => setField("date_column", v)}
+                    placeholder="Buscar coluna de data..."
+                    disabled={!form.customer_table}
+                    error={!!formErrors.date_column}
+                  />
+                  {formErrors.date_column && <p className="text-xs text-destructive">{formErrors.date_column}</p>}
+                </div>
+
+                {/* Dias de inatividade */}
+                <div className="flex flex-col gap-1.5 mb-4">
+                  <Label className="text-xs">Clientes sem compra ha quantos dias?</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DAYS_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setField("days_inactive", opt.value)}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          form.days_inactive === opt.value
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background hover:bg-accent"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {form.days_inactive === 0 && (
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.days_custom}
+                      onChange={(e) => setField("days_custom", e.target.value)}
+                      placeholder="Ex: 45"
+                      className="w-28 mt-1"
+                    />
+                  )}
+                  {formErrors.days && <p className="text-xs text-destructive">{formErrors.days}</p>}
+                </div>
+
+                {/* Colunas de nome e telefone */}
+                {form.customer_table && form.date_column && !!getDaysValue(form) && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div className="flex flex-col gap-1.5">
+                        <Label className="text-xs">Nome em</Label>
+                        <ColumnSelect
+                          columns={allColumnsForTable(form.customer_table).map((c) => c.columnName)}
+                          value={form.name_column}
+                          onChange={(v) => setField("name_column", v)}
+                          placeholder="Coluna de nome..."
+                          disabled={!form.customer_table}
+                          error={!!formErrors.name_column}
+                        />
+                        {formErrors.name_column && <p className="text-xs text-destructive">{formErrors.name_column}</p>}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label className="text-xs">Telefone em</Label>
+                        <ColumnSelect
+                          columns={allColumnsForTable(form.customer_table).map((c) => c.columnName)}
+                          value={form.phone_column}
+                          onChange={(v) => setField("phone_column", v)}
+                          placeholder="Coluna de tel..."
+                          disabled={!form.customer_table}
+                          error={!!formErrors.phone_column}
+                        />
+                        {formErrors.phone_column && <p className="text-xs text-destructive">{formErrors.phone_column}</p>}
+                      </div>
+                    </div>
+
+                    {/* Preview de clientes */}
+                    {features?.campaigns && form.name_column && form.phone_column && (
+                      <div className="rounded-xl border overflow-hidden">
+                        {/* Header */}
+                        <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <Users className="size-3.5 text-muted-foreground" />
+                            <span className="text-xs font-medium">
+                              {loadingPreview ? "Buscando..." : previewClients !== null
+                                ? `${previewClients.length - removedIndexes.size} de ${previewClients.length} clientes`
+                                : "Contatos"
+                              }
+                            </span>
+                          </div>
+                          {removedIndexes.size > 0 && (
+                            <button
+                              type="button"
+                              className="text-xs text-primary hover:underline"
+                              onClick={() => setRemovedIndexes(new Set())}
+                            >
+                              Restaurar todos
+                            </button>
+                          )}
+                        </div>
+
+                        {loadingPreview ? (
+                          <div className="flex items-center justify-center gap-2 py-5">
+                            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">Buscando clientes...</span>
+                          </div>
+                        ) : previewClients !== null && previewClients.length > 0 ? (
+                          <>
+                            <button
+                              type="button"
+                              className="w-full border-b bg-emerald-600 py-2 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors"
+                              onClick={() => setRemovedIndexes(new Set())}
+                            >
+                              Selecionar Todos
+                            </button>
+                            <div className="max-h-56 overflow-y-auto divide-y divide-border/40">
+                              {previewClients.map((client, i) => {
+                                const removed = removedIndexes.has(i)
+                                return (
+                                  <div
+                                    key={i}
+                                    className={`flex items-center justify-between rounded-lg mx-1.5 my-1 px-2.5 py-2 transition-colors ${
+                                      removed ? "opacity-40 bg-muted/10" : "bg-muted/20 hover:bg-muted/40"
+                                    }`}
+                                  >
+                                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                      <span className="text-xs font-bold leading-tight truncate">
+                                        {client.name ?? <span className="font-normal text-muted-foreground">Sem nome</span>}
+                                      </span>
+                                      <span className="text-[11px] text-muted-foreground font-mono">
+                                        {client.phone ?? "—"}
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="ml-2 shrink-0 text-muted-foreground/50 hover:text-destructive transition-colors"
+                                      onClick={() => setRemovedIndexes((prev) => {
+                                        const next = new Set(prev)
+                                        if (next.has(i)) next.delete(i)
+                                        else next.add(i)
+                                        return next
+                                      })}
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </>
+                        ) : previewClients !== null ? (
+                          <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                            Nenhum cliente inativo com esse filtro
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Ativo */}
+              <div className="flex items-center gap-3 border-t pt-4">
+                <Switch
+                  checked={form.is_active}
+                  onCheckedChange={(v) => setField("is_active", v)}
+                  id="campaign-active"
+                />
+                <Label htmlFor="campaign-active" className="text-sm">Campanha ativa</Label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
+  // ─── VIEW MODO LISTA ───
   return (
     <div className="flex flex-1 flex-col">
       <PageHeader title="Campanhas" description="Disparo de mensagens para clientes inativos">
@@ -340,28 +804,15 @@ export default function CampaignsPage() {
       </PageHeader>
 
       <div className="flex flex-1 flex-col gap-4 p-4 sm:p-6">
-        <Card>
-          <CardContent className="p-0">
-            {isLoading ? (
-              <div className="space-y-3 p-6">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 rounded" />
-                ))}
-              </div>
-            ) : campaignList.length === 0 ? (
-              <div className="flex flex-col items-center gap-4 py-12">
-                <Megaphone className="size-12 text-muted-foreground" />
-                <div className="text-center">
-                  <p className="font-medium">Nenhuma campanha criada</p>
-                  <p className="text-sm text-muted-foreground">
-                    Crie uma campanha para enviar mensagens a clientes inativos.
-                  </p>
-                </div>
-                <Button onClick={openCreate} size="sm">
-                  <Plus className="mr-1 size-4" /> Nova Campanha
-                </Button>
-              </div>
-            ) : (
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 rounded" />
+            ))}
+          </div>
+        ) : campaignList.length > 0 ? (
+          <Card>
+            <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -387,7 +838,9 @@ export default function CampaignsPage() {
                             )}
                             <div>
                               <p className="font-medium">{campaign.name}</p>
-                              <p className="text-xs text-muted-foreground">{describeCampaign(campaign)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {campaign.days_inactive ? `Clientes sem compra ha ${campaign.days_inactive} dias` : campaign.description ?? ""}
+                              </p>
                             </div>
                           </div>
                         </TableCell>
@@ -409,22 +862,14 @@ export default function CampaignsPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setDispatchCampaign(campaign)}
-                              title="Disparar"
-                            >
+                            <Button variant="ghost" size="icon" onClick={() => setDispatchCampaign(campaign)} title="Disparar">
                               <Play className="size-4" />
-                              <span className="sr-only">Disparar</span>
                             </Button>
                             <Button variant="ghost" size="icon" onClick={() => openEdit(campaign)} title="Editar">
                               <Pencil className="size-4" />
-                              <span className="sr-only">Editar</span>
                             </Button>
                             <Button variant="ghost" size="icon" onClick={() => setDeleteId(campaign.id)} title="Excluir">
                               <Trash2 className="size-4 text-destructive" />
-                              <span className="sr-only">Excluir</span>
                             </Button>
                           </div>
                         </TableCell>
@@ -433,285 +878,24 @@ export default function CampaignsPage() {
                   </TableBody>
                 </Table>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
+            <Megaphone className="size-10 text-muted-foreground/20" />
+            <p className="text-sm text-muted-foreground">Nenhuma campanha criada ainda.</p>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="mt-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              + Nova Campanha
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Dialog criar/editar */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{editId ? "Editar Campanha" : "Nova Campanha"}</DialogTitle>
-            <DialogDescription>
-              Configure quais clientes receberao a mensagem e o que sera enviado.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex flex-col gap-5 pt-2">
-
-            {/* Nome */}
-            <div className="flex flex-col gap-2">
-              <Label>Nome da Campanha</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setField("name", e.target.value)}
-                placeholder="Ex: Reativacao 30 dias"
-                className={formErrors.name ? "border-destructive" : ""}
-              />
-              {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
-            </div>
-
-            {/* WhatsApp */}
-            <div className="flex flex-col gap-2">
-              <Label>WhatsApp de Envio</Label>
-              <Select value={form.bot_instance_id} onValueChange={(v) => setField("bot_instance_id", v)}>
-                <SelectTrigger className={formErrors.bot_instance_id ? "border-destructive" : ""}>
-                  <SelectValue placeholder="Selecionar numero de WhatsApp" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>WhatsApps conectados</SelectLabel>
-                    {instanceList.map((inst) => (
-                      <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              {formErrors.bot_instance_id && <p className="text-xs text-destructive">{formErrors.bot_instance_id}</p>}
-            </div>
-
-            {/* Separador visual */}
-            <div className="rounded-lg border p-4 flex flex-col gap-4">
-              <p className="text-sm font-semibold">Quais clientes vao receber?</p>
-
-              {/* Workspace */}
-              <div className="flex flex-col gap-2">
-                <Label>Workspace</Label>
-                <Select
-                  value={form.workspace_id}
-                  onValueChange={(v) => {
-                    setField("workspace_id", v)
-                    setField("dataset_id", "")
-                    setField("customer_table", "")
-                    setField("date_column", "")
-                    setField("phone_column", "")
-                    setField("name_column", "")
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecionar workspace" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {workspaceList.map((ws) => (
-                      <SelectItem key={ws.id} value={ws.pbi_workspace_id}>{ws.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Dataset */}
-              <div className="flex flex-col gap-2">
-                <Label>Dataset</Label>
-                <Select
-                  value={form.dataset_id}
-                  onValueChange={(v) => {
-                    setField("dataset_id", v)
-                    setField("customer_table", "")
-                    setField("date_column", "")
-                    setField("phone_column", "")
-                    setField("name_column", "")
-                  }}
-                  disabled={!form.workspace_id || loadingDatasets}
-                >
-                  <SelectTrigger className={formErrors.dataset_id ? "border-destructive" : ""}>
-                    <SelectValue placeholder={loadingDatasets ? "Carregando datasets..." : "Selecionar dataset"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {datasets.map((ds) => (
-                      <SelectItem key={ds.id} value={ds.id}>{ds.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {formErrors.dataset_id && <p className="text-xs text-destructive">{formErrors.dataset_id}</p>}
-              </div>
-
-              {/* Tabela de clientes */}
-              <div className="flex flex-col gap-2">
-                <Label>Tabela de clientes</Label>
-                <ColumnSelect
-                  columns={tableOptions.map((t) => t.name)}
-                  value={form.customer_table}
-                  onChange={(v) => {
-                    setField("customer_table", v)
-                    setField("date_column", "")
-                    setField("phone_column", "")
-                    setField("name_column", "")
-                  }}
-                  placeholder={loadingMeta ? "Carregando tabelas..." : "Buscar tabela..."}
-                  disabled={!form.dataset_id || loadingMeta}
-                  error={!!formErrors.customer_table}
-                />
-                {formErrors.customer_table && <p className="text-xs text-destructive">{formErrors.customer_table}</p>}
-              </div>
-
-              {/* Coluna de data da ultima compra */}
-              <div className="flex flex-col gap-2">
-                <Label>Coluna da ultima compra</Label>
-                <ColumnSelect
-                  columns={(dateColumnsForTable(form.customer_table).length > 0
-                    ? dateColumnsForTable(form.customer_table)
-                    : allColumnsForTable(form.customer_table)
-                  ).map((c) => c.columnName)}
-                  value={form.date_column}
-                  onChange={(v) => setField("date_column", v)}
-                  placeholder="Buscar coluna de data..."
-                  disabled={!form.customer_table}
-                  error={!!formErrors.date_column}
-                />
-                {formErrors.date_column && <p className="text-xs text-destructive">{formErrors.date_column}</p>}
-              </div>
-
-              {/* Dias de inatividade */}
-              <div className="flex flex-col gap-2">
-                <Label>Clientes sem compra ha quantos dias?</Label>
-                <div className="flex flex-wrap gap-2">
-                  {DAYS_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setField("days_inactive", opt.value)}
-                      className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
-                        form.days_inactive === opt.value
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background hover:bg-accent"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                {form.days_inactive === 0 && (
-                  <Input
-                    type="number"
-                    min={1}
-                    value={form.days_custom}
-                    onChange={(e) => setField("days_custom", e.target.value)}
-                    placeholder="Ex: 45"
-                    className="w-32"
-                  />
-                )}
-                {formErrors.days && <p className="text-xs text-destructive">{formErrors.days}</p>}
-              </div>
-
-              {/* Colunas de nome e telefone */}
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-2">
-                  <Label>Coluna de Nome</Label>
-                  <ColumnSelect
-                    columns={allColumnsForTable(form.customer_table).map((c) => c.columnName)}
-                    value={form.name_column}
-                    onChange={(v) => setField("name_column", v)}
-                    placeholder="Buscar coluna de nome..."
-                    disabled={!form.customer_table}
-                    error={!!formErrors.name_column}
-                  />
-                  {formErrors.name_column && <p className="text-xs text-destructive">{formErrors.name_column}</p>}
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <Label>Coluna de Telefone</Label>
-                  <ColumnSelect
-                    columns={allColumnsForTable(form.customer_table).map((c) => c.columnName)}
-                    value={form.phone_column}
-                    onChange={(v) => setField("phone_column", v)}
-                    placeholder="Buscar coluna de telefone..."
-                    disabled={!form.customer_table}
-                    error={!!formErrors.phone_column}
-                  />
-                  {formErrors.phone_column && <p className="text-xs text-destructive">{formErrors.phone_column}</p>}
-                </div>
-              </div>
-            </div>
-
-            {/* Template de mensagem */}
-            <div className="flex flex-col gap-2">
-              <Label>Mensagem</Label>
-              <Textarea
-                value={form.message_template}
-                onChange={(e) => setField("message_template", e.target.value)}
-                placeholder="Use {{NomeColuna}} para inserir valores. Ex: Ola {{NomeCliente}}!"
-                rows={4}
-                className={formErrors.message_template ? "border-destructive" : ""}
-              />
-              {formErrors.message_template ? (
-                <p className="text-xs text-destructive">{formErrors.message_template}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Use {"{{NomeColuna}}"} para valores dinamicos. Ex: {"{{" + (form.name_column || "NomeCliente") + "}}"}
-                </p>
-              )}
-            </div>
-
-            {/* Upload de imagem */}
-            <div className="flex flex-col gap-2">
-              <Label>
-                Imagem <span className="text-xs text-muted-foreground">(opcional — enviada com a mensagem)</span>
-              </Label>
-              {form.image_url ? (
-                <div className="flex items-start gap-3 rounded-lg border p-3">
-                  <img src={form.image_url} alt="Preview" className="h-20 w-20 shrink-0 rounded object-cover" />
-                  <div className="flex flex-1 flex-col gap-2">
-                    <p className="text-xs text-muted-foreground">Imagem sera enviada junto com a mensagem.</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-fit gap-1.5 text-xs text-destructive hover:text-destructive"
-                      onClick={() => setField("image_url", "")}
-                    >
-                      <X className="size-3.5" /> Remover
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed p-6 transition-colors hover:bg-muted/50"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {uploadingImage
-                    ? <Loader2 className="size-8 animate-spin text-muted-foreground" />
-                    : <ImageIcon className="size-8 text-muted-foreground" />}
-                  <p className="text-sm text-muted-foreground">
-                    {uploadingImage ? "Enviando..." : "Clique para selecionar uma imagem"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">JPG, PNG, WEBP — max 10MB</p>
-                </div>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-                className="hidden"
-                onChange={handleImageUpload}
-                disabled={uploadingImage}
-              />
-            </div>
-
-            {/* Ativo */}
-            <div className="flex items-center gap-3">
-              <Switch checked={form.is_active} onCheckedChange={(v) => setField("is_active", v)} id="campaign-active" />
-              <Label htmlFor="campaign-active">Campanha ativa</Label>
-            </div>
-
-            <Button onClick={handleSave} disabled={saving || uploadingImage}>
-              {saving ? "Salvando..." : editId ? "Salvar alteracoes" : "Criar Campanha"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog de disparo com lista de clientes */}
+      {/* Dispatch dialog */}
       <CampaignDispatchDialog
         campaign={dispatchCampaign}
         open={!!dispatchCampaign}
@@ -719,13 +903,12 @@ export default function CampaignsPage() {
         onSuccess={() => void mutate("/api/campaigns")}
       />
 
+      {/* Delete dialog */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir campanha?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta acao nao pode ser desfeita.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Esta acao nao pode ser desfeita.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>

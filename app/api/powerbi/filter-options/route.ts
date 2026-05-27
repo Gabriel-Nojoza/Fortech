@@ -9,8 +9,6 @@ import {
   isWorkspaceAllowed,
 } from "@/lib/workspace-access"
 
-const MAX_FILTER_OPTIONS = 200
-
 function mapExecuteError(error: unknown) {
   const message = error instanceof Error ? error.message : "Erro desconhecido"
 
@@ -70,7 +68,7 @@ function buildDistinctValuesQuery(
     "VAR __Projected =",
     `  SELECTCOLUMNS(__Values, "Value", ${colRef})`,
     "EVALUATE",
-    `  TOPN(${MAX_FILTER_OPTIONS}, __Projected, [Value], ASC)`,
+    "  __Projected",
     "ORDER BY",
     "  [Value] ASC",
   ].join("\n")
@@ -198,7 +196,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       options,
-      truncated: options.length >= MAX_FILTER_OPTIONS,
+      truncated: false,
       executed_dataset_id: effectiveExecutionDatasetId,
     })
   } catch (error) {

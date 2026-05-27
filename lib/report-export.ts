@@ -353,9 +353,10 @@ function filterZeroRows(rows: Array<Record<string, unknown>>, columns: ReportCol
 }
 
 const HIERARCHY_LEVELS = [
-  { rank: 0, hints: ["gerente"] },
-  { rank: 1, hints: ["supervisor", "cod/sup", "codsup"] },
-  { rank: 2, hints: ["cod/vend", "codvend", "vendedor"] },
+  { rank: 0, hints: ["fornecedor", "cod/forn", "codforn", "fornec"] },
+  { rank: 1, hints: ["gerente"] },
+  { rank: 2, hints: ["supervisor", "cod/sup", "codsup"] },
+  { rank: 3, hints: ["cod/vend", "codvend", "vendedor"] },
 ] as const
 
 function getHierarchyRank(name: string): number {
@@ -595,6 +596,38 @@ function buildGroupedRows(
     }
   }
   return html
+}
+
+export function buildSummaryCardsFromResult(result: ReportResult): ReportSummaryCard[] {
+  if (!result.rows.length || !result.columns.length) return []
+
+  const orderedColumns = resolvePdfColumns(result.columns)
+  const numericNonPct = orderedColumns.filter((c) => isNumericColumn(c) && !isPercentMetricName(c.headerName))
+
+  const sums = new Map<string, number>()
+  for (const col of numericNonPct) {
+    sums.set(col.sourceName ?? col.name, sumCol(result.rows, col))
+  }
+
+  const metaSum = Array.from(sums.entries()).find(([k]) => isMetaColumn(k))?.[1] ?? 0
+  const pedidosSum = Array.from(sums.entries()).find(([k]) => isPedidosEnviadosColumn(k))?.[1] ?? 0
+  const tendenciaSum = Array.from(sums.entries()).find(([k]) => isTendenciaValueColumn(k))?.[1] ?? 0
+
+  const cards: ReportSummaryCard[] = []
+  for (const col of orderedColumns) {
+    if (!isNumericColumn(col)) continue
+    if (isPercentMetricName(col.headerName)) {
+      const n = normalizeMetricName(col.headerName)
+      let pct: number | null = null
+      if (n.includes("tend") && metaSum > 0) pct = (tendenciaSum / metaSum) * 100
+      else if (n.includes("meta") && metaSum > 0) pct = (pedidosSum / metaSum) * 100
+      if (pct === null) continue
+      cards.push({ label: col.headerName, value: pct, dataType: col.dataType })
+    } else {
+      cards.push({ label: col.headerName, value: sums.get(col.sourceName ?? col.name) ?? 0, dataType: col.dataType })
+    }
+  }
+  return cards
 }
 
 export function buildCsvContent(result: ReportResult): string {

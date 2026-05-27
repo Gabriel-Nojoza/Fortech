@@ -1,0 +1,195 @@
+{
+  "name": "Retomar Capacidade Fabric",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 16 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "node-cron-resume",
+      "name": "Cron - Retomar",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://login.microsoftonline.com/SEU_TENANT_ID/oauth2/v2.0/token",
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "grant_type",    "value": "client_credentials" },
+            { "name": "client_id",     "value": "SEU_CLIENT_ID" },
+            { "name": "client_secret", "value": "SEU_CLIENT_SECRET" },
+            { "name": "scope",         "value": "https://management.azure.com/.default" }
+          ]
+        }
+      },
+      "id": "node-token-resume",
+      "name": "Buscar Token Azure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://management.azure.com/subscriptions/SUA_SUBSCRIPTION_ID/resourceGroups/SEU_RESOURCE_GROUP/providers/Microsoft.Fabric/capacities/SUA_CAPACIDADE/resume?api-version=2023-11-01",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Buscar Token Azure').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": { "neverError": true }
+          }
+        }
+      },
+      "id": "node-resume",
+      "name": "Retomar Capacidade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": { "amount": 3, "unit": "minutes" },
+      "id": "node-wait1-resume",
+      "name": "Aguardar 3 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://management.azure.com/subscriptions/SUA_SUBSCRIPTION_ID/resourceGroups/SEU_RESOURCE_GROUP/providers/Microsoft.Fabric/capacities/SUA_CAPACIDADE?api-version=2023-11-01",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Buscar Token Azure').item.json.access_token }}"
+            }
+          ]
+        }
+      },
+      "id": "node-status1-resume",
+      "name": "Verificar Status 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.properties.state }}",
+              "rightValue": "Active",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-if1-resume",
+      "name": "Está Ativo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": { "amount": 2, "unit": "minutes" },
+      "id": "node-wait2-resume",
+      "name": "Aguardar mais 2 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1560, 480]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://management.azure.com/subscriptions/SUA_SUBSCRIPTION_ID/resourceGroups/SEU_RESOURCE_GROUP/providers/Microsoft.Fabric/capacities/SUA_CAPACIDADE?api-version=2023-11-01",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Buscar Token Azure').item.json.access_token }}"
+            }
+          ]
+        }
+      },
+      "id": "node-status2-resume",
+      "name": "Verificar Status 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 480]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.properties.state }}",
+              "rightValue": "Active",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-if2-resume",
+      "name": "Está Ativo? (2)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://appsolucaointeligente.com.br/api/bot/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-callback-secret", "value": "SEU_CALLBACK_SECRET" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"phone\": \"SEU_NUMERO\", \"message\": \"⚠️ ALERTA: Capacidade Fabric não retomou após 5 minutos. Verifique o Azure Portal.\" }"
+      },
+      "id": "node-notify-resume",
+      "name": "Notificar Erro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 620]
+    }
+  ],
+  "connections": {
+    "Cron - Retomar":      { "main": [[{ "node": "Buscar Token Azure",   "type": "main", "index": 0 }]] },
+    "Buscar Token Azure":  { "main": [[{ "node": "Retomar Capacidade",   "type": "main", "index": 0 }]] },
+    "Retomar Capacidade":  { "main": [[{ "node": "Aguardar 3 min",       "type": "main", "index": 0 }]] },
+    "Aguardar 3 min":      { "main": [[{ "node": "Verificar Status 1",   "type": "main", "index": 0 }]] },
+    "Verificar Status 1":  { "main": [[{ "node": "Está Ativo?",          "type": "main", "index": 0 }]] },
+    "Está Ativo?":         { "main": [[], [{ "node": "Aguardar mais 2 min", "type": "main", "index": 0 }]] },
+    "Aguardar mais 2 min": { "main": [[{ "node": "Verificar Status 2",   "type": "main", "index": 0 }]] },
+    "Verificar Status 2":  { "main": [[{ "node": "Está Ativo? (2)",      "type": "main", "index": 0 }]] },
+    "Está Ativo? (2)":     { "main": [[], [{ "node": "Notificar Erro",   "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

@@ -1,9 +1,8 @@
 import { createServiceClient } from "@/lib/supabase/server"
-import { getAccessToken, executeDAXQuery, getDatasetMetadata, getDatasetLastRefresh } from "@/lib/powerbi"
+import { getAccessToken, executeDAXQuery, getDatasetLastRefresh } from "@/lib/powerbi"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
-import { buildCsvContent, buildExcelContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
+import { buildCsvContent, buildExcelContent, buildHtmlReport, buildSummaryCardsFromResult, buildTextReport } from "@/lib/report-export"
 import { buildPdfFromHtml } from "@/lib/report-pdf"
-import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
 import { buildDAXQuery } from "@/lib/dax-builder"
 import { normalizeContactForResponse } from "@/lib/contact-compat"
@@ -216,9 +215,6 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
   const executionWorkspaceId = executionTarget.workspaceId || null
 
   const token = await getAccessToken(companyId)
-  const executionMetadata = await getDatasetMetadata(token, executionDatasetId, {
-    includeCustomChatMeasures: false,
-  })
   const execution = await executeWithQueryFallback({
     runQuery: (nextQuery) => executeDAXQuery(token, executionDatasetId, nextQuery),
     query,
@@ -233,17 +229,10 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
   const csvContent = buildCsvContent(result)
   const textReport = buildTextReport(result)
 
-  const [summaryCards, datasetRefreshedAt] = await Promise.all([
-    fetchReportSummaryCards({
-      availableMeasures: executionMetadata.measures,
-      selectedMeasures: savedSelectedMeasures,
-      filters: execution.appliedFilters,
-      runQuery: (q) => executeDAXQuery(token, executionDatasetId, q),
-    }).catch(() => []),
-    executionWorkspaceId
-      ? getDatasetLastRefresh(token, executionWorkspaceId, executionDatasetId)
-      : Promise.resolve(null),
-  ])
+  const summaryCards = buildSummaryCardsFromResult(result)
+  const datasetRefreshedAt = await (executionWorkspaceId
+    ? getDatasetLastRefresh(token, executionWorkspaceId, executionDatasetId)
+    : Promise.resolve(null))
 
   const brandLogoUrl = `${appBaseUrl.replace(/\/+$/, "")}${BRAND_LOGO_PATH}`
   const htmlReport = buildHtmlReport({

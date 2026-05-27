@@ -410,59 +410,6 @@ export function FiltersPanel({
           <div className="rounded-xl border border-border bg-muted/20 p-3">
             <div className="mb-3 flex items-center gap-2">
               <div className="flex size-6 items-center justify-center rounded-md bg-primary/10">
-                <Sparkles className="size-3.5 text-primary" />
-              </div>
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                  Filtros Rapidos
-                </span>
-                <p className="text-[11px] text-muted-foreground">
-                  Atalhos para os filtros mais usados
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2">
-              {quickFilters.map((quickFilter) => (
-                <button
-                  key={quickFilter.key}
-                  type="button"
-                  onClick={() => onAddQuickFilter(quickFilter.key)}
-                  disabled={!quickFilter.mapped}
-                  className={`rounded-xl border p-3 text-left transition-all ${
-                    quickFilter.mapped
-                      ? "border-border bg-background/60 hover:border-primary/40 hover:bg-accent/60"
-                      : "cursor-not-allowed border-dashed border-border/60 bg-background/20 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-primary">
-                      {quickFilter.label}
-                    </span>
-
-                    {quickFilter.activeCount > 0 && (
-                      <span className="rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                        {quickFilter.activeCount}
-                      </span>
-                    )}
-
-                    <span className="ml-auto rounded-md bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      {quickFilter.mapped ? quickFilter.dataType : "Sem campo"}
-                    </span>
-                  </div>
-
-                  <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                    <Plus className="size-3" />
-                    <span>{quickFilter.description}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-muted/20 p-3">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex size-6 items-center justify-center rounded-md bg-primary/10">
                 <Search className="size-3.5 text-primary" />
               </div>
               <div>

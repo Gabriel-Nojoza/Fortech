@@ -40,6 +40,7 @@ export type CompanyStatItem = {
   campaignsEnabled: boolean
   excelExportEnabled: boolean
   hideZeroRowsEnabled: boolean
+  campaignClientPreviewEnabled: boolean
   sendingHours: { enabled: boolean; windows: Array<{ startTime: string; endTime: string }> } | null
 }
 
@@ -292,6 +293,7 @@ export async function GET(request: Request) {
         campaignsEnabled: features?.campaigns === true,
         excelExportEnabled: features?.excel_export === true,
         hideZeroRowsEnabled: features?.hide_zero_rows === true,
+        campaignClientPreviewEnabled: features?.campaign_client_preview === true,
         sendingHours,
       }
     })

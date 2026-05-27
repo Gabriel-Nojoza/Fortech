@@ -9,8 +9,7 @@ import {
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 import { getCatalogMap, getExecutionTarget } from "@/lib/automation-catalog"
 import { injectCustomMeasuresIntoDax } from "@/lib/chat"
-import { buildCsvContent, buildHtmlReport, buildTextReport } from "@/lib/report-export"
-import { fetchReportSummaryCards } from "@/lib/report-summary-cards"
+import { buildCsvContent, buildHtmlReport, buildSummaryCardsFromResult, buildTextReport } from "@/lib/report-export"
 import { BRAND_LOGO_PATH } from "@/lib/branding"
 import { executeWithQueryFallback } from "@/lib/query-execution-fallback"
 import { normalizeFilters } from "@/lib/query-filters"
@@ -216,22 +215,10 @@ export async function POST(request: Request) {
     const selectedItems = Array.isArray(body?.selectedItems)
       ? body.selectedItems.filter((item: unknown): item is string => typeof item === "string")
       : []
-    const [summaryCards, datasetRefreshedAt] = await Promise.all([
-      fetchReportSummaryCards({
-        availableMeasures: executionMetadata.measures,
-        selectedMeasures,
-        filters: execution.appliedFilters,
-        runQuery: (summaryQuery) =>
-          executeDAXQuery(
-            token,
-            effectiveExecutionDatasetId,
-            injectCustomMeasuresIntoDax(summaryQuery, executionMetadata)
-          ),
-      }).catch(() => []),
-      effectiveExecutionWorkspaceId
-        ? getDatasetLastRefresh(token, effectiveExecutionWorkspaceId, effectiveExecutionDatasetId)
-        : Promise.resolve(null),
-    ])
+    const summaryCards = buildSummaryCardsFromResult(result)
+    const datasetRefreshedAt = await (effectiveExecutionWorkspaceId
+      ? getDatasetLastRefresh(token, effectiveExecutionWorkspaceId, effectiveExecutionDatasetId)
+      : Promise.resolve(null))
     const reportHtml = buildHtmlReport({
       title: reportTitle,
       subtitle:
@@ -241,7 +228,12 @@ export async function POST(request: Request) {
       generatedAt,
       selectedItems,
       selectedColumns,
-      filters: execution.appliedFilters,
+      // Quando nenhuma coluna/medida está selecionada no construtor (custom DAX query),
+      // não passar filtros da plataforma para buildHtmlReport — evita que isFilterColumn
+      // oculte colunas de dimensão que vieram explicitamente no resultado da query custom.
+      filters: selectedColumns.length === 0 && selectedMeasures.length === 0
+        ? []
+        : execution.appliedFilters,
       brandLogoUrl: new URL(BRAND_LOGO_PATH, request.url).toString(),
       summaryCards,
       result,

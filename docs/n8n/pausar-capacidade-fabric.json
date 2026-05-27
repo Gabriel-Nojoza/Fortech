@@ -1,0 +1,195 @@
+{
+  "name": "Pausar Capacidade Fabric",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "node-cron-suspend",
+      "name": "Cron - Pausar",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://login.microsoftonline.com/SEU_TENANT_ID/oauth2/v2.0/token",
+        "sendBody": true,
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "grant_type",    "value": "client_credentials" },
+            { "name": "client_id",     "value": "SEU_CLIENT_ID" },
+            { "name": "client_secret", "value": "SEU_CLIENT_SECRET" },
+            { "name": "scope",         "value": "https://management.azure.com/.default" }
+          ]
+        }
+      },
+      "id": "node-token-suspend",
+      "name": "Buscar Token Azure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://management.azure.com/subscriptions/SUA_SUBSCRIPTION_ID/resourceGroups/SEU_RESOURCE_GROUP/providers/Microsoft.Fabric/capacities/SUA_CAPACIDADE/suspend?api-version=2023-11-01",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Buscar Token Azure').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": { "neverError": true }
+          }
+        }
+      },
+      "id": "node-suspend",
+      "name": "Pausar Capacidade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": { "amount": 2, "unit": "minutes" },
+      "id": "node-wait1-suspend",
+      "name": "Aguardar 2 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://management.azure.com/subscriptions/SUA_SUBSCRIPTION_ID/resourceGroups/SEU_RESOURCE_GROUP/providers/Microsoft.Fabric/capacities/SUA_CAPACIDADE?api-version=2023-11-01",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Buscar Token Azure').item.json.access_token }}"
+            }
+          ]
+        }
+      },
+      "id": "node-status1-suspend",
+      "name": "Verificar Status 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.properties.state }}",
+              "rightValue": "Paused",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-if1-suspend",
+      "name": "Está Pausado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": { "amount": 2, "unit": "minutes" },
+      "id": "node-wait2-suspend",
+      "name": "Aguardar mais 2 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1560, 480]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://management.azure.com/subscriptions/SUA_SUBSCRIPTION_ID/resourceGroups/SEU_RESOURCE_GROUP/providers/Microsoft.Fabric/capacities/SUA_CAPACIDADE?api-version=2023-11-01",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Buscar Token Azure').item.json.access_token }}"
+            }
+          ]
+        }
+      },
+      "id": "node-status2-suspend",
+      "name": "Verificar Status 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 480]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.properties.state }}",
+              "rightValue": "Paused",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-if2-suspend",
+      "name": "Está Pausado? (2)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://appsolucaointeligente.com.br/api/bot/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-callback-secret", "value": "SEU_CALLBACK_SECRET" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{ \"phone\": \"SEU_NUMERO\", \"message\": \"⚠️ ALERTA: Capacidade Fabric não pausou após 4 minutos. Verifique o Azure Portal.\" }"
+      },
+      "id": "node-notify-suspend",
+      "name": "Notificar Erro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 620]
+    }
+  ],
+  "connections": {
+    "Cron - Pausar":       { "main": [[{ "node": "Buscar Token Azure",   "type": "main", "index": 0 }]] },
+    "Buscar Token Azure":  { "main": [[{ "node": "Pausar Capacidade",    "type": "main", "index": 0 }]] },
+    "Pausar Capacidade":   { "main": [[{ "node": "Aguardar 2 min",       "type": "main", "index": 0 }]] },
+    "Aguardar 2 min":      { "main": [[{ "node": "Verificar Status 1",   "type": "main", "index": 0 }]] },
+    "Verificar Status 1":  { "main": [[{ "node": "Está Pausado?",        "type": "main", "index": 0 }]] },
+    "Está Pausado?":       { "main": [[], [{ "node": "Aguardar mais 2 min", "type": "main", "index": 0 }]] },
+    "Aguardar mais 2 min": { "main": [[{ "node": "Verificar Status 2",   "type": "main", "index": 0 }]] },
+    "Verificar Status 2":  { "main": [[{ "node": "Está Pausado? (2)",    "type": "main", "index": 0 }]] },
+    "Está Pausado? (2)":   { "main": [[], [{ "node": "Notificar Erro",   "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
