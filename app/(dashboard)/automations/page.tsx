@@ -298,19 +298,12 @@ export default function AutomationsPage() {
     }).filter((item) => item.key === "date")
   }, [columns, filters, linkedTableNames])
 
-<<<<<<< Updated upstream
-  const features = companyFeatures as { reportBuilder?: boolean; campaigns?: boolean; excelExport?: boolean; appName?: string; daxCalculatetable?: boolean; hideZeroRows?: boolean; hideZeroRowsIncludeDevolution?: boolean } | null
+  const features = companyFeatures as { reportBuilder?: boolean; campaigns?: boolean; excelExport?: boolean; appName?: string; daxCalculatetable?: boolean; hideZeroRows?: boolean; hideZeroRowsIncludeDevolution?: boolean; daxPreserveGroupBy?: boolean } | null
 
   const useCalculatetable = features?.daxCalculatetable === true
   const hideZeroRows = features?.hideZeroRows === true
   const hideZeroRowsIncludeDevolution = features?.hideZeroRowsIncludeDevolution === true
-=======
-  const features = companyFeatures as { reportBuilder?: boolean; campaigns?: boolean; excelExport?: boolean; appName?: string; daxCalculatetable?: boolean; hideZeroRows?: boolean; daxPreserveGroupBy?: boolean } | null
-
-  const useCalculatetable = features?.daxCalculatetable === true
-  const hideZeroRows = features?.hideZeroRows === true
   const preserveGroupByContext = features?.daxPreserveGroupBy === true
->>>>>>> Stashed changes
 
   const excelExportEnabled = features?.excelExport === true
 
@@ -326,11 +319,7 @@ export default function AutomationsPage() {
         useCalculatetable,
         preserveGroupByContext,
       }),
-<<<<<<< Updated upstream
-    [selectedColumns, selectedMeasures, filters, hideZeroRows, hideZeroRowsIncludeDevolution, useCalculatetable]
-=======
-    [selectedColumns, selectedMeasures, filters, hideZeroRows, useCalculatetable, preserveGroupByContext]
->>>>>>> Stashed changes
+    [selectedColumns, selectedMeasures, filters, hideZeroRows, hideZeroRowsIncludeDevolution, useCalculatetable, preserveGroupByContext]
   )
 
   const effectiveDaxQuery = customDaxQuery.trim() || daxQuery
