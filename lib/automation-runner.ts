@@ -146,10 +146,11 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
   const companyFeatures = (featureRows?.value ?? {}) as Record<string, unknown>
   const useCalculatetable = companyFeatures.dax_calculatetable === true
   const hideZeroRows = companyFeatures.hide_zero_rows === true
+  const preserveGroupByContext = companyFeatures.dax_preserve_groupby === true
 
   let query: string
   if (!automation.dax_query) {
-    query = buildDAXQuery({ columns: savedSelectedColumns, measures: savedSelectedMeasures, filters: savedFilters, useCalculatetable, hideZeroRows })
+    query = buildDAXQuery({ columns: savedSelectedColumns, measures: savedSelectedMeasures, filters: savedFilters, useCalculatetable, hideZeroRows, preserveGroupByContext })
     if (!query || query.startsWith("--")) {
       throw new Error("Nao foi possivel reconstruir a query da automacao")
     }

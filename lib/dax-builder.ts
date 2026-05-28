@@ -37,6 +37,7 @@ type BuildParams = {
   hideZeroRows?: boolean
   hideZeroRowsIncludeDevolution?: boolean
   useCalculatetable?: boolean
+  preserveGroupByContext?: boolean
 }
 
 function escapeDaxName(value: string) {
@@ -271,7 +272,7 @@ function buildHideZeroRowsCondition(measures: Measure[], includeDevolution = fal
 
   const valueMeasures = measures.filter((m) => {
     const n = normalizeForCondition(m.measureName)
-    return !n.includes("%") && (includeDevolution || !n.includes("devolu"))
+    return !n.includes("%") && (includeDevolution || !n.includes("devolu")) && !n.includes("posit")
   })
 
   const effective = valueMeasures.length > 0 ? valueMeasures : measures
@@ -297,6 +298,7 @@ export function buildDAXQuery({
   hideZeroRows = false,
   hideZeroRowsIncludeDevolution = false,
   useCalculatetable = false,
+  preserveGroupByContext = false,
 }: BuildParams): string {
   const hasColumns = columns.length > 0
   const hasMeasures = measures.length > 0
@@ -387,12 +389,13 @@ export function buildDAXQuery({
     if (useCalculatetable) {
       // Modo CALCULATETABLE: filtros ficam fora do SUMMARIZECOLUMNS para evitar que o autoexist
       // restrinja a dimensão de GROUP BY via relacionamento bidirecional (ex: DEVOLUCAO ↔ Gerente).
-      // ALL(primaryTable) dentro do SUMMARIZECOLUMNS garante que todos os Gerentes apareçam
-      // mesmo que o CALCULATETABLE propague o filtro de volta via relacionamento.
+      // ALL(primaryTable) garante que todos os Gerentes apareçam, mas remove o filtro de linha
+      // do GROUP BY para as medidas. Com preserveGroupByContext=true, o ALL é omitido para que
+      // medidas como [Meta Posit.] sejam avaliadas corretamente por linha (ex: empresa DSL).
       const wrappedFilters = buildWrappedFilters(filters)
       const summarizeBody = [
         ...groupByRefs,
-        `    ALL(${tableRef(primaryTable)})`,
+        ...(preserveGroupByContext ? [] : [`    ALL(${tableRef(primaryTable)})`]),
         ...measureAliases,
       ].join(",\n")
       const summarizeExpression = ["SUMMARIZECOLUMNS(", summarizeBody, ")"].join("\n")

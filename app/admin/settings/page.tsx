@@ -24,6 +24,8 @@ export default function SettingsPage() {
   const [clientSecret, setClientSecret] = useState("")
   const [pbiTesting, setPbiTesting] = useState(false)
   const [pbiTestResult, setPbiTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [pbiSyncing, setPbiSyncing] = useState(false)
+  const [pbiSyncResult, setPbiSyncResult] = useState<{ success: boolean; message: string } | null>(null)
 
   // N8N
   const [webhookUrl, setWebhookUrl] = useState("")
@@ -32,8 +34,8 @@ export default function SettingsPage() {
   const [n8nTestResult, setN8nTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
   // Power BI Auto Sync
-  const DEFAULT_SYNC_HOURS = [6, 9, 12, 14, 17]
-  const [syncHours, setSyncHours] = useState<number[]>(DEFAULT_SYNC_HOURS)
+  const DEFAULT_SYNC_TIMES = ["06:00", "09:00", "12:00", "14:00", "17:00"]
+  const [syncTimes, setSyncTimes] = useState<string[]>(DEFAULT_SYNC_TIMES)
 
   // General
   const [appName, setAppName] = useState(BRAND_NAME)
@@ -57,9 +59,16 @@ export default function SettingsPage() {
         setTimezone(settings.general.timezone ?? "America/Sao_Paulo")
       }
       if (settings.powerbi_sync) {
-        const hours = settings.powerbi_sync.hours
-        if (Array.isArray(hours)) {
-          setSyncHours(hours as number[])
+        // Suporta novo formato (times: string[]) e legado (hours: number[])
+        const times = settings.powerbi_sync.times
+        const hoursLegacy = settings.powerbi_sync.hours
+        if (Array.isArray(times) && times.length > 0) {
+          setSyncTimes(times as string[])
+        } else if (Array.isArray(hoursLegacy) && hoursLegacy.length > 0) {
+          // migra formato antigo: [6, 9] → ["06:00", "09:00"]
+          setSyncTimes(
+            (hoursLegacy as number[]).map((h) => `${String(h).padStart(2, "0")}:00`)
+          )
         }
       }
     }
@@ -83,6 +92,27 @@ export default function SettingsPage() {
       toast.error(error instanceof Error ? error.message : "Erro ao salvar")
     } finally {
       setSaving("")
+    }
+  }
+
+  async function syncPowerBI() {
+    setPbiSyncing(true)
+    setPbiSyncResult(null)
+    try {
+      const res = await fetch("/api/powerbi/sync", { method: "POST" })
+      const data = await res.json()
+      if (!res.ok) {
+        setPbiSyncResult({ success: false, message: data?.error || "Erro ao sincronizar" })
+      } else {
+        setPbiSyncResult({
+          success: true,
+          message: `Sincronizado! ${data.workspaces ?? 0} workspaces, ${data.reports ?? 0} relatorios, ${data.datasets ?? 0} datasets.${data.warnings?.length ? ` ${data.warnings.length} aviso(s).` : ""}`,
+        })
+      }
+    } catch {
+      setPbiSyncResult({ success: false, message: "Erro de conexao ao sincronizar" })
+    } finally {
+      setPbiSyncing(false)
     }
   }
 
@@ -213,7 +243,29 @@ export default function SettingsPage() {
                     ) : null}
                     Testar Conexao
                   </Button>
+                  <Button variant="outline" onClick={syncPowerBI} disabled={pbiSyncing}>
+                    {pbiSyncing ? (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                    ) : null}
+                    Sincronizar Agora
+                  </Button>
                 </div>
+                {pbiSyncResult && (
+                  <div
+                    className={`flex items-center gap-2 rounded-lg border p-3 text-sm ${
+                      pbiSyncResult.success
+                        ? "border-success/30 bg-success/10 text-success"
+                        : "border-destructive/30 bg-destructive/10 text-destructive"
+                    }`}
+                  >
+                    {pbiSyncResult.success ? (
+                      <CheckCircle className="size-4" />
+                    ) : (
+                      <XCircle className="size-4" />
+                    )}
+                    {pbiSyncResult.message}
+                  </div>
+                )}
                 {pbiTestResult && (
                   <div
                     className={`flex items-center gap-2 rounded-lg border p-3 text-sm ${
@@ -238,25 +290,30 @@ export default function SettingsPage() {
                       Selecione os horarios em que os relatorios serao sincronizados automaticamente todos os dias.
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {Array.from({ length: 24 }, (_, h) => h).map((hour) => {
-                      const active = syncHours.includes(hour)
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from({ length: 48 }, (_, i) => {
+                      const hour = Math.floor(i / 2)
+                      const minute = i % 2 === 0 ? "00" : "30"
+                      const time = `${String(hour).padStart(2, "0")}:${minute}`
+                      const active = syncTimes.includes(time)
                       return (
                         <button
-                          key={hour}
+                          key={time}
                           type="button"
                           onClick={() =>
-                            setSyncHours((prev) =>
-                              active ? prev.filter((h) => h !== hour) : [...prev, hour].sort((a, b) => a - b)
+                            setSyncTimes((prev) =>
+                              active
+                                ? prev.filter((t) => t !== time)
+                                : [...prev, time].sort()
                             )
                           }
-                          className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                          className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
                             active
                               ? "border-primary bg-primary text-primary-foreground"
                               : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
                           }`}
                         >
-                          {String(hour).padStart(2, "0")}h
+                          {time}
                         </button>
                       )
                     })}
@@ -264,7 +321,7 @@ export default function SettingsPage() {
                   <Button
                     className="self-start"
                     onClick={() =>
-                      saveSetting("powerbi_sync", { hours: syncHours })
+                      saveSetting("powerbi_sync", { times: syncTimes })
                     }
                     disabled={saving === "powerbi_sync"}
                   >

@@ -11,6 +11,7 @@ export type CompanyFeatures = {
   hideZeroRows: boolean
   hideZeroRowsIncludeDevolution: boolean
   campaignClientPreview: boolean
+  daxPreserveGroupBy: boolean
 }
 
 export async function GET() {
@@ -41,6 +42,7 @@ export async function GET() {
       hideZeroRows: features.hide_zero_rows === true,
       hideZeroRowsIncludeDevolution: features.hide_zero_rows_include_devolution === true,
       campaignClientPreview: features.campaign_client_preview === true,
+      daxPreserveGroupBy: features.dax_preserve_groupby === true,
     } satisfies CompanyFeatures)
   } catch (error) {
     if (isAuthContextError(error)) {

@@ -150,19 +150,27 @@ export async function POST(_request: NextRequest) {
         ? generalSettings.timezone.trim()
         : "America/Sao_Paulo"
 
-    const syncHours: number[] = Array.isArray(syncSettings.hours)
-      ? (syncSettings.hours as unknown[]).filter((h): h is number => typeof h === "number")
-      : []
+    // Suporta novo formato (times: "HH:MM"[]) e legado (hours: number[])
+    let syncTimes: string[] = []
+    if (Array.isArray(syncSettings.times) && syncSettings.times.length > 0) {
+      syncTimes = (syncSettings.times as unknown[]).filter(
+        (t): t is string => typeof t === "string"
+      )
+    } else if (Array.isArray(syncSettings.hours) && syncSettings.hours.length > 0) {
+      syncTimes = (syncSettings.hours as unknown[])
+        .filter((h): h is number => typeof h === "number")
+        .map((h) => `${String(h).padStart(2, "0")}:00`)
+    }
 
-    if (syncHours.length === 0) {
+    if (syncTimes.length === 0) {
       return NextResponse.json({ synced: false, reason: "Nenhum horario configurado" })
     }
 
     const now = new Date()
     const timeParts = getTimePartsInTimeZone(now, timeZone)
-    const currentHour = timeParts.hour
+    const currentTime = `${String(timeParts.hour).padStart(2, "0")}:${String(timeParts.minute).padStart(2, "0")}`
 
-    if (!syncHours.includes(currentHour)) {
+    if (!syncTimes.includes(currentTime)) {
       return NextResponse.json({ synced: false, reason: "Fora do horario de sincronizacao" })
     }
 
@@ -173,11 +181,12 @@ export async function POST(_request: NextRequest) {
 
     if (lastSyncAt && !isNaN(lastSyncAt.getTime())) {
       const lastParts = getTimePartsInTimeZone(lastSyncAt, timeZone)
+      const lastTime = `${String(lastParts.hour).padStart(2, "0")}:${String(lastParts.minute).padStart(2, "0")}`
       if (
         lastParts.year === timeParts.year &&
         lastParts.month === timeParts.month &&
         lastParts.day === timeParts.day &&
-        lastParts.hour === timeParts.hour
+        lastTime === currentTime
       ) {
         return NextResponse.json({ synced: false, reason: "Ja sincronizado neste horario" })
       }

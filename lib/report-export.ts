@@ -740,7 +740,11 @@ export function buildHtmlReport({
     })
   })
   const orderedColumns = resolvePdfColumns(displayColumns)
-  const sortedRows = sortByHierarchy(rows, orderedColumns)
+  // Quando há medidas numéricas, a query DAX já retorna ordenado pelo valor principal (DESC).
+  // Reordenar pela hierarquia quebraria esse sort — só aplica o sort hierárquico em
+  // relatórios puramente dimensionais (sem métricas numéricas).
+  const hasMeasureColumns = orderedColumns.some((c) => isNumericColumn(c))
+  const sortedRows = hasMeasureColumns ? rows : sortByHierarchy(rows, orderedColumns)
 
   // Detect hierarchy for grouping (gerente → supervisor → vendedor)
   const allHierCols = orderedColumns
