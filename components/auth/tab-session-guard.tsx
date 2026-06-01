@@ -88,6 +88,12 @@ export function TabSessionGuard({
           return
         }
 
+        // Nova aba: tem cookies mas nunca foi inicializada nesta aba → vai para login
+        if (!hasTabSessionMarker()) {
+          redirectToLogin()
+          return
+        }
+
         if (tabId) {
           touchTabSession(tabId)
         }
@@ -103,7 +109,13 @@ export function TabSessionGuard({
         }
 
         const supabase = createClient()
-        const { data, error } = await supabase.auth.getUser()
+        const timeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 5000)
+        )
+        const { data, error } = await Promise.race([
+          supabase.auth.getUser(),
+          timeout,
+        ])
 
         if (error || !data.user) {
           throw error ?? new Error("Sessao invalida")
@@ -117,12 +129,15 @@ export function TabSessionGuard({
 
         setIsReady(true)
 
-        if (refreshOnSuccess && typeof window !== "undefined") {
-          window.location.reload()
-        }
       } catch (err) {
-        // Transient network errors (sleep/wake, flaky connection) must NOT force logout.
-        // The middleware handles truly invalid sessions on the next server request.
+        if (err instanceof Error && err.message === "timeout") {
+          if (isMounted) {
+            setIsReady(true)
+          }
+          isValidatingRef.current = false
+          return
+        }
+
         if (isNetworkError(err)) {
           if (isMounted) {
             setIsReady(true)

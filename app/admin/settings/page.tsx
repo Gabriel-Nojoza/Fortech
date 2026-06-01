@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { BRAND_NAME } from "@/lib/branding"
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
@@ -41,6 +42,11 @@ export default function SettingsPage() {
   const [appName, setAppName] = useState(BRAND_NAME)
   const [timezone, setTimezone] = useState("America/Sao_Paulo")
 
+  // Theme Schedule
+  const [themeScheduleEnabled, setThemeScheduleEnabled] = useState(false)
+  const [lightThemeTime, setLightThemeTime] = useState("06:00")
+  const [darkThemeTime, setDarkThemeTime] = useState("18:00")
+
   const [saving, setSaving] = useState("")
 
   useEffect(() => {
@@ -57,6 +63,11 @@ export default function SettingsPage() {
       if (settings.general) {
         setAppName(settings.general.app_name ?? BRAND_NAME)
         setTimezone(settings.general.timezone ?? "America/Sao_Paulo")
+      }
+      if (settings.theme_schedule) {
+        setThemeScheduleEnabled(settings.theme_schedule.enabled === true)
+        setLightThemeTime(settings.theme_schedule.light_time ?? "06:00")
+        setDarkThemeTime(settings.theme_schedule.dark_time ?? "18:00")
       }
       if (settings.powerbi_sync) {
         // Suporta novo formato (times: string[]) e legado (hours: number[])
@@ -442,6 +453,61 @@ export default function SettingsPage() {
                   disabled={saving === "general"}
                 >
                   {saving === "general" ? (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  ) : null}
+                  Salvar
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Tema Automatico por Horario</CardTitle>
+                <CardDescription>
+                  O sistema troca automaticamente entre tema claro e escuro nos horarios definidos.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <Switch
+                    checked={themeScheduleEnabled}
+                    onCheckedChange={setThemeScheduleEnabled}
+                  />
+                  <Label>Ativar troca automatica de tema</Label>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="light-time">Horario tema claro ☀️</Label>
+                    <Input
+                      id="light-time"
+                      type="time"
+                      value={lightThemeTime}
+                      onChange={(e) => setLightThemeTime(e.target.value)}
+                      disabled={!themeScheduleEnabled}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="dark-time">Horario tema escuro 🌙</Label>
+                    <Input
+                      id="dark-time"
+                      type="time"
+                      value={darkThemeTime}
+                      onChange={(e) => setDarkThemeTime(e.target.value)}
+                      disabled={!themeScheduleEnabled}
+                    />
+                  </div>
+                </div>
+                <Button
+                  onClick={() =>
+                    saveSetting("theme_schedule", {
+                      enabled: themeScheduleEnabled,
+                      light_time: lightThemeTime,
+                      dark_time: darkThemeTime,
+                    })
+                  }
+                  disabled={saving === "theme_schedule"}
+                >
+                  {saving === "theme_schedule" ? (
                     <Loader2 className="mr-2 size-4 animate-spin" />
                   ) : null}
                   Salvar

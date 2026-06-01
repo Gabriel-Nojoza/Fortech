@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Dialog,
   DialogContent,
+  DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Loader2, Users, Send, PhoneOff, Trash2, ImageIcon, MessageSquare, Clock, X } from "lucide-react"
+import { Loader2, Users, Send, PhoneOff, Trash2, ImageIcon, MessageSquare, Clock, X, Plus } from "lucide-react"
 import { toast } from "sonner"
 import type { Campaign, CampaignClient } from "@/lib/types"
 
@@ -55,6 +56,9 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
   const [sending, setSending] = useState(false)
   const [activeTab, setActiveTab] = useState<"mensagem" | "imagem">("mensagem")
   const [history, setHistory] = useState<DispatchHistoryItem[]>([])
+  const [manualContacts, setManualContacts] = useState<{ name: string; phone: string }[]>([])
+  const [manualName, setManualName] = useState("")
+  const [manualPhone, setManualPhone] = useState("")
 
   useEffect(() => {
     if (!open || !campaign) return
@@ -64,6 +68,9 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
     setRemovedIndexes(new Set())
     setSearch("")
     setHistory([])
+    setManualContacts([])
+    setManualName("")
+    setManualPhone("")
 
     fetchApi("/api/campaigns/clients", {
       method: "POST",
@@ -96,7 +103,7 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
       )
     })
 
-  const activeCount = clients.filter((c, i) => !removedIndexes.has(i) && c.phone).length
+  const activeCount = clients.filter((c, i) => !removedIndexes.has(i) && c.phone).length + manualContacts.length
   const hasImage = !!campaign.image_url
 
   function toggleRemove(i: number) {
@@ -112,10 +119,30 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
     setRemovedIndexes(new Set())
   }
 
+  function handleAddManual() {
+    const phone = manualPhone.replace(/\D/g, "")
+    if (phone.length < 8) {
+      toast.error("Telefone invalido")
+      return
+    }
+    setManualContacts((prev) => [...prev, { name: manualName.trim(), phone }])
+    setManualName("")
+    setManualPhone("")
+  }
+
   async function handleSend() {
     if (!campaign) return
     const selected = clients.filter((c, i) => !removedIndexes.has(i) && c.phone)
-    if (selected.length === 0) {
+    const manualAsClients = manualContacts.map((m) => ({
+      name: m.name || null,
+      phone: m.phone,
+      data: {
+        nome: m.name || "",
+        ...(campaign.name_column && m.name ? { [campaign.name_column]: m.name } : {}),
+      } as Record<string, unknown>,
+    }))
+    const allSelected = [...selected, ...manualAsClients]
+    if (allSelected.length === 0) {
       toast.error("Nenhum contato selecionado para envio")
       return
     }
@@ -127,7 +154,7 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           campaign_id: campaign.id,
-          selected_clients: selected,
+          selected_clients: allSelected,
         }),
       })
 
@@ -155,7 +182,7 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b">
           <div>
-            <h2 className="text-lg font-bold">Disparo de Mensagens</h2>
+            <DialogTitle className="text-lg font-bold">Disparo de Mensagens</DialogTitle>
             <p className="text-sm text-muted-foreground">{campaign.name}</p>
           </div>
           <button
@@ -386,6 +413,59 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
                     </div>
                   )}
                 </>
+              )}
+            </div>
+
+            {/* ─── Adicionar contato manual ─── */}
+            <div className="shrink-0 border-t px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                Adicionar manualmente
+              </p>
+              <div className="flex flex-col gap-1.5">
+                <Input
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  placeholder="Nome (opcional)"
+                  className="h-8 text-xs"
+                />
+                <div className="flex gap-1.5">
+                  <Input
+                    value={manualPhone}
+                    onChange={(e) => setManualPhone(e.target.value)}
+                    placeholder="Ex: 5511999998888 (com 55)"
+                    className="h-8 text-xs flex-1"
+                    onKeyDown={(e) => { if (e.key === "Enter") handleAddManual() }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddManual}
+                    disabled={!manualPhone.trim()}
+                    className="shrink-0 rounded-lg bg-primary px-3 text-primary-foreground disabled:opacity-50 hover:bg-primary/90 transition-colors"
+                  >
+                    <Plus className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+              {manualContacts.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1">
+                  {manualContacts.map((m, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-lg bg-primary/10 px-2.5 py-1.5">
+                      <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                        <span className="text-xs font-bold leading-tight truncate">
+                          {m.name || <span className="font-normal text-muted-foreground">Sem nome</span>}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground font-mono">{m.phone}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setManualContacts((prev) => prev.filter((_, j) => j !== i))}
+                        className="ml-2 shrink-0 text-muted-foreground/60 hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 

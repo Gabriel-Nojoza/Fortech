@@ -63,16 +63,26 @@ export async function updateSession(request: NextRequest) {
     return response
   }
 
-  if (user && request.nextUrl.pathname.startsWith("/auth")) {
-    const url = request.nextUrl.clone()
-    url.pathname = "/"
-    return NextResponse.redirect(url)
-  }
-
-  if (user && request.nextUrl.pathname.startsWith("/admin")) {
+  if (user) {
     const role = user.app_metadata?.role || user.user_metadata?.role
+    const isAdmin = role === "admin"
 
-    if (role !== "admin") {
+    if (request.nextUrl.pathname.startsWith("/auth")) {
+      // Permite acessar /auth/login mesmo autenticado (nova aba pode querer trocar de conta)
+      // O TabSessionGuard no cliente controla o redirecionamento pós-login
+    }
+
+    if (
+      isAdmin &&
+      !request.nextUrl.pathname.startsWith("/admin") &&
+      !request.nextUrl.pathname.startsWith("/auth")
+    ) {
+      const url = request.nextUrl.clone()
+      url.pathname = "/admin"
+      return NextResponse.redirect(url)
+    }
+
+    if (!isAdmin && request.nextUrl.pathname.startsWith("/admin")) {
       const url = request.nextUrl.clone()
       url.pathname = "/"
       return NextResponse.redirect(url)

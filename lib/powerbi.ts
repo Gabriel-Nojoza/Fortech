@@ -63,6 +63,7 @@ function applyCustomChatMeasuresToSnapshot(
 
 const embedTokenCache = new Map<string, EmbedTokenCacheEntry>()
 const accessTokenCache = new Map<string, EmbedTokenCacheEntry>()
+const fabricTokenCache = new Map<string, EmbedTokenCacheEntry>()
 const powerBiConfigCache = new Map<string, CachedValue<PowerBIConfig>>()
 const datasetMetadataCache = new Map<string, CachedValue<DatasetMetadataSnapshot>>()
 const datasetMetadataRequestCache = new Map<string, Promise<DatasetMetadataSnapshot>>()
@@ -224,6 +225,43 @@ async function getConfigForCompany(companyId: string): Promise<PowerBIConfig> {
   return config
 }
 
+async function getFabricToken(companyId?: string): Promise<string> {
+  const config = companyId
+    ? await getConfigForCompany(companyId)
+    : await getConfig()
+
+  if (!config.tenant_id || !config.client_id || !config.client_secret) {
+    throw new Error("Credenciais incompletas")
+  }
+
+  const cacheKey = `fabric:${config.tenant_id}:${config.client_id}`
+  const SAFETY_MARGIN_MS = 5 * 60 * 1000
+  const cached = fabricTokenCache.get(cacheKey)
+  if (cached && cached.expiresAt - SAFETY_MARGIN_MS > Date.now()) {
+    return cached.token
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: config.client_id,
+    client_secret: config.client_secret,
+    scope: "https://api.fabric.microsoft.com/.default",
+  })
+
+  const res = await fetch(
+    `https://login.microsoftonline.com/${config.tenant_id}/oauth2/v2.0/token`,
+    { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() }
+  )
+
+  if (!res.ok) throw new Error("Falha ao obter token Fabric")
+
+  const json = await res.json()
+  const token = String(json.access_token ?? "")
+  const expiresAt = Date.now() + (typeof json.expires_in === "number" ? json.expires_in : 3600) * 1000
+  fabricTokenCache.set(cacheKey, { token, expiresAt })
+  return token
+}
+
 export async function getAccessToken(companyId?: string): Promise<string> {
   const config = companyId
     ? await getConfigForCompany(companyId)
@@ -274,35 +312,93 @@ export async function getAccessToken(companyId?: string): Promise<string> {
 }
 
 export async function listWorkspaces(token: string) {
-  const res = await fetch(`${PBI_API_BASE}/groups`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const headers = { Authorization: `Bearer ${token}` }
 
-  if (!res.ok) {
-    await throwPowerBiApiError("Falha ao listar workspaces", res)
+  // Use admin endpoint to list ALL workspaces in the tenant (requires Power BI/Fabric Admin role)
+  // Falls back to member-only /groups if admin endpoint is not accessible
+  try {
+    const adminRes = await fetch(
+      `${PBI_API_BASE}/admin/groups?$top=1000&$filter=type eq 'Workspace'`,
+      { headers }
+    )
+    if (adminRes.ok) {
+      const adminJson = await adminRes.json()
+      const adminWorkspaces = (adminJson.value ?? []) as Array<{ id: string; name: string; isReadOnly: boolean }>
+      if (adminWorkspaces.length > 0) {
+        return adminWorkspaces
+      }
+    }
+  } catch {
+    // fall through to member-only endpoint
   }
 
-  const json = await res.json()
-  return json.value as Array<{ id: string; name: string; isReadOnly: boolean }>
+  // Fallback: member workspaces + Fabric workspaces
+  const pbiRes = await fetch(`${PBI_API_BASE}/groups`, { headers })
+  if (!pbiRes.ok) {
+    await throwPowerBiApiError("Falha ao listar workspaces", pbiRes)
+  }
+  const pbiJson = await pbiRes.json()
+  const pbiWorkspaces = (pbiJson.value ?? []) as Array<{ id: string; name: string; isReadOnly: boolean }>
+
+  let fabricWorkspaces: Array<{ id: string; name: string; isReadOnly: boolean }> = []
+  try {
+    const fabricRes = await fetch("https://api.fabric.microsoft.com/v1/workspaces", { headers })
+    if (fabricRes.ok) {
+      const fabricJson = await fabricRes.json()
+      const fabricItems = (fabricJson.value ?? []) as Array<{ id: string; displayName: string }>
+      fabricWorkspaces = fabricItems.map((w) => ({ id: w.id, name: w.displayName, isReadOnly: false }))
+    }
+  } catch {
+    // Fabric API unavailable
+  }
+
+  const seen = new Set(pbiWorkspaces.map((w) => w.id))
+  return [
+    ...pbiWorkspaces,
+    ...fabricWorkspaces.filter((w) => !seen.has(w.id)),
+  ]
 }
 
 export async function listReports(token: string, workspaceId: string) {
-  const res = await fetch(`${PBI_API_BASE}/groups/${workspaceId}/reports`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const headers = { Authorization: `Bearer ${token}` }
 
+  type ReportItem = { id: string; name: string; webUrl: string; embedUrl: string; datasetId: string }
+
+  // Classic Power BI reports
+  const res = await fetch(`${PBI_API_BASE}/groups/${workspaceId}/reports`, { headers })
   if (!res.ok) {
     await throwPowerBiApiError(`Falha ao listar relatorios do workspace ${workspaceId}`, res)
   }
-
   const json = await res.json()
-  return json.value as Array<{
-    id: string
-    name: string
-    webUrl: string
-    embedUrl: string
-    datasetId: string
-  }>
+  const pbiReports = (json.value ?? []) as ReportItem[]
+  const seen = new Set(pbiReports.map((r) => r.id))
+
+  // Fabric Report items require a separate token with Fabric scope
+  let fabricReports: ReportItem[] = []
+  try {
+    const fabricToken = await getFabricToken()
+    const fabricRes = await fetch(
+      `https://api.fabric.microsoft.com/v1/workspaces/${workspaceId}/items?type=Report`,
+      { headers: { Authorization: `Bearer ${fabricToken}` } }
+    )
+    if (fabricRes.ok) {
+      const fabricJson = await fabricRes.json()
+      const fabricItems = (fabricJson.value ?? []) as Array<{ id: string; displayName: string }>
+      fabricReports = fabricItems
+        .filter((item) => !seen.has(item.id))
+        .map((item) => ({
+          id: item.id,
+          name: item.displayName,
+          webUrl: `https://app.powerbi.com/groups/${workspaceId}/reports/${item.id}`,
+          embedUrl: `https://app.powerbi.com/reportEmbed?reportId=${item.id}&groupId=${workspaceId}`,
+          datasetId: "",
+        }))
+    }
+  } catch {
+    // Fabric API unavailable or token fetch failed
+  }
+
+  return [...pbiReports, ...fabricReports]
 }
 
 export async function listReportPages(
@@ -335,7 +431,8 @@ export async function listReportPages(
 export async function generateReportEmbedToken(
   token: string,
   workspaceId: string,
-  reportId: string
+  reportId: string,
+  datasetId?: string
 ) {
   const cacheKey = `${workspaceId}:${reportId}`
   const SAFETY_MARGIN_MS = 5 * 60 * 1000

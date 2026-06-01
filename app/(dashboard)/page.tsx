@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 type FetchError = Error & { status?: number }
 
 const fetcher = async (url: string) => {
-  const response = await fetch(url, { cache: "no-store" })
+  const response = await fetch(url)
 
   if (response.status === 401) {
     const error = new Error(`Sessao expirada ao buscar ${url}`) as FetchError

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/server"
-import { getRequestContext, isAuthContextError } from "@/lib/tenant"
+import { isAuthContextError } from "@/lib/tenant"
+import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
 import { getAccessToken, executeDAXQuery } from "@/lib/powerbi"
 import { buildCampaignDaxQuery } from "@/lib/campaign-dax"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
@@ -24,7 +25,8 @@ export async function POST(request: NextRequest) {
   let supabase: ReturnType<typeof createServiceClient> | null = null
 
   try {
-    const ctx = await getRequestContext()
+    const { companyId } = await resolveRequestCompanyContext(request, { allowCallbackSecret: true })
+    const ctx = { companyId }
     supabase = createServiceClient()
 
     const body = await request.json()
@@ -176,7 +178,7 @@ export async function POST(request: NextRequest) {
       skipped: skippedCount,
     })
   } catch (error) {
-    if (isAuthContextError(error)) {
+    if (isAuthContextError(error) || (error instanceof Error && error.message === "Callback secret invalido")) {
       return NextResponse.json({ error: "Nao autenticado" }, { status: 401 })
     }
 

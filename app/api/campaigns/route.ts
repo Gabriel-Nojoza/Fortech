@@ -6,7 +6,7 @@ import { getRequestContext, isAuthContextError } from "@/lib/tenant"
 const campaignSchema = z.object({
   name: z.string().min(1, "Nome obrigatorio"),
   description: z.string().nullable().optional(),
-  dataset_id: z.string().min(1, "Dataset obrigatorio"),
+  dataset_id: z.string().optional().default(""),
   workspace_id: z.string().nullable().optional(),
   dax_query: z.string().nullable().optional(),
   selected_columns: z.array(z.object({ tableName: z.string(), columnName: z.string() })).default([]),

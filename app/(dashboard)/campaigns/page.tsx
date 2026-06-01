@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import useSWR, { mutate } from "swr"
 import {
   Megaphone, Plus, Trash2, Pencil, Play, Loader2,
-  ImageIcon, X, Clock, Users, ArrowLeft, MessageSquare, Send,
+  ImageIcon, X, Clock, Users, ArrowLeft, MessageSquare, Send, CalendarClock,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table"
 import { CampaignDispatchDialog } from "@/components/campaigns/dispatch-dialog"
 import { ColumnSelect } from "@/components/campaigns/column-select"
+import { describeCronExpression } from "@/lib/schedule-cron"
 import type { Campaign, Workspace, WhatsAppBotInstance, DatasetTable, DatasetColumn } from "@/lib/types"
 import type { CompanyFeatures } from "@/app/api/features/route"
 
@@ -54,6 +55,40 @@ const fetcher = async <T,>(url: string): Promise<T> => {
 }
 
 const DATE_TYPES = ["DateTime", "Date", "DateTimeZone", "datetime", "date"]
+
+const WEEKDAY_OPTIONS = [
+  { label: "Seg", value: 1 },
+  { label: "Ter", value: 2 },
+  { label: "Qua", value: 3 },
+  { label: "Qui", value: 4 },
+  { label: "Sex", value: 5 },
+  { label: "Sab", value: 6 },
+  { label: "Dom", value: 0 },
+]
+
+function buildCronExpression(time: string, days: number[]): string {
+  const [hourStr, minuteStr] = time.split(":")
+  const hour = parseInt(hourStr, 10)
+  const minute = parseInt(minuteStr, 10)
+  if (isNaN(hour) || isNaN(minute)) return ""
+  const sorted = [...days].sort((a, b) => a - b)
+  const daysStr = sorted.length === 7 ? "*" : sorted.join(",")
+  return `${minute} ${hour} * * ${daysStr}`
+}
+
+function parseCronToSchedule(cron: string | null): { enabled: boolean; time: string; days: number[] } {
+  if (!cron?.trim()) return { enabled: false, time: "09:00", days: [1, 2, 3, 4, 5] }
+  const parts = cron.trim().split(/\s+/)
+  if (parts.length !== 5) return { enabled: false, time: "09:00", days: [1, 2, 3, 4, 5] }
+  const minute = parseInt(parts[0], 10)
+  const hour = parseInt(parts[1], 10)
+  if (isNaN(minute) || isNaN(hour)) return { enabled: false, time: "09:00", days: [1, 2, 3, 4, 5] }
+  const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
+  const days = parts[4] === "*"
+    ? [0, 1, 2, 3, 4, 5, 6]
+    : parts[4].split(",").map(Number).filter((n) => !isNaN(n))
+  return { enabled: true, time, days }
+}
 
 const DAYS_OPTIONS = [
   { label: "30 dias", value: 30 },
@@ -105,6 +140,9 @@ const EMPTY_FORM = {
   image_url: "",
   bot_instance_id: "",
   is_active: true,
+  schedule_enabled: false,
+  schedule_time: "09:00",
+  schedule_days: [1, 2, 3, 4, 5] as number[],
 }
 
 type FormState = typeof EMPTY_FORM
@@ -236,6 +274,7 @@ export default function CampaignsPage() {
     setEditId(campaign.id)
     const daysValue = campaign.days_inactive
     const isPreset = DAYS_OPTIONS.some((o) => o.value === daysValue && o.value !== 0)
+    const schedule = parseCronToSchedule(campaign.cron_expression)
     setForm({
       name: campaign.name,
       description: campaign.description ?? "",
@@ -251,6 +290,9 @@ export default function CampaignsPage() {
       image_url: campaign.image_url ?? "",
       bot_instance_id: campaign.bot_instance_id ?? "",
       is_active: campaign.is_active,
+      schedule_enabled: schedule.enabled,
+      schedule_time: schedule.time,
+      schedule_days: schedule.days,
     })
     setFormErrors({})
     setFormTab("mensagem")
@@ -268,14 +310,18 @@ export default function CampaignsPage() {
     const errors: Record<string, string> = {}
     if (!form.name.trim()) errors.name = "Nome obrigatorio"
     if (!form.bot_instance_id) errors.bot_instance_id = "Selecione o WhatsApp de envio"
-    if (!form.dataset_id.trim()) errors.dataset_id = "Selecione um dataset"
-    if (!form.customer_table.trim()) errors.customer_table = "Selecione a tabela de clientes"
-    if (!form.date_column.trim()) errors.date_column = "Selecione a coluna de data"
-    if (!form.phone_column.trim()) errors.phone_column = "Selecione a coluna de telefone"
-    if (!form.name_column.trim()) errors.name_column = "Selecione a coluna de nome"
     if (!form.message_template.trim()) errors.message_template = "Template de mensagem obrigatorio"
-    const days = getDaysValue(form)
-    if (!days) errors.days = "Informe quantos dias de inatividade"
+    // Power BI fields are optional — required only if any one of them is filled
+    const hasPbFields = !!form.customer_table.trim()
+    if (hasPbFields) {
+      if (!form.dataset_id.trim()) errors.dataset_id = "Selecione um dataset"
+      if (!form.customer_table.trim()) errors.customer_table = "Selecione a tabela de clientes"
+      if (!form.date_column.trim()) errors.date_column = "Selecione a coluna de data"
+      if (!form.phone_column.trim()) errors.phone_column = "Selecione a coluna de telefone"
+      if (!form.name_column.trim()) errors.name_column = "Selecione a coluna de nome"
+      const days = getDaysValue(form)
+      if (!days) errors.days = "Informe quantos dias de inatividade"
+    }
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -333,7 +379,11 @@ export default function CampaignsPage() {
     if (!validate()) return
     setSaving(true)
     try {
-      const days = getDaysValue(form)
+      const hasPbFields = !!form.customer_table.trim()
+      const days = hasPbFields ? getDaysValue(form) : null
+      const cron_expression = form.schedule_enabled && form.schedule_days.length > 0
+        ? buildCronExpression(form.schedule_time, form.schedule_days)
+        : null
       const payload = {
         ...(editId ? { id: editId } : {}),
         name: form.name.trim(),
@@ -349,6 +399,7 @@ export default function CampaignsPage() {
         image_url: form.image_url.trim() || null,
         bot_instance_id: form.bot_instance_id || null,
         is_active: form.is_active,
+        cron_expression,
       }
       const { response, data } = await fetchApi("/api/campaigns", {
         method: editId ? "PUT" : "POST",
@@ -786,6 +837,95 @@ export default function CampaignsPage() {
                 />
                 <Label htmlFor="campaign-active" className="text-sm">Campanha ativa</Label>
               </div>
+
+              {/* Agendamento */}
+              <div className="flex flex-col gap-3 border-t pt-4">
+                <div className="flex items-center gap-3">
+                  <Switch
+                    checked={form.schedule_enabled}
+                    onCheckedChange={(v) => setField("schedule_enabled", v)}
+                    id="schedule-enabled"
+                  />
+                  <Label htmlFor="schedule-enabled" className="flex items-center gap-1.5 text-sm">
+                    <CalendarClock className="size-3.5" />
+                    Agendamento automatico
+                  </Label>
+                </div>
+
+                {form.schedule_enabled && (
+                  <div className="flex flex-col gap-3 pl-1">
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-xs text-muted-foreground">Horario de envio</Label>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={form.schedule_time.split(":")[0] ?? "09"}
+                          onValueChange={(h) => setField("schedule_time", `${h}:${form.schedule_time.split(":")[1] ?? "00"}`)}
+                        >
+                          <SelectTrigger className="w-20">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) => (
+                              <SelectItem key={h} value={h}>{h}h</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="text-sm text-muted-foreground">:</span>
+                        <Select
+                          value={form.schedule_time.split(":")[1] ?? "00"}
+                          onValueChange={(m) => setField("schedule_time", `${form.schedule_time.split(":")[0] ?? "09"}:${m}`)}
+                        >
+                          <SelectTrigger className="w-20">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {["00", "15", "30", "45"].map((m) => (
+                              <SelectItem key={m} value={m}>{m}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-xs text-muted-foreground">Dias da semana</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {WEEKDAY_OPTIONS.map((day) => {
+                          const active = form.schedule_days.includes(day.value)
+                          return (
+                            <button
+                              key={day.value}
+                              type="button"
+                              onClick={() => {
+                                const next = active
+                                  ? form.schedule_days.filter((d) => d !== day.value)
+                                  : [...form.schedule_days, day.value]
+                                setField("schedule_days", next)
+                              }}
+                              className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                                active
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border bg-background hover:bg-accent"
+                              }`}
+                            >
+                              {day.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {form.schedule_days.length > 0 && form.schedule_time && (
+                      <p className="text-xs text-muted-foreground">
+                        {describeCronExpression(buildCronExpression(form.schedule_time, form.schedule_days))}
+                      </p>
+                    )}
+                    {form.schedule_days.length === 0 && (
+                      <p className="text-xs text-destructive">Selecione ao menos um dia</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -839,19 +979,21 @@ export default function CampaignsPage() {
                             <div>
                               <p className="font-medium">{campaign.name}</p>
                               <p className="text-xs text-muted-foreground">
-                                {campaign.days_inactive ? `Clientes sem compra ha ${campaign.days_inactive} dias` : campaign.description ?? ""}
+                                {campaign.customer_table && campaign.days_inactive
+                                  ? `Clientes sem compra ha ${campaign.days_inactive} dias`
+                                  : campaign.description ?? "Envio manual"}
                               </p>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
-                          {campaign.days_inactive ? (
+                          {campaign.customer_table && campaign.days_inactive ? (
                             <Badge variant="secondary" className="gap-1">
                               <Clock className="size-3" />
                               {campaign.days_inactive} dias
                             </Badge>
                           ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
+                            <span className="text-xs text-muted-foreground">Manual</span>
                           )}
                         </TableCell>
                         <TableCell className="hidden md:table-cell text-sm text-muted-foreground">

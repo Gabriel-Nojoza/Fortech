@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     const daxQuery = buildCampaignDaxQuery(campaign)
 
     if (!daxQuery) {
-      return NextResponse.json({ error: "Campanha sem consulta configurada" }, { status: 422 })
+      return NextResponse.json({ clients: [], columns: [] })
     }
 
     const token = await getAccessToken(ctx.companyId)

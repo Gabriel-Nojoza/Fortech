@@ -111,6 +111,7 @@ export function AppSidebar({ currentUser, reportBuilderEnabled = false, campaign
           </SidebarGroupContent>
         </SidebarGroup>
 
+
         <SidebarGroup>
           <SidebarGroupLabel>Automacao</SidebarGroupLabel>
           <SidebarGroupContent>

@@ -85,8 +85,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const cacheHeaders = { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" }
+
     if (!hasRestrictedScope) {
-      return NextResponse.json({ data: data ?? [], count: count ?? 0 })
+      return NextResponse.json({ data: data ?? [], count: count ?? 0 }, { headers: cacheHeaders })
     }
 
     const currentScheduleIds = await getCompanyScheduleIdSet(supabase, companyId)
@@ -98,7 +100,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: filteredLogs.slice(offset, offset + limit),
       count: filteredLogs.length,
-    })
+    }, { headers: cacheHeaders })
   } catch (error) {
     if (isAuthContextError(error)) {
       return NextResponse.json(

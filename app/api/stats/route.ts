@@ -611,6 +611,8 @@ export async function GET(request: Request) {
       canSyncAllPowerBi:
         !workspaceScope.workspaceRestricted && !workspaceScope.datasetRestricted,
       canImportWorkspaceCatalogInBulk: !workspaceScope.datasetRestricted,
+    }, {
+      headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" },
     })
   } catch (error) {
     if (isAuthContextError(error)) {

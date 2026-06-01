@@ -58,7 +58,7 @@ export function FloatingChatLauncher() {
         onClick={() => setIsOpen((prev) => !prev)}
         aria-label={isOpen ? "Fechar chat" : "Abrir chat"}
         className={cn(
-          "fixed bottom-5 right-5 z-50 flex h-[200px] w-[200px] items-center justify-center bg-transparent transition-all duration-300 hover:scale-105",
+          "fixed bottom-5 right-5 z-50 flex h-16 w-16 items-center justify-center bg-transparent transition-all duration-300 hover:scale-105",
           "sm:bottom-6 sm:right-6",
           isOpen && "scale-95 opacity-80"
         )}

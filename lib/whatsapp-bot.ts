@@ -257,52 +257,75 @@ export async function fetchWhatsAppBotDirectory(
     : []
 }
 
+async function attemptSendWhatsAppBotMessage(
+  payload: WhatsAppBotSendPayload,
+  normalizedInstanceId: string | null
+): Promise<WhatsAppBotSendResult> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 90_000)
+
+  try {
+    const response = await fetch(`${getWhatsAppBotServiceBaseUrl()}/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, instance_id: normalizedInstanceId }),
+      cache: "no-store",
+      signal: controller.signal,
+    })
+
+    const raw = await response.text()
+    const data = (() => {
+      try {
+        return JSON.parse(raw) as (Partial<WhatsAppBotSendResult> & { error?: string }) | null
+      } catch {
+        return null
+      }
+    })()
+
+    if (!response.ok) {
+      if (response.status === 404 || raw.includes("Cannot POST /send")) {
+        throw new Error(
+          "O bot em execucao ainda esta na versao antiga. Reinicie o bot para habilitar o envio generico."
+        )
+      }
+      throw new Error(data?.error || "Nao foi possivel enviar mensagem pelo bot")
+    }
+
+    return {
+      ok: data?.ok === true,
+      instance_id: normalizedInstanceId,
+      jid: typeof data?.jid === "string" ? data.jid : "",
+      phone: typeof data?.phone === "string" ? data.phone : null,
+      whatsapp_group_id:
+        typeof data?.whatsapp_group_id === "string" ? data.whatsapp_group_id : null,
+      has_document: data?.has_document === true,
+      file_name: typeof data?.file_name === "string" ? data.file_name : null,
+      mimetype: typeof data?.mimetype === "string" ? data.mimetype : null,
+    }
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 export async function sendWhatsAppBotMessage(
   payload: WhatsAppBotSendPayload
 ): Promise<WhatsAppBotSendResult> {
   const normalizedInstanceId = normalizeInstanceId(payload.instance_id)
-  const response = await fetch(`${getWhatsAppBotServiceBaseUrl()}/send`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...payload,
-      instance_id: normalizedInstanceId,
-    }),
-    cache: "no-store",
-  })
 
-  const raw = await response.text()
-  const data = (() => {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      return JSON.parse(raw) as
-        | (Partial<WhatsAppBotSendResult> & { error?: string })
-        | null
-    } catch {
-      return null
+      return await attemptSendWhatsAppBotMessage(payload, normalizedInstanceId)
+    } catch (error) {
+      const isRetryable =
+        error instanceof Error &&
+        (error.message.includes("fetch failed") ||
+          error.message.includes("ECONNRESET") ||
+          error.message.includes("aborted"))
+      if (!isRetryable || attempt === 3) throw error
+      await new Promise<void>((resolve) => setTimeout(resolve, attempt * 2000))
     }
-  })()
-
-  if (!response.ok) {
-    if (response.status === 404 || raw.includes("Cannot POST /send")) {
-      throw new Error(
-        "O bot em execucao ainda esta na versao antiga. Reinicie o bot para habilitar o envio generico."
-      )
-    }
-
-    throw new Error(data?.error || "Nao foi possivel enviar mensagem pelo bot")
   }
-
-  return {
-    ok: data?.ok === true,
-    instance_id: normalizedInstanceId,
-    jid: typeof data?.jid === "string" ? data.jid : "",
-    phone: typeof data?.phone === "string" ? data.phone : null,
-    whatsapp_group_id:
-      typeof data?.whatsapp_group_id === "string" ? data.whatsapp_group_id : null,
-    has_document: data?.has_document === true,
-    file_name: typeof data?.file_name === "string" ? data.file_name : null,
-    mimetype: typeof data?.mimetype === "string" ? data.mimetype : null,
-  }
+  throw new Error("Nao foi possivel enviar mensagem apos multiplas tentativas")
 }
 
 function isValidStatus(value: unknown): value is WhatsAppBotRuntimeStatus {

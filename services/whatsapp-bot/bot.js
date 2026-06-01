@@ -530,6 +530,27 @@ async function waitForSocketUser(instance, timeoutMs = 8000) {
   throw new Error("Bot ainda nao autenticado no WhatsApp")
 }
 
+async function verifyAndResolveJid(instance, jid) {
+  if (isGroupJid(jid) || !isIndividualJid(jid)) {
+    return jid
+  }
+
+  try {
+    const phone = getPhoneFromJid(jid)
+    if (!phone) return jid
+    const results = await instance.socket.onWhatsApp(phone)
+    if (Array.isArray(results) && results.length > 0 && results[0].exists) {
+      const verified = results[0].jid
+      upsertChatCache(instance, { jid: verified })
+      return verified
+    }
+  } catch {
+    // fallback to constructed jid
+  }
+
+  return jid
+}
+
 async function sendGenericPayload(instance, input) {
   if (!instance.socket) {
     throw new Error("Bot ainda nao conectado ao WhatsApp")
@@ -537,7 +558,8 @@ async function sendGenericPayload(instance, input) {
 
   await waitForSocketUser(instance)
 
-  const jid = resolveRecipientJid(instance, input)
+  const rawJid = resolveRecipientJid(instance, input)
+  const jid = await verifyAndResolveJid(instance, rawJid)
   await ensureGroupParticipants(instance, jid)
   const documentPayload = await resolveDocumentPayload(input)
   const message = typeof input?.message === "string" ? input.message.trim() : ""
@@ -545,12 +567,20 @@ async function sendGenericPayload(instance, input) {
   const text = typeof input?.text === "string" ? input.text.trim() : ""
 
   if (documentPayload) {
-    await instance.socket.sendMessage(jid, {
-      document: documentPayload.buffer,
-      mimetype: documentPayload.mimeType,
-      fileName: documentPayload.fileName,
-      caption: caption || message || undefined,
-    })
+    const isImage = documentPayload.mimeType.startsWith("image/")
+    await instance.socket.sendMessage(jid, isImage
+      ? {
+          image: documentPayload.buffer,
+          mimetype: documentPayload.mimeType,
+          caption: caption || message || undefined,
+        }
+      : {
+          document: documentPayload.buffer,
+          mimetype: documentPayload.mimeType,
+          fileName: documentPayload.fileName,
+          caption: caption || message || undefined,
+        }
+    )
 
     return {
       jid,
