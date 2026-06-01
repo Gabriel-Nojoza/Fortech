@@ -30,6 +30,7 @@ import { normalizeDispatchSettings } from "@/lib/dispatch-config"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 import { resolveConnectedBotInstance } from "@/lib/whatsapp-bot-instances"
 import { runStoredAutomation } from "@/lib/automation-runner"
+import { retryAsync } from "@/lib/utils"
 
 const EXPORT_DELAY_MS = Number(process.env.EXPORT_DELAY_MS || "8000")
 
@@ -578,111 +579,133 @@ async function handleDispatch(request: NextRequest) {
               .eq("id", currentLog.id)
           }
 
-          if (selectedPageNames.length > 1) {
-            for (const [pageIndex, pageName] of selectedPageNames.entries()) {
-              console.log("[dispatch] direct PDF generation", {
-                mode: "one_pdf_per_page",
-                scheduleId: schedule.id,
-                contact: getDispatchLogTarget(contact),
-                reportName: target.report.name,
-                pageName,
-                pageIndex,
-              })
-              if (exportCount > 0) {
-                  await sleep(EXPORT_DELAY_MS)
+          try {
+            await retryAsync(async () => {
+              if (selectedPageNames.length > 1) {
+                for (const [pageIndex, pageName] of selectedPageNames.entries()) {
+                  console.log("[dispatch] direct PDF generation", {
+                    mode: "one_pdf_per_page",
+                    scheduleId: schedule.id,
+                    contact: getDispatchLogTarget(contact),
+                    reportName: target.report.name,
+                    pageName,
+                    pageIndex,
+                  })
+                  if (exportCount > 0) {
+                    await sleep(EXPORT_DELAY_MS)
+                  }
+                  exportCount++
+                  const exportedFile = await exportPowerBIReportDocument({
+                    token: pbiToken,
+                    workspaceId: pbiWorkspaceId,
+                    reportId: pbiReportId,
+                    reportName: target.report.name,
+                    embedUrl: pbiEmbedUrl,
+                    pageNames: [pageName],
+                    pageName,
+                  })
+
+                  console.log("[dispatch] sending document to bot", {
+                    mode: "direct_pdf",
+                    scheduleId: schedule.id,
+                    contact: getDispatchLogTarget(contact),
+                    reportName: target.report.name,
+                    fileName: buildPageAttachmentFileName(
+                      target.report.name,
+                      pageName,
+                      pageIndex,
+                      exportedFile.extension
+                    ),
+                    contentType: exportedFile.contentType,
+                    byteLength: exportedFile.buffer.byteLength,
+                  })
+
+                  await sendWithFallback({
+                    instance_id: schedule.bot_instance_id ?? null,
+                    phone: contact.phone,
+                    whatsapp_group_id: contact.whatsapp_group_id,
+                    message: pageIndex === 0 ? reportMessage : null,
+                    document_base64: Buffer.from(exportedFile.buffer).toString("base64"),
+                    file_name: buildPageAttachmentFileName(
+                      target.report.name,
+                      pageName,
+                      pageIndex,
+                      exportedFile.extension
+                    ),
+                    mimetype: exportedFile.contentType,
+                  }, resolvedBotInstance?.id ?? null)
                 }
-                exportCount++
-              const exportedFile = await exportPowerBIReportDocument({
-                token: pbiToken,
-                workspaceId: pbiWorkspaceId,
-                reportId: pbiReportId,
-                reportName: target.report.name,
-                embedUrl: pbiEmbedUrl,
-                pageNames: [pageName],
-                pageName,
-              })
+              } else {
+                console.log("[dispatch] direct PDF generation", {
+                  mode: "single_document",
+                  scheduleId: schedule.id,
+                  contact: getDispatchLogTarget(contact),
+                  reportName: target.report.name,
+                  selectedPageNames,
+                  pageName: target.config.pbi_page_name,
+                })
 
-              console.log("[dispatch] sending document to bot", {
-                mode: "direct_pdf",
-                scheduleId: schedule.id,
-                contact: getDispatchLogTarget(contact),
-                reportName: target.report.name,
-                fileName: buildPageAttachmentFileName(
-                  target.report.name,
-                  pageName,
-                  pageIndex,
-                  exportedFile.extension
-                ),
-                contentType: exportedFile.contentType,
-                byteLength: exportedFile.buffer.byteLength,
-              })
+                const exportedFile = await exportPowerBIReportDocument({
+                  token: pbiToken,
+                  workspaceId: pbiWorkspaceId,
+                  reportId: pbiReportId,
+                  reportName: target.report.name,
+                  embedUrl: pbiEmbedUrl,
+                  pageNames: selectedPageNames.length > 0 ? selectedPageNames : null,
+                  pageName: target.config.pbi_page_name,
+                })
 
-              await sendWithFallback({
-                instance_id: schedule.bot_instance_id ?? null,
-                phone: contact.phone,
-                whatsapp_group_id: contact.whatsapp_group_id,
-                message: pageIndex === 0 ? reportMessage : null,
-                document_base64: Buffer.from(exportedFile.buffer).toString("base64"),
-                file_name: buildPageAttachmentFileName(
-                  target.report.name,
-                  pageName,
-                  pageIndex,
-                  exportedFile.extension
-                ),
-                mimetype: exportedFile.contentType,
-              }, resolvedBotInstance?.id ?? null)
+                console.log("[dispatch] sending document to bot", {
+                  mode: "direct_pdf",
+                  scheduleId: schedule.id,
+                  contact: getDispatchLogTarget(contact),
+                  reportName: target.report.name,
+                  fileName: buildReportAttachmentFileName(target.report.name, exportedFile.extension),
+                  contentType: exportedFile.contentType,
+                  byteLength: exportedFile.buffer.byteLength,
+                })
+
+                await sendWithFallback({
+                  instance_id: schedule.bot_instance_id ?? null,
+                  phone: contact.phone,
+                  whatsapp_group_id: contact.whatsapp_group_id,
+                  message: reportMessage,
+                  document_base64: Buffer.from(exportedFile.buffer).toString("base64"),
+                  file_name: buildReportAttachmentFileName(target.report.name, exportedFile.extension),
+                  mimetype: exportedFile.contentType,
+                }, resolvedBotInstance?.id ?? null)
+              }
+            })
+
+            if (currentLog) {
+              await supabase
+                .from("dispatch_logs")
+                .update({
+                  status: "delivered",
+                  error_message: null,
+                  completed_at: new Date().toISOString(),
+                })
+                .eq("company_id", companyId)
+                .eq("id", currentLog.id)
             }
-          } else {
-            console.log("[dispatch] direct PDF generation", {
-              mode: "single_document",
-              scheduleId: schedule.id,
+          } catch (sendError) {
+            const errMsg = sendError instanceof Error ? sendError.message : "Erro ao exportar ou enviar relatorio"
+            console.error("[dispatch] failed after retries", {
               contact: getDispatchLogTarget(contact),
               reportName: target.report.name,
-              selectedPageNames,
-              pageName: target.config.pbi_page_name,
+              error: errMsg,
             })
-            
-            const exportedFile = await exportPowerBIReportDocument({
-              token: pbiToken,
-              workspaceId: pbiWorkspaceId,
-              reportId: pbiReportId,
-              reportName: target.report.name,
-              embedUrl: pbiEmbedUrl,
-              pageNames: selectedPageNames.length > 0 ? selectedPageNames : null,
-              pageName: target.config.pbi_page_name,
-            })
-
-            console.log("[dispatch] sending document to bot", {
-              mode: "direct_pdf",
-              scheduleId: schedule.id,
-              contact: getDispatchLogTarget(contact),
-              reportName: target.report.name,
-              fileName: buildReportAttachmentFileName(target.report.name, exportedFile.extension),
-              contentType: exportedFile.contentType,
-              byteLength: exportedFile.buffer.byteLength,
-            })
-
-            await sendWithFallback({
-              instance_id: schedule.bot_instance_id ?? null,
-              phone: contact.phone,
-              whatsapp_group_id: contact.whatsapp_group_id,
-              message: reportMessage,
-              document_base64: Buffer.from(exportedFile.buffer).toString("base64"),
-              file_name: buildReportAttachmentFileName(target.report.name, exportedFile.extension),
-              mimetype: exportedFile.contentType,
-            }, resolvedBotInstance?.id ?? null)
-          }
-
-          if (currentLog) {
-            await supabase
-              .from("dispatch_logs")
-              .update({
-                status: "delivered",
-                error_message: null,
-                completed_at: new Date().toISOString(),
-              })
-              .eq("company_id", companyId)
-              .eq("id", currentLog.id)
+            if (currentLog) {
+              await supabase
+                .from("dispatch_logs")
+                .update({
+                  status: "failed",
+                  error_message: errMsg,
+                  completed_at: new Date().toISOString(),
+                })
+                .eq("company_id", companyId)
+                .eq("id", currentLog.id)
+            }
           }
         }
       }

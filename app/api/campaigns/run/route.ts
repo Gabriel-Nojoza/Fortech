@@ -5,6 +5,7 @@ import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
 import { getAccessToken, executeDAXQuery } from "@/lib/powerbi"
 import { buildCampaignDaxQuery } from "@/lib/campaign-dax"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
+import { retryAsync } from "@/lib/utils"
 import type { CampaignClient } from "@/lib/types"
 
 function resolveMessage(template: string, row: Record<string, unknown>): string {
@@ -117,13 +118,13 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        await sendWhatsAppBotMessage({
+        await retryAsync(() => sendWhatsAppBotMessage({
           instance_id: campaign.bot_instance_id ?? null,
           phone,
           ...(isImageMessage
             ? { document_url: imageUrl, caption: message, mimetype: "image/jpeg" }
             : { message }),
-        })
+        }))
 
         sentCount++
         await supabase.from("campaign_sends").insert({

@@ -16,6 +16,7 @@ import {
 } from "@/lib/automation-storage"
 import type { QueryFilter, SelectedColumn, SelectedMeasure } from "@/lib/types"
 import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
+import { retryAsync } from "@/lib/utils"
 
 export interface RunStoredAutomationParams {
   companyId: string
@@ -370,7 +371,7 @@ export async function runStoredAutomation(params: RunStoredAutomationParams): Pr
         }
       }
 
-      await sendWhatsAppBotMessage(sendPayload)
+      await retryAsync(() => sendWhatsAppBotMessage(sendPayload))
 
       if (log) {
         await supabase
