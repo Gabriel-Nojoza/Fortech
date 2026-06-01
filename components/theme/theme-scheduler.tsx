@@ -28,18 +28,37 @@ function resolveTheme(lightTime: string, darkTime: string): "light" | "dark" {
   }
 }
 
+const OVERRIDE_KEY = "theme-manual-override"
+
 export function ThemeScheduler({ enabled, lightTime, darkTime }: Props) {
-  const { setTheme } = useTheme()
+  const { theme, setTheme } = useTheme()
 
   useEffect(() => {
     if (!enabled) return
 
-    const apply = () => setTheme(resolveTheme(lightTime, darkTime))
-    apply()
+    const apply = () => {
+      const desired = resolveTheme(lightTime, darkTime)
+      const hasOverride = localStorage.getItem(OVERRIDE_KEY) === "1"
 
+      if (hasOverride && theme !== desired) {
+        // User manually chose a different theme — wait until next natural transition
+        return
+      }
+
+      // No override, or the next transition arrived and themes now agree — resume scheduler
+      if (hasOverride) localStorage.removeItem(OVERRIDE_KEY)
+      setTheme(desired)
+    }
+
+    apply()
     const interval = setInterval(apply, 60_000)
     return () => clearInterval(interval)
-  }, [enabled, lightTime, darkTime, setTheme])
+  }, [enabled, lightTime, darkTime, setTheme, theme])
 
   return null
+}
+
+/** Call this when the user manually toggles the theme so the scheduler backs off. */
+export function markThemeManualOverride() {
+  localStorage.setItem(OVERRIDE_KEY, "1")
 }

@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTheme } from "next-themes"
+import { markThemeManualOverride } from "@/components/theme/theme-scheduler"
 import {
   CurrentUserSummary,
   type CurrentUserSummaryData,
@@ -148,7 +149,7 @@ export function AppSidebar({ currentUser, reportBuilderEnabled = false, campaign
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              onClick={() => { markThemeManualOverride(); setTheme(theme === "dark" ? "light" : "dark") }}
               tooltip="Alternar tema"
             >
               <Sun className="size-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
