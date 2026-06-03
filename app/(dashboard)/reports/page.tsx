@@ -6,11 +6,9 @@ import { useRouter } from "next/navigation"
 import useSWR, { mutate as globalMutate } from "swr"
 import {
   FileBarChart2,
-  ExternalLink,
   Search,
   RefreshCcw,
   Loader2,
-  Eye,
   Workflow,
   Pencil,
   Play,
@@ -377,7 +375,6 @@ export default function ReportsPage() {
                     <TableHead>Nome</TableHead>
                     <TableHead>Workspace</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
                 </TableHeader>
 
@@ -410,36 +407,7 @@ export default function ReportsPage() {
                         </Badge>
                       </TableCell>
 
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {report.is_active ? (
-                            <Button variant="outline" size="sm" asChild>
-                              <Link href={`/reports/${report.id}`} className="gap-1.5">
-                                <Eye className="size-4" />
-                                Abrir
-                              </Link>
-                            </Button>
-                          ) : (
-                            <Button variant="outline" size="sm" disabled className="gap-1.5">
-                              <Eye className="size-4" />
-                              Abrir
-                            </Button>
-                          )}
-
-                          {report.is_active && report.web_url && (
-                            <Button variant="ghost" size="icon" asChild>
-                              <a
-                                href={report.web_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                <ExternalLink className="size-4" />
-                                <span className="sr-only">Abrir no Power BI</span>
-                              </a>
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
+                      <TableCell />
                     </TableRow>
                   ))}
                 </TableBody>
