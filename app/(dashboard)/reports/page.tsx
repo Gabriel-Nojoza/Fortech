@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import useSWR, { mutate as globalMutate } from "swr"
@@ -114,6 +114,12 @@ export default function ReportsPage() {
   const [runningId, setRunningId] = useState<string | null>(null)
   const [previewingId, setPreviewingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch("/api/powerbi/sync", { method: "POST" })
+      .then(() => Promise.all([mutateReports(), mutateWorkspaces()]))
+      .catch(() => {})
+  }, [])
 
   function handleEditAutomation(auto: AutomationItem) {
     try {

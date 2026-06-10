@@ -162,33 +162,43 @@ export async function POST(_request: NextRequest) {
         .map((h) => `${String(h).padStart(2, "0")}:00`)
     }
 
-    if (syncTimes.length === 0) {
-      return NextResponse.json({ synced: false, reason: "Nenhum horario configurado" })
-    }
-
     const now = new Date()
-    const timeParts = getTimePartsInTimeZone(now, timeZone)
-    const currentTime = `${String(timeParts.hour).padStart(2, "0")}:${String(timeParts.minute).padStart(2, "0")}`
-
-    if (!syncTimes.includes(currentTime)) {
-      return NextResponse.json({ synced: false, reason: "Fora do horario de sincronizacao" })
-    }
-
     const lastSyncAt =
       typeof syncSettings.last_auto_sync_at === "string"
         ? new Date(syncSettings.last_auto_sync_at)
         : null
 
-    if (lastSyncAt && !isNaN(lastSyncAt.getTime())) {
-      const lastParts = getTimePartsInTimeZone(lastSyncAt, timeZone)
-      const lastTime = `${String(lastParts.hour).padStart(2, "0")}:${String(lastParts.minute).padStart(2, "0")}`
-      if (
-        lastParts.year === timeParts.year &&
-        lastParts.month === timeParts.month &&
-        lastParts.day === timeParts.day &&
-        lastTime === currentTime
-      ) {
-        return NextResponse.json({ synced: false, reason: "Ja sincronizado neste horario" })
+    if (syncTimes.length === 0) {
+      // Sem horarios configurados: sincroniza por intervalo (padrao 4 horas)
+      const intervalMinutes =
+        typeof syncSettings.interval_minutes === "number" && syncSettings.interval_minutes > 0
+          ? syncSettings.interval_minutes
+          : 240
+      if (lastSyncAt && !isNaN(lastSyncAt.getTime())) {
+        const minutesSinceLast = (now.getTime() - lastSyncAt.getTime()) / 60000
+        if (minutesSinceLast < intervalMinutes) {
+          return NextResponse.json({ synced: false, reason: "Aguardando intervalo de sincronizacao" })
+        }
+      }
+    } else {
+      const timeParts = getTimePartsInTimeZone(now, timeZone)
+      const currentTime = `${String(timeParts.hour).padStart(2, "0")}:${String(timeParts.minute).padStart(2, "0")}`
+
+      if (!syncTimes.includes(currentTime)) {
+        return NextResponse.json({ synced: false, reason: "Fora do horario de sincronizacao" })
+      }
+
+      if (lastSyncAt && !isNaN(lastSyncAt.getTime())) {
+        const lastParts = getTimePartsInTimeZone(lastSyncAt, timeZone)
+        const lastTime = `${String(lastParts.hour).padStart(2, "0")}:${String(lastParts.minute).padStart(2, "0")}`
+        if (
+          lastParts.year === timeParts.year &&
+          lastParts.month === timeParts.month &&
+          lastParts.day === timeParts.day &&
+          lastTime === currentTime
+        ) {
+          return NextResponse.json({ synced: false, reason: "Ja sincronizado neste horario" })
+        }
       }
     }
 
