@@ -7,7 +7,6 @@ import useSWR, { mutate as globalMutate } from "swr"
 import {
   FileBarChart2,
   Search,
-  RefreshCcw,
   Loader2,
   Eye,
   EyeOff,
@@ -110,7 +109,7 @@ export default function ReportsPage() {
 
   const [search, setSearch] = useState("")
   const [wsFilter, setWsFilter] = useState("all")
-  const [syncingPowerBi, setSyncingPowerBi] = useState(false)
+
   const [runningId, setRunningId] = useState<string | null>(null)
   const [previewingId, setPreviewingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -254,52 +253,6 @@ export default function ReportsPage() {
     }
   }
 
-  async function handleSyncPowerBi() {
-    try {
-      setSyncingPowerBi(true)
-
-      const response = await fetch("/api/powerbi/sync", {
-        method: "POST",
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Erro ao sincronizar Power BI")
-      }
-
-      await Promise.all([mutateReports(), mutateWorkspaces()])
-
-      const warningCount = Array.isArray(data?.warnings) ? data.warnings.length : 0
-      const inactiveWorkspaceCount = Number(data?.inactive_workspaces ?? 0)
-      const removedCatalogCount = Number(data?.removed_catalog_datasets ?? 0)
-      const baseMessage = `Sincronizacao concluida: ${data.workspaces ?? 0} workspace(s), ${data.reports ?? 0} relatorio(s) e ${data.datasets ?? 0} dataset(s).`
-
-      if (warningCount > 0 || inactiveWorkspaceCount > 0 || removedCatalogCount > 0) {
-        const details = [
-          inactiveWorkspaceCount > 0
-            ? `${inactiveWorkspaceCount} workspace(s) obsoleto(s) foram desativados`
-            : null,
-          removedCatalogCount > 0
-            ? `${removedCatalogCount} catalogo(s) de dataset obsoleto(s) foram removidos`
-            : null,
-          warningCount > 0 ? `${warningCount} aviso(s) ocorreram durante a atualizacao` : null,
-        ]
-          .filter(Boolean)
-          .join(". ")
-
-        toast.success(`${baseMessage} ${details}.`)
-      } else {
-        toast.success(baseMessage)
-      }
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Erro ao sincronizar Power BI"
-      )
-    } finally {
-      setSyncingPowerBi(false)
-    }
-  }
 
   return (
     <>
@@ -335,20 +288,6 @@ export default function ReportsPage() {
             </SelectContent>
           </Select>
 
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleSyncPowerBi}
-            disabled={syncingPowerBi}
-            className="gap-2"
-          >
-            {syncingPowerBi ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RefreshCcw className="size-4" />
-            )}
-            {syncingPowerBi ? "Sincronizando..." : "Sincronizar Power BI"}
-          </Button>
         </div>
 
         <Card>

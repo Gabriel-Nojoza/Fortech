@@ -70,8 +70,8 @@ export async function POST(request: NextRequest) {
       const rows = queryResult.rows ?? []
 
       clients = rows.map((row) => ({
-        name: campaign.name_column ? (row[campaign.name_column] != null ? String(row[campaign.name_column]) : null) : null,
-        phone: normalizePhone(campaign.phone_column ? row[campaign.phone_column] : null),
+        name: row["nome"] != null ? String(row["nome"]) : null,
+        phone: normalizePhone(row["telefone"]),
         data: row,
       }))
     }

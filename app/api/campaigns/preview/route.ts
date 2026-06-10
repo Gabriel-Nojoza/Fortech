@@ -16,7 +16,7 @@ function buildPreviewDaxQuery(
   nameColumn: string,
   phoneColumn: string
 ): string {
-  const selectCols = `  "${nameColumn}", '${customerTable}'[${nameColumn}],\n  "${phoneColumn}", '${customerTable}'[${phoneColumn}]`
+  const selectCols = `  "nome", '${customerTable}'[${nameColumn}],\n  "telefone", '${customerTable}'[${phoneColumn}]`
   if (dateColumn && daysInactive) {
     return [
       "EVALUATE",
@@ -73,8 +73,8 @@ export async function POST(request: NextRequest) {
     const rows = result.rows ?? []
 
     const clients = rows.map((row) => ({
-      name: row[name_column] != null ? String(row[name_column]) : null,
-      phone: normalizePhone(row[phone_column]),
+      name: row["nome"] != null ? String(row["nome"]) : null,
+      phone: normalizePhone(row["telefone"]),
     }))
 
     return NextResponse.json({ clients, total: clients.length })

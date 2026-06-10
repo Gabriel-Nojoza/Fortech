@@ -11,7 +11,7 @@ export function buildCampaignDaxQuery(campaign: Pick<
     const phCol = campaign.phone_column
 
     const selectCols = namCol && phCol
-      ? `  "${namCol}", '${table}'[${namCol}],\n  "${phCol}", '${table}'[${phCol}]`
+      ? `  "nome", '${table}'[${namCol}],\n  "telefone", '${table}'[${phCol}]`
       : null
 
     if (campaign.date_column && campaign.days_inactive != null) {

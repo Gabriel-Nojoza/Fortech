@@ -252,7 +252,7 @@ export default function CampaignsPage() {
   const tableOptions = tables.filter((t) => !t.isHidden)
   const columnsForTable = (tableName: string) => columns.filter((c) => c.tableName === tableName && !c.isHidden)
   const dateColumnsForTable = (tableName: string) => columnsForTable(tableName).filter((c) => DATE_TYPES.includes(c.dataType))
-  const allColumnsForTable = (tableName: string) => columnsForTable(tableName)
+  const allColumnsForTable = (tableName: string) => columns.filter((c) => c.tableName === tableName)
 
   function openCreate() {
     setEditId(null)
