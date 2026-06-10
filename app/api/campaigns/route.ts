@@ -22,6 +22,7 @@ const campaignSchema = z.object({
   bot_instance_id: z.string().uuid().nullable().optional(),
   cron_expression: z.string().nullable().optional(),
   is_active: z.boolean().default(true),
+  manual_contacts: z.array(z.object({ name: z.string(), phone: z.string() })).optional(),
 })
 
 const updateSchema = campaignSchema.partial().extend({

@@ -499,6 +499,8 @@ export async function exportReport(
   const selectedPageNames =
     pageNames.length > 0 ? pageNames : fallbackPageName ? [fallbackPageName] : []
 
+  const layoutType = format === "PNG" ? "FitToPage" : "Print"
+
   const body =
     selectedPageNames.length > 0
       ? {
@@ -506,7 +508,7 @@ export async function exportReport(
           powerBIReportConfiguration: {
             pages: selectedPageNames.map((pageName) => ({ pageName })),
             settings: {
-              layoutType: "Print",
+              layoutType,
             },
           },
         }
@@ -514,7 +516,7 @@ export async function exportReport(
           format,
           powerBIReportConfiguration: {
             settings: {
-              layoutType: "Print",
+              layoutType,
             },
           },
         }

@@ -3,21 +3,54 @@ import type { Campaign } from "@/lib/types"
 export function buildCampaignDaxQuery(campaign: Pick<
   Campaign,
   "customer_table" | "date_column" | "days_inactive" | "dax_query" |
-  "selected_columns" | "selected_measures" | "filters"
+  "selected_columns" | "selected_measures" | "filters" | "name_column" | "phone_column"
 >): string | null {
-  if (campaign.customer_table && campaign.date_column && campaign.days_inactive != null) {
+  if (campaign.customer_table) {
     const table = campaign.customer_table
-    const dateCol = campaign.date_column
-    const days = campaign.days_inactive
+    const namCol = campaign.name_column
+    const phCol = campaign.phone_column
 
-    return [
-      "EVALUATE",
-      "FILTER(",
-      `  '${table}',`,
-      `  NOT ISBLANK('${table}'[${dateCol}])`,
-      `    && DATEDIFF('${table}'[${dateCol}], TODAY(), DAY) >= ${days}`,
-      ")",
-    ].join("\n")
+    const selectCols = namCol && phCol
+      ? `  "${namCol}", '${table}'[${namCol}],\n  "${phCol}", '${table}'[${phCol}]`
+      : null
+
+    if (campaign.date_column && campaign.days_inactive != null) {
+      const dateCol = campaign.date_column
+      const days = campaign.days_inactive
+      if (selectCols) {
+        return [
+          "EVALUATE",
+          "SELECTCOLUMNS(",
+          "  FILTER(",
+          `    '${table}',`,
+          `    NOT ISBLANK('${table}'[${dateCol}])`,
+          `      && DATEDIFF('${table}'[${dateCol}], TODAY(), DAY) >= ${days}`,
+          "  ),",
+          selectCols,
+          ")",
+        ].join("\n")
+      }
+      return [
+        "EVALUATE",
+        "FILTER(",
+        `  '${table}',`,
+        `  NOT ISBLANK('${table}'[${dateCol}])`,
+        `    && DATEDIFF('${table}'[${dateCol}], TODAY(), DAY) >= ${days}`,
+        ")",
+      ].join("\n")
+    }
+
+    if (selectCols) {
+      return [
+        "EVALUATE",
+        "SELECTCOLUMNS(",
+        `  '${table}',`,
+        selectCols,
+        ")",
+      ].join("\n")
+    }
+
+    return `EVALUATE '${table}'`
   }
 
   if (campaign.dax_query?.trim()) {

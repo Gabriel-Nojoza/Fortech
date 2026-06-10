@@ -232,6 +232,7 @@ export interface Campaign {
   cron_expression: string | null
   is_active: boolean
   last_run_at: string | null
+  manual_contacts: { name: string; phone: string }[]
   created_at: string
   updated_at: string
 }

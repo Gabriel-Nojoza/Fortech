@@ -204,17 +204,11 @@ export default function CampaignsPage() {
   }, [viewMode])
 
 
-  // Auto-preview when fields are filled
+  // Reset preview when key fields change
   useEffect(() => {
-    if (!form.name_column || !form.phone_column || !form.customer_table || !form.date_column || !features?.campaigns) {
-      setPreviewClients(null)
-      return
-    }
-    const days = getDaysValue(form)
-    if (!days) { setPreviewClients(null); return }
-    void handlePreview()
+    setPreviewClients(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.name_column, form.phone_column, form.customer_table, form.date_column, form.days_inactive, form.days_custom, features?.campaigns])
+  }, [form.customer_table, form.date_column, form.days_inactive, form.days_custom, form.name_column, form.phone_column])
 
   // Auto-select first workspace
   useEffect(() => {
@@ -315,12 +309,11 @@ export default function CampaignsPage() {
     const hasPbFields = !!form.customer_table.trim()
     if (hasPbFields) {
       if (!form.dataset_id.trim()) errors.dataset_id = "Selecione um dataset"
-      if (!form.customer_table.trim()) errors.customer_table = "Selecione a tabela de clientes"
-      if (!form.date_column.trim()) errors.date_column = "Selecione a coluna de data"
       if (!form.phone_column.trim()) errors.phone_column = "Selecione a coluna de telefone"
       if (!form.name_column.trim()) errors.name_column = "Selecione a coluna de nome"
-      const days = getDaysValue(form)
-      if (!days) errors.days = "Informe quantos dias de inatividade"
+      // date_column + days são opcionais — só valida se um deles foi preenchido
+      if (form.date_column.trim() && !getDaysValue(form)) errors.days = "Informe quantos dias de inatividade"
+      if (!form.date_column.trim() && getDaysValue(form)) errors.date_column = "Selecione a coluna de data para filtrar por inatividade"
     }
     setFormErrors(errors)
     return Object.keys(errors).length === 0
@@ -348,7 +341,7 @@ export default function CampaignsPage() {
 
   async function handlePreview() {
     const days = getDaysValue(form)
-    if (!form.dataset_id || !form.customer_table || !form.date_column || !days || !form.name_column || !form.phone_column) return
+    if (!form.dataset_id || !form.customer_table || !form.name_column || !form.phone_column) return
     setLoadingPreview(true)
     setPreviewClients(null)
     try {
@@ -358,8 +351,8 @@ export default function CampaignsPage() {
         body: JSON.stringify({
           dataset_id: form.dataset_id,
           customer_table: form.customer_table,
-          date_column: form.date_column,
-          days_inactive: days,
+          date_column: form.date_column || null,
+          days_inactive: days || null,
           name_column: form.name_column,
           phone_column: form.phone_column,
         }),
@@ -645,6 +638,57 @@ export default function CampaignsPage() {
               <div className="border-t pt-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">Quais clientes vao receber?</p>
 
+                {/* Workspace */}
+                <div className="flex flex-col gap-1.5 mb-3">
+                  <Label className="text-xs">Workspace Power BI</Label>
+                  <Select
+                    value={form.workspace_id}
+                    onValueChange={(v) => {
+                      setField("workspace_id", v)
+                      setField("dataset_id", "")
+                      setField("customer_table", "")
+                      setField("date_column", "")
+                      setField("phone_column", "")
+                      setField("name_column", "")
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecionar workspace..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workspaceList.map((ws) => (
+                        <SelectItem key={ws.pbi_workspace_id} value={ws.pbi_workspace_id}>{ws.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Dataset */}
+                <div className="flex flex-col gap-1.5 mb-3">
+                  <Label className="text-xs">Dataset</Label>
+                  <Select
+                    value={form.dataset_id}
+                    onValueChange={(v) => {
+                      setField("dataset_id", v)
+                      setField("customer_table", "")
+                      setField("date_column", "")
+                      setField("phone_column", "")
+                      setField("name_column", "")
+                    }}
+                    disabled={!form.workspace_id || loadingDatasets}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={loadingDatasets ? "Carregando..." : "Selecionar dataset..."} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {datasets.map((ds) => (
+                        <SelectItem key={ds.id} value={ds.id}>{ds.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {formErrors.dataset_id && <p className="text-xs text-destructive">{formErrors.dataset_id}</p>}
+                </div>
+
                 {/* Tabela */}
                 <div className="flex flex-col gap-1.5 mb-3">
                   <Label className="text-xs">Tabela de clientes</Label>
@@ -657,8 +701,8 @@ export default function CampaignsPage() {
                       setField("phone_column", "")
                       setField("name_column", "")
                     }}
-                    placeholder={loadingDatasets || loadingMeta ? "Carregando..." : "Buscar tabela..."}
-                    disabled={!form.dataset_id || loadingDatasets || loadingMeta}
+                    placeholder={loadingMeta ? "Carregando..." : "Buscar tabela..."}
+                    disabled={!form.dataset_id || loadingMeta}
                     error={!!formErrors.customer_table}
                   />
                   {formErrors.customer_table && <p className="text-xs text-destructive">{formErrors.customer_table}</p>}
@@ -668,10 +712,7 @@ export default function CampaignsPage() {
                 <div className="flex flex-col gap-1.5 mb-3">
                   <Label className="text-xs">Coluna da ultima compra</Label>
                   <ColumnSelect
-                    columns={(dateColumnsForTable(form.customer_table).length > 0
-                      ? dateColumnsForTable(form.customer_table)
-                      : allColumnsForTable(form.customer_table)
-                    ).map((c) => c.columnName)}
+                    columns={allColumnsForTable(form.customer_table).map((c) => c.columnName)}
                     value={form.date_column}
                     onChange={(v) => setField("date_column", v)}
                     placeholder="Buscar coluna de data..."
@@ -714,7 +755,7 @@ export default function CampaignsPage() {
                 </div>
 
                 {/* Colunas de nome e telefone */}
-                {form.customer_table && form.date_column && !!getDaysValue(form) && (
+                {form.customer_table && (
                   <>
                     <div className="grid grid-cols-2 gap-2 mb-3">
                       <div className="flex flex-col gap-1.5">
@@ -752,18 +793,27 @@ export default function CampaignsPage() {
                             <Users className="size-3.5 text-muted-foreground" />
                             <span className="text-xs font-medium">
                               {loadingPreview ? "Buscando..." : previewClients !== null
-                                ? `${previewClients.length - removedIndexes.size} de ${previewClients.length} clientes`
+                                ? `${previewClients.length} clientes`
                                 : "Contatos"
                               }
                             </span>
                           </div>
-                          {removedIndexes.size > 0 && (
+                          {previewClients === null && !loadingPreview && (
                             <button
                               type="button"
-                              className="text-xs text-primary hover:underline"
-                              onClick={() => setRemovedIndexes(new Set())}
+                              className="text-xs text-primary hover:underline font-medium"
+                              onClick={handlePreview}
                             >
-                              Restaurar todos
+                              Buscar clientes
+                            </button>
+                          )}
+                          {previewClients !== null && !loadingPreview && (
+                            <button
+                              type="button"
+                              className="text-xs text-muted-foreground hover:underline"
+                              onClick={handlePreview}
+                            >
+                              Atualizar
                             </button>
                           )}
                         </div>

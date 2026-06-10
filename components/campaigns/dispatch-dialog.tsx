@@ -59,6 +59,21 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
   const [manualContacts, setManualContacts] = useState<{ name: string; phone: string }[]>([])
   const [manualName, setManualName] = useState("")
   const [manualPhone, setManualPhone] = useState("")
+  const [savingContacts, setSavingContacts] = useState(false)
+
+  async function persistManualContacts(contacts: { name: string; phone: string }[]) {
+    if (!campaign) return
+    setSavingContacts(true)
+    try {
+      await fetchApi("/api/campaigns", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: campaign.id, manual_contacts: contacts }),
+      })
+    } finally {
+      setSavingContacts(false)
+    }
+  }
 
   useEffect(() => {
     if (!open || !campaign) return
@@ -68,7 +83,7 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
     setRemovedIndexes(new Set())
     setSearch("")
     setHistory([])
-    setManualContacts([])
+    setManualContacts(Array.isArray(campaign.manual_contacts) ? campaign.manual_contacts : [])
     setManualName("")
     setManualPhone("")
 
@@ -125,9 +140,17 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
       toast.error("Telefone invalido")
       return
     }
-    setManualContacts((prev) => [...prev, { name: manualName.trim(), phone }])
+    const updated = [...manualContacts, { name: manualName.trim(), phone }]
+    setManualContacts(updated)
+    persistManualContacts(updated)
     setManualName("")
     setManualPhone("")
+  }
+
+  function handleRemoveManual(index: number) {
+    const updated = manualContacts.filter((_, j) => j !== index)
+    setManualContacts(updated)
+    persistManualContacts(updated)
   }
 
   async function handleSend() {
@@ -418,9 +441,14 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
 
             {/* ─── Adicionar contato manual ─── */}
             <div className="shrink-0 border-t px-3 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                Adicionar manualmente
-              </p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Adicionar manualmente
+                </p>
+                {savingContacts && (
+                  <span className="text-[10px] text-muted-foreground">Salvando...</span>
+                )}
+              </div>
               <div className="flex flex-col gap-1.5">
                 <Input
                   value={manualName}
@@ -458,7 +486,7 @@ export function CampaignDispatchDialog({ campaign, open, onOpenChange, onSuccess
                       </div>
                       <button
                         type="button"
-                        onClick={() => setManualContacts((prev) => prev.filter((_, j) => j !== i))}
+                        onClick={() => handleRemoveManual(i)}
                         className="ml-2 shrink-0 text-muted-foreground/60 hover:text-destructive transition-colors"
                       >
                         <Trash2 className="size-3.5" />

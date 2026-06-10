@@ -11,15 +11,30 @@ function normalizePhone(raw: unknown): string | null {
 
 function buildPreviewDaxQuery(
   customerTable: string,
-  dateColumn: string,
-  daysInactive: number
+  dateColumn: string | null,
+  daysInactive: number | null,
+  nameColumn: string,
+  phoneColumn: string
 ): string {
+  const selectCols = `  "${nameColumn}", '${customerTable}'[${nameColumn}],\n  "${phoneColumn}", '${customerTable}'[${phoneColumn}]`
+  if (dateColumn && daysInactive) {
+    return [
+      "EVALUATE",
+      "SELECTCOLUMNS(",
+      "  FILTER(",
+      `    '${customerTable}',`,
+      `    NOT ISBLANK('${customerTable}'[${dateColumn}])`,
+      `      && DATEDIFF('${customerTable}'[${dateColumn}], TODAY(), DAY) >= ${daysInactive}`,
+      "  ),",
+      selectCols,
+      ")",
+    ].join("\n")
+  }
   return [
     "EVALUATE",
-    "FILTER(",
+    "SELECTCOLUMNS(",
     `  '${customerTable}',`,
-    `  NOT ISBLANK('${customerTable}'[${dateColumn}])`,
-    `    && DATEDIFF('${customerTable}'[${dateColumn}], TODAY(), DAY) >= ${daysInactive}`,
+    selectCols,
     ")",
   ].join("\n")
 }
@@ -43,16 +58,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { dataset_id, customer_table, date_column, days_inactive, name_column, phone_column } = body
 
-    if (!dataset_id || !customer_table || !date_column || !days_inactive || !name_column || !phone_column) {
+    if (!dataset_id || !customer_table || !name_column || !phone_column) {
       return NextResponse.json({ error: "Campos obrigatorios ausentes" }, { status: 400 })
     }
 
-    const daysNum = Number(days_inactive)
-    if (isNaN(daysNum) || daysNum <= 0) {
+    const daysNum = days_inactive ? Number(days_inactive) : null
+    if (daysNum !== null && (isNaN(daysNum) || daysNum <= 0)) {
       return NextResponse.json({ error: "days_inactive invalido" }, { status: 400 })
     }
 
-    const daxQuery = buildPreviewDaxQuery(customer_table, date_column, daysNum)
+    const daxQuery = buildPreviewDaxQuery(customer_table, date_column ?? null, daysNum, name_column, phone_column)
     const token = await getAccessToken(ctx.companyId)
     const result = await executeDAXQuery(token, dataset_id, daxQuery)
     const rows = result.rows ?? []
