@@ -556,6 +556,7 @@ export default function SchedulesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [formContactIds, setFormContactIds] = useState<string[]>([])
   const [formActive, setFormActive] = useState(true)
+  const [formDisableAfterSend, setFormDisableAfterSend] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [contactSearch, setContactSearch] = useState("")
@@ -681,6 +682,7 @@ export default function SchedulesPage() {
     setFormImageUrl("")
     setFormContactIds([])
     setFormActive(true)
+    setFormDisableAfterSend(false)
     setFormErrors({})
     setContactSearch("")
     setReportPagesBySelection({})
@@ -746,6 +748,7 @@ export default function SchedulesPage() {
     setFormImageUrl(schedule.image_url ?? "")
     setFormContactIds(schedule.contacts?.map((c) => c.id) ?? [])
     setFormActive(duplicating ? false : schedule.is_active)
+    setFormDisableAfterSend(schedule.disable_after_send ?? false)
     setFormErrors({})
     setContactSearch("")
     setReportPagesBySelection({})
@@ -858,6 +861,7 @@ export default function SchedulesPage() {
         export_format: formFormat,
         message_template: formMessage || null,
         image_url: formImageUrl || null,
+        disable_after_send: formDisableAfterSend,
         contact_ids: formContactIds,
         is_active: formActive,
       }
@@ -2071,6 +2075,17 @@ export default function SchedulesPage() {
                 id="schedule-active"
               />
               <Label htmlFor="schedule-active">Ativa</Label>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="disable-after-send"
+                checked={formDisableAfterSend}
+                onCheckedChange={(v) => setFormDisableAfterSend(!!v)}
+              />
+              <Label htmlFor="disable-after-send" className="cursor-pointer">
+                Desativar após primeiro envio
+              </Label>
             </div>
 
             <Button

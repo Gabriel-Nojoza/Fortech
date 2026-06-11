@@ -81,6 +81,7 @@ export interface Schedule {
   export_format: ScheduleExportFormat
   message_template: string | null
   image_url?: string | null
+  disable_after_send?: boolean
   is_active: boolean
   last_run_at: string | null
   next_run_at: string | null

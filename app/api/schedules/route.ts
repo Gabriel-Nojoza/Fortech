@@ -131,6 +131,7 @@ const baseScheduleSchema = z.object({
     .default("PDF"),
   message_template: z.string().nullable().optional(),
   image_url: z.string().url().nullable().optional(),
+  disable_after_send: z.boolean().optional(),
   is_active: z.boolean().default(true),
   contact_ids: z.array(z.string().trim().min(1)).optional(),
 })

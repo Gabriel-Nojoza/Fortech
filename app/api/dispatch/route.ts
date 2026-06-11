@@ -372,7 +372,7 @@ async function handleDispatch(request: NextRequest) {
           document_url: scheduleImageUrl,
           file_name: "imagem.jpg",
           mimetype: "image/jpeg",
-        })
+        }, resolvedBotInstance?.id ?? null)
         sent++
       } catch {
         // falha silenciosa por contato
@@ -381,7 +381,7 @@ async function handleDispatch(request: NextRequest) {
 
     await supabase
       .from("schedules")
-      .update({ last_run_at: new Date().toISOString() })
+      .update({ last_run_at: new Date().toISOString(), ...(schedule.disable_after_send ? { is_active: false } : {}) })
       .eq("company_id", companyId)
       .eq("id", schedule_id)
 
@@ -489,7 +489,7 @@ async function handleDispatch(request: NextRequest) {
 
     await supabase
       .from("schedules")
-      .update({ last_run_at: new Date().toISOString() })
+      .update({ last_run_at: new Date().toISOString(), ...(schedule.disable_after_send ? { is_active: false } : {}) })
       .eq("company_id", companyId)
       .eq("id", schedule_id)
 
@@ -768,7 +768,7 @@ async function handleDispatch(request: NextRequest) {
 
       await supabase
         .from("schedules")
-        .update({ last_run_at: new Date().toISOString() })
+        .update({ last_run_at: new Date().toISOString(), ...(schedule.disable_after_send ? { is_active: false } : {}) })
         .eq("company_id", companyId)
         .eq("id", schedule_id)
 
@@ -882,7 +882,7 @@ async function handleDispatch(request: NextRequest) {
 
     await supabase
       .from("schedules")
-      .update({ last_run_at: new Date().toISOString() })
+      .update({ last_run_at: new Date().toISOString(), ...(schedule.disable_after_send ? { is_active: false } : {}) })
       .eq("company_id", companyId)
       .eq("id", schedule_id)
   } catch (error) {
