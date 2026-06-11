@@ -46,7 +46,7 @@ export function isScheduleAccessible(
 ) {
   const reportIds = getScheduleReportIds(resolveScheduleReportConfigs(schedule))
 
-  return reportIds.length > 0 && reportIds.every((reportId) => accessMaps.visibleTargetIds.has(reportId))
+  return reportIds.length === 0 || reportIds.every((reportId) => accessMaps.visibleTargetIds.has(reportId))
 }
 
 export async function getScheduleAccessMaps(

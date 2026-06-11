@@ -835,10 +835,10 @@ export default function SchedulesPage() {
     const isEditing = editingScheduleId !== null
     const primaryReportSelection = normalizedFormReportSelections[0] ?? null
 
-    if (!primaryReportSelection) {
+    if (!primaryReportSelection && !formImageUrl) {
       setFormErrors((prev) => ({
         ...prev,
-        reportConfigs: "Selecione ao menos 1 relatorio",
+        reportConfigs: "Selecione ao menos 1 relatorio ou adicione uma imagem",
       }))
       return
     }
@@ -849,9 +849,9 @@ export default function SchedulesPage() {
         ...(editingScheduleId ? { id: editingScheduleId } : {}),
         name: formName.trim(),
         bot_instance_id: formBotInstanceId || null,
-        report_id: primaryReportSelection.reportId,
-        pbi_page_name: primaryReportSelection.pageNames[0] ?? null,
-        pbi_page_names: primaryReportSelection.pageNames,
+        report_id: primaryReportSelection?.reportId || undefined,
+        pbi_page_name: primaryReportSelection?.reportId ? (primaryReportSelection.pageNames[0] ?? null) : null,
+        pbi_page_names: primaryReportSelection?.reportId ? primaryReportSelection.pageNames : [],
         report_configs: normalizedFormReportSelections.map((selection) => ({
           report_id: selection.reportId,
           pbi_page_name: selection.pageNames[0] ?? null,
@@ -2094,7 +2094,7 @@ export default function SchedulesPage() {
                 saving ||
                 !formName ||
                 !formBotInstanceId ||
-                normalizedFormReportSelections.length === 0 ||
+                (normalizedFormReportSelections.length === 0 && !formImageUrl) ||
                 !formCron ||
                 (!canShowContacts && formContactIds.length === 0)
               }

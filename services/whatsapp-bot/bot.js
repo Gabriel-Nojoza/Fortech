@@ -514,7 +514,19 @@ async function ensureGroupParticipants(instance, jid) {
   }
 }
 
-async function waitForSocketUser(instance, timeoutMs = 8000) {
+async function waitForSocket(instance, timeoutMs = 30000) {
+  if (instance.socket) return
+
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    if (instance.socket) return
+  }
+
+  throw new Error("Bot ainda nao conectado ao WhatsApp")
+}
+
+async function waitForSocketUser(instance, timeoutMs = 30000) {
   if (instance.socket?.user) {
     return
   }
@@ -552,10 +564,7 @@ async function verifyAndResolveJid(instance, jid) {
 }
 
 async function sendGenericPayload(instance, input) {
-  if (!instance.socket) {
-    throw new Error("Bot ainda nao conectado ao WhatsApp")
-  }
-
+  await waitForSocket(instance)
   await waitForSocketUser(instance)
 
   const rawJid = resolveRecipientJid(instance, input)
@@ -1142,10 +1151,6 @@ app.post("/send-pdfs", async (req, res) => {
 app.post("/send", async (req, res) => {
   const instanceId = getRequestInstanceId(req)
   const instance = getInstanceEntry(instanceId)
-
-  if (!instance.socket) {
-    return res.status(503).json({ error: "Bot ainda nao conectado ao WhatsApp" })
-  }
 
   try {
     const result = await sendGenericPayload(instance, req.body ?? {})

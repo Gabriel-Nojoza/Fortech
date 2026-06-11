@@ -293,15 +293,17 @@ export async function POST(request: NextRequest) {
   const primaryReportConfig = getPrimaryScheduleReportConfig(reportConfigs)
   const scheduleReportIds = getScheduleReportIds(reportConfigs)
 
-  if (!hasAccessToScheduleReports(scheduleReportIds, accessMaps.visibleTargetIds)) {
+  const hasImage = typeof parsed.data.image_url === "string" && parsed.data.image_url.trim().length > 0
+
+  if (scheduleReportIds.length > 0 && !hasAccessToScheduleReports(scheduleReportIds, accessMaps.visibleTargetIds)) {
     return getScheduleAccessErrorResponse()
   }
 
-  if (!primaryReportConfig) {
+  if (!primaryReportConfig && !hasImage) {
     return NextResponse.json(
       {
         error: {
-          report_configs: ["Selecione ao menos 1 relatorio."],
+          report_configs: ["Selecione ao menos 1 relatorio ou adicione uma imagem."],
         },
       },
       { status: 400 }
@@ -388,14 +390,12 @@ export async function POST(request: NextRequest) {
     .from("schedules")
     .insert({
       ...scheduleData,
-      report_id: accessMaps.reportNames.has(primaryReportConfig.report_id)
-        ? primaryReportConfig.report_id
-        : null,
+      report_id: primaryReportConfig && accessMaps.reportNames.has(primaryReportConfig.report_id) ? primaryReportConfig.report_id : null,
       bot_instance_id: selectedBotInstance.id,
       company_id: companyId,
-      pbi_page_name: primaryReportConfig.pbi_page_name,
+      pbi_page_name: primaryReportConfig?.pbi_page_name ?? null,
       pbi_page_names:
-        primaryReportConfig.pbi_page_names.length > 0
+        primaryReportConfig && primaryReportConfig.pbi_page_names.length > 0
           ? primaryReportConfig.pbi_page_names
           : null,
       report_configs: reportConfigs,
@@ -484,7 +484,7 @@ export async function PUT(request: NextRequest) {
 
   const { data: existingSchedule, error: existingScheduleError } = await supabase
     .from("schedules")
-    .select("id, export_format, report_id, report_configs, pbi_page_name, pbi_page_names, bot_instance_id")
+    .select("id, export_format, report_id, report_configs, pbi_page_name, pbi_page_names, bot_instance_id, image_url")
     .eq("company_id", companyId)
     .eq("id", id)
     .maybeSingle()
@@ -521,10 +521,11 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Rotina nao encontrada" }, { status: 404 })
   }
 
+  const reportConfigsExplicit = Object.prototype.hasOwnProperty.call(parsed.data, "report_configs")
   const reportConfigs = isUpdatingReportSelection
     ? resolveScheduleReportConfigs({
         report_configs: parsed.data.report_configs ?? existingSchedule.report_configs,
-        report_id: parsed.data.report_id ?? existingSchedule.report_id,
+        report_id: reportConfigsExplicit ? parsed.data.report_id : (parsed.data.report_id ?? existingSchedule.report_id),
         pbi_page_name:
           Object.prototype.hasOwnProperty.call(parsed.data, "pbi_page_name")
             ? parsed.data.pbi_page_name
@@ -551,20 +552,24 @@ export async function PUT(request: NextRequest) {
     throw error
   })
 
-  if (
-    reportConfigs.length === 0
-  ) {
+  const imageUrlExplicit = Object.prototype.hasOwnProperty.call(parsed.data, "image_url")
+  const existingImageUrl = (existingSchedule as Record<string, unknown>).image_url
+  const hasImage = imageUrlExplicit
+    ? typeof parsed.data.image_url === "string" && parsed.data.image_url.trim().length > 0
+    : typeof existingImageUrl === "string" && existingImageUrl.trim().length > 0
+
+  if (reportConfigs.length === 0 && !hasImage) {
     return NextResponse.json(
       {
         error: {
-          report_configs: ["Selecione ao menos 1 relatorio."],
+          report_configs: ["Selecione ao menos 1 relatorio ou adicione uma imagem."],
         },
       },
       { status: 400 }
     )
   }
 
-  if (!hasAccessToScheduleReports(scheduleReportIds, accessMaps.visibleTargetIds)) {
+  if (scheduleReportIds.length > 0 && !hasAccessToScheduleReports(scheduleReportIds, accessMaps.visibleTargetIds)) {
     return getScheduleAccessErrorResponse()
   }
 
