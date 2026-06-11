@@ -80,6 +80,7 @@ export interface Schedule {
   cron_expression: string
   export_format: ScheduleExportFormat
   message_template: string | null
+  image_url?: string | null
   is_active: boolean
   last_run_at: string | null
   next_run_at: string | null

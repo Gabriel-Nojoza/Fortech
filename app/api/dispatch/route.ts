@@ -324,12 +324,68 @@ async function handleDispatch(request: NextRequest) {
 
   const scheduleReportConfigs = resolveScheduleReportConfigs(schedule)
   const primaryScheduleReportConfig = getPrimaryScheduleReportConfig(scheduleReportConfigs)
+  const scheduleImageUrl: string | null = typeof schedule.image_url === "string" && schedule.image_url.trim() ? schedule.image_url.trim() : null
 
   if (!primaryScheduleReportConfig) {
-    return NextResponse.json(
-      { error: "Rotina sem relatorio configurado" },
-      { status: 400 }
-    )
+    if (!scheduleImageUrl) {
+      return NextResponse.json(
+        { error: "Rotina sem relatorio configurado" },
+        { status: 400 }
+      )
+    }
+
+    // Envio apenas de imagem — sem relatorio
+    const { data: scContacts } = await supabase
+      .from("schedule_contacts")
+      .select("contact_id")
+      .eq("schedule_id", schedule_id)
+
+    const contactIds = (scContacts ?? []).map((sc: { contact_id: string }) => sc.contact_id)
+    let contactsQuery = supabase
+      .from("contacts")
+      .select("*")
+      .eq("company_id", companyId)
+      .in("id", contactIds)
+      .eq("is_active", true)
+
+    if (typeof schedule.bot_instance_id === "string" && schedule.bot_instance_id.trim()) {
+      contactsQuery = contactsQuery.eq("bot_instance_id", schedule.bot_instance_id.trim())
+    }
+
+    const { data: imageContacts } = await contactsQuery
+    const normalizedImageContacts = (imageContacts ?? []).map((c) => normalizeContactForResponse(c as Record<string, unknown>))
+
+    if (normalizedImageContacts.length === 0) {
+      return NextResponse.json({ error: "Nenhum contato ativo vinculado" }, { status: 400 })
+    }
+
+    const imageMessage = applyMessageTemplate(schedule.message_template, schedule.name)
+    let sent = 0
+
+    for (const contact of normalizedImageContacts) {
+      try {
+        await sendWithFallback({
+          instance_id: schedule.bot_instance_id ?? null,
+          phone: contact.phone,
+          whatsapp_group_id: contact.whatsapp_group_id,
+          message: imageMessage || null,
+          document_url: scheduleImageUrl,
+          file_name: "imagem.jpg",
+          mimetype: "image/jpeg",
+        })
+        sent++
+      } catch {
+        // falha silenciosa por contato
+      }
+    }
+
+    await supabase
+      .from("schedules")
+      .update({ last_run_at: new Date().toISOString() })
+      .eq("company_id", companyId)
+      .eq("id", schedule_id)
+
+    return NextResponse.json({ success: true, sent, image_only: true })
   }
 
   const scheduleReportIds = getScheduleReportIds(scheduleReportConfigs)

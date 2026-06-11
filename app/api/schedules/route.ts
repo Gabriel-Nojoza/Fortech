@@ -102,15 +102,17 @@ function validateScheduleReports(
     report_id?: unknown
     pbi_page_name?: unknown
     pbi_page_names?: unknown
+    image_url?: unknown
   },
   ctx: z.RefinementCtx
 ) {
   const reportConfigs = resolveScheduleReportConfigs(value)
+  const hasImage = typeof value.image_url === "string" && value.image_url.trim().length > 0
 
-  if (reportConfigs.length === 0) {
+  if (reportConfigs.length === 0 && !hasImage) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Selecione ao menos 1 relatorio.",
+      message: "Selecione ao menos 1 relatorio ou adicione uma imagem.",
       path: ["report_configs"],
     })
   }
@@ -128,6 +130,7 @@ const baseScheduleSchema = z.object({
     .enum(["PDF", "PNG", "PPTX", "table", "csv", "pdf", "xlsx"])
     .default("PDF"),
   message_template: z.string().nullable().optional(),
+  image_url: z.string().url().nullable().optional(),
   is_active: z.boolean().default(true),
   contact_ids: z.array(z.string().trim().min(1)).optional(),
 })
