@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (botInstanceId) {
-      query = query.or(`bot_instance_id.eq.${botInstanceId},bot_instance_id.is.null`)
+      query = query.eq("bot_instance_id", botInstanceId)
     }
 
     const { data, error } = await query
