@@ -365,6 +365,7 @@ export async function POST(request: NextRequest) {
       .from("contacts")
       .select("id")
       .eq("company_id", companyId)
+      .or(`bot_instance_id.eq.${selectedBotInstance.id},bot_instance_id.is.null`)
       .in("id", normalizedContactIds)
 
     if (contactsError) {
@@ -385,7 +386,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: {
-            contacts: ["Um ou mais contatos selecionados nao pertencem a esta empresa."],
+            contacts: ["Selecione apenas contatos do WhatsApp escolhido."],
           },
         },
         { status: 400 }
@@ -623,6 +624,7 @@ export async function PUT(request: NextRequest) {
       .from("contacts")
       .select("id")
       .eq("company_id", companyId)
+      .or(`bot_instance_id.eq.${selectedBotInstance.id},bot_instance_id.is.null`)
       .in("id", normalizedContactIds)
 
     if (contactsError) {
@@ -643,7 +645,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         {
           error: {
-            contacts: ["Um ou mais contatos selecionados nao pertencem a esta empresa."],
+            contacts: ["Selecione apenas contatos do WhatsApp escolhido."],
           },
         },
         { status: 400 }
