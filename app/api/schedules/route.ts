@@ -103,11 +103,14 @@ function validateScheduleReports(
     pbi_page_name?: unknown
     pbi_page_names?: unknown
     image_url?: unknown
+    image_urls?: unknown
   },
   ctx: z.RefinementCtx
 ) {
   const reportConfigs = resolveScheduleReportConfigs(value)
-  const hasImage = typeof value.image_url === "string" && value.image_url.trim().length > 0
+  const hasImage =
+    (Array.isArray(value.image_urls) && value.image_urls.length > 0) ||
+    (typeof value.image_url === "string" && value.image_url.trim().length > 0)
 
   if (reportConfigs.length === 0 && !hasImage) {
     ctx.addIssue({
@@ -131,6 +134,7 @@ const baseScheduleSchema = z.object({
     .default("PDF"),
   message_template: z.string().nullable().optional(),
   image_url: z.string().url().nullable().optional(),
+  image_urls: z.array(z.string().url()).nullable().optional(),
   disable_after_send: z.boolean().optional(),
   is_active: z.boolean().default(true),
   contact_ids: z.array(z.string().trim().min(1)).optional(),
@@ -293,7 +297,11 @@ export async function POST(request: NextRequest) {
   const primaryReportConfig = getPrimaryScheduleReportConfig(reportConfigs)
   const scheduleReportIds = getScheduleReportIds(reportConfigs)
 
-  const hasImage = typeof parsed.data.image_url === "string" && parsed.data.image_url.trim().length > 0
+  const effectiveImageUrls: string[] =
+    Array.isArray(parsed.data.image_urls) && parsed.data.image_urls.length > 0
+      ? parsed.data.image_urls
+      : parsed.data.image_url ? [parsed.data.image_url] : []
+  const hasImage = effectiveImageUrls.length > 0
 
   if (scheduleReportIds.length > 0 && !hasAccessToScheduleReports(scheduleReportIds, accessMaps.visibleTargetIds)) {
     return getScheduleAccessErrorResponse()
@@ -399,6 +407,8 @@ export async function POST(request: NextRequest) {
           ? primaryReportConfig.pbi_page_names
           : null,
       report_configs: reportConfigs,
+      image_url: effectiveImageUrls[0] ?? null,
+      image_urls: effectiveImageUrls.length > 0 ? effectiveImageUrls : null,
     })
     .select()
     .single()
@@ -552,11 +562,19 @@ export async function PUT(request: NextRequest) {
     throw error
   })
 
+  const imageUrlsExplicit = Object.prototype.hasOwnProperty.call(parsed.data, "image_urls")
   const imageUrlExplicit = Object.prototype.hasOwnProperty.call(parsed.data, "image_url")
-  const existingImageUrl = (existingSchedule as Record<string, unknown>).image_url
-  const hasImage = imageUrlExplicit
-    ? typeof parsed.data.image_url === "string" && parsed.data.image_url.trim().length > 0
-    : typeof existingImageUrl === "string" && existingImageUrl.trim().length > 0
+  const existing = existingSchedule as Record<string, unknown>
+  const effectivePutImageUrls: string[] = imageUrlsExplicit
+    ? (Array.isArray(parsed.data.image_urls) ? (parsed.data.image_urls as string[]) : [])
+    : imageUrlExplicit
+      ? (typeof parsed.data.image_url === "string" && parsed.data.image_url.trim() ? [parsed.data.image_url.trim()] : [])
+      : Array.isArray(existing.image_urls) && (existing.image_urls as string[]).length > 0
+        ? (existing.image_urls as string[]).filter((u) => typeof u === "string" && u.trim())
+        : typeof existing.image_url === "string" && existing.image_url.trim()
+          ? [existing.image_url.trim()]
+          : []
+  const hasImage = effectivePutImageUrls.length > 0
 
   if (reportConfigs.length === 0 && !hasImage) {
     return NextResponse.json(
@@ -640,6 +658,8 @@ export async function PUT(request: NextRequest) {
   )
 
   scheduleUpdates.bot_instance_id = selectedBotInstance.id
+  scheduleUpdates.image_url = effectivePutImageUrls[0] ?? null
+  scheduleUpdates.image_urls = effectivePutImageUrls.length > 0 ? effectivePutImageUrls : null
 
   if (isUpdatingReportSelection) {
     const primaryReportConfig = getPrimaryScheduleReportConfig(reportConfigs)

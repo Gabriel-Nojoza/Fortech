@@ -551,7 +551,7 @@ export default function SchedulesPage() {
   const [formMessage, setFormMessage] = useState(
     "Segue o relatorio {report_name} em anexo."
   )
-  const [formImageUrl, setFormImageUrl] = useState<string>("")
+  const [formImageUrls, setFormImageUrls] = useState<string[]>([])
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [formContactIds, setFormContactIds] = useState<string[]>([])
@@ -745,7 +745,11 @@ export default function SchedulesPage() {
     setFormCron(schedule.cron_expression)
     setFormFormat(normalizeScheduleFormat(schedule.export_format))
     setFormMessage(schedule.message_template ?? DEFAULT_SCHEDULE_MESSAGE)
-    setFormImageUrl(schedule.image_url ?? "")
+    setFormImageUrls(
+      Array.isArray(schedule.image_urls) && schedule.image_urls.length > 0
+        ? (schedule.image_urls as string[]).filter((u) => typeof u === "string" && u.trim())
+        : schedule.image_url ? [schedule.image_url] : []
+    )
     setFormContactIds(schedule.contacts?.map((c) => c.id) ?? [])
     setFormActive(duplicating ? false : schedule.is_active)
     setFormDisableAfterSend(schedule.disable_after_send ?? false)
@@ -781,7 +785,7 @@ export default function SchedulesPage() {
     if (!formBotInstanceId) {
       errors.bot_instance_id = "Selecione qual WhatsApp vai enviar essa rotina"
     }
-    if (normalizedFormReportSelections.length === 0 && !formImageUrl) {
+    if (normalizedFormReportSelections.length === 0 && formImageUrls.length === 0) {
       errors.reportConfigs = "Selecione ao menos 1 relatorio ou adicione uma imagem"
     } else if (hasDuplicateReports) {
       errors.reportConfigs = "Selecione cada relatorio apenas uma vez"
@@ -819,7 +823,7 @@ export default function SchedulesPage() {
       const res = await fetch("/api/schedules/image", { method: "POST", body: formData })
       const data = await res.json() as { url?: string; error?: string }
       if (!res.ok) throw new Error(data.error || "Erro no upload")
-      setFormImageUrl(data.url ?? "")
+      if (data.url) setFormImageUrls((prev) => [...prev, data.url!])
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao fazer upload")
     } finally {
@@ -835,7 +839,7 @@ export default function SchedulesPage() {
     const isEditing = editingScheduleId !== null
     const primaryReportSelection = normalizedFormReportSelections[0] ?? null
 
-    if (!primaryReportSelection && !formImageUrl) {
+    if (!primaryReportSelection && formImageUrls.length === 0) {
       setFormErrors((prev) => ({
         ...prev,
         reportConfigs: "Selecione ao menos 1 relatorio ou adicione uma imagem",
@@ -860,7 +864,8 @@ export default function SchedulesPage() {
         cron_expression: formCron,
         export_format: formFormat,
         message_template: formMessage || null,
-        image_url: formImageUrl || null,
+        image_url: formImageUrls[0] ?? null,
+        image_urls: formImageUrls.length > 0 ? formImageUrls : null,
         disable_after_send: formDisableAfterSend,
         contact_ids: formContactIds,
         is_active: formActive,
@@ -1913,41 +1918,38 @@ export default function SchedulesPage() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Imagem (opcional)</Label>
-              {formImageUrl ? (
-                <div className="flex items-start gap-4 rounded-xl border bg-muted/20 p-4">
+              <Label>Imagens (opcional)</Label>
+              {formImageUrls.map((url, index) => (
+                <div key={url} className="flex items-center gap-3 rounded-xl border bg-muted/20 p-3">
                   <img
-                    src={formImageUrl}
-                    alt="Preview"
-                    className="h-24 w-24 shrink-0 rounded-lg object-cover"
+                    src={url}
+                    alt={`Imagem ${index + 1}`}
+                    className="h-16 w-16 shrink-0 rounded-lg object-cover"
                   />
-                  <div className="flex flex-1 flex-col gap-3">
-                    <p className="text-sm text-muted-foreground">Imagem sera enviada junto com o relatorio.</p>
-                    <button
-                      type="button"
-                      onClick={() => setFormImageUrl("")}
-                      className="flex w-fit items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors"
-                    >
-                      <X className="size-3.5" /> Remover imagem
-                    </button>
-                  </div>
+                  <span className="flex-1 text-sm text-muted-foreground">Imagem {index + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFormImageUrls((prev) => prev.filter((_, i) => i !== index))}
+                    className="flex items-center gap-1.5 rounded-md border border-destructive/50 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <X className="size-3.5" /> Remover
+                  </button>
                 </div>
-              ) : (
-                <div
-                  className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-dashed p-8 transition-colors hover:bg-muted/30"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {uploadingImage
-                    ? <Loader2 className="size-8 animate-spin text-muted-foreground" />
-                    : <ImageIcon className="size-8 text-muted-foreground/50" />}
-                  <div className="text-center">
-                    <p className="text-sm font-medium">
-                      {uploadingImage ? "Enviando..." : "Clique para fazer upload da imagem"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">PNG, JPG ou GIF (max. 10MB)</p>
-                  </div>
+              ))}
+              <div
+                className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-dashed p-8 transition-colors hover:bg-muted/30"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploadingImage
+                  ? <Loader2 className="size-8 animate-spin text-muted-foreground" />
+                  : <ImageIcon className="size-8 text-muted-foreground/50" />}
+                <div className="text-center">
+                  <p className="text-sm font-medium">
+                    {uploadingImage ? "Enviando..." : formImageUrls.length > 0 ? "Adicionar outra imagem" : "Clique para fazer upload da imagem"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">PNG, JPG ou GIF (max. 10MB)</p>
                 </div>
-              )}
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -2094,7 +2096,7 @@ export default function SchedulesPage() {
                 saving ||
                 !formName ||
                 !formBotInstanceId ||
-                (normalizedFormReportSelections.length === 0 && !formImageUrl) ||
+                (normalizedFormReportSelections.length === 0 && formImageUrls.length === 0) ||
                 !formCron ||
                 (!canShowContacts && formContactIds.length === 0)
               }

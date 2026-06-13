@@ -324,10 +324,14 @@ async function handleDispatch(request: NextRequest) {
 
   const scheduleReportConfigs = resolveScheduleReportConfigs(schedule)
   const primaryScheduleReportConfig = getPrimaryScheduleReportConfig(scheduleReportConfigs)
-  const scheduleImageUrl: string | null = typeof schedule.image_url === "string" && schedule.image_url.trim() ? schedule.image_url.trim() : null
+  const scheduleImageUrls: string[] = Array.isArray((schedule as Record<string, unknown>).image_urls)
+    ? ((schedule as Record<string, unknown>).image_urls as string[]).filter((u) => typeof u === "string" && u.trim())
+    : typeof schedule.image_url === "string" && schedule.image_url.trim()
+      ? [schedule.image_url.trim()]
+      : []
 
   if (!primaryScheduleReportConfig) {
-    if (!scheduleImageUrl) {
+    if (scheduleImageUrls.length === 0) {
       return NextResponse.json(
         { error: "Rotina sem relatorio configurado" },
         { status: 400 }
@@ -363,19 +367,22 @@ async function handleDispatch(request: NextRequest) {
     let sent = 0
 
     for (const contact of normalizedImageContacts) {
-      try {
-        await sendWithFallback({
-          instance_id: schedule.bot_instance_id ?? null,
-          phone: contact.phone,
-          whatsapp_group_id: contact.whatsapp_group_id,
-          message: imageMessage || null,
-          document_url: scheduleImageUrl,
-          file_name: "imagem.jpg",
-          mimetype: "image/jpeg",
-        }, resolvedBotInstance?.id ?? null)
-        sent++
-      } catch {
-        // falha silenciosa por contato
+      for (let imgIndex = 0; imgIndex < scheduleImageUrls.length; imgIndex++) {
+        const imageUrl = scheduleImageUrls[imgIndex]
+        try {
+          await sendWithFallback({
+            instance_id: schedule.bot_instance_id ?? null,
+            phone: contact.phone,
+            whatsapp_group_id: contact.whatsapp_group_id,
+            message: imgIndex === 0 ? (imageMessage || null) : null,
+            document_url: imageUrl,
+            file_name: "imagem.jpg",
+            mimetype: "image/jpeg",
+          }, resolvedBotInstance?.id ?? null)
+          if (imgIndex === 0) sent++
+        } catch {
+          // falha silenciosa por contato/imagem
+        }
       }
     }
 

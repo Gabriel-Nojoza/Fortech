@@ -181,6 +181,10 @@ CREATE TABLE IF NOT EXISTS public.schedules (
   -- Configuração de múltiplos relatórios por rotina
   -- Formato: [{ "report_id": "uuid", "pbi_page_name": "...", "pbi_page_names": [...] }]
   report_configs   jsonb,
+  -- Imagem(ns) a enviar junto com a rotina
+  image_url        text,
+  image_urls       jsonb,
+  disable_after_send boolean NOT NULL DEFAULT false,
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz
 );
