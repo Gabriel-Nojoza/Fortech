@@ -352,9 +352,6 @@ async function handleDispatch(request: NextRequest) {
       .in("id", contactIds)
       .eq("is_active", true)
 
-    if (typeof schedule.bot_instance_id === "string" && schedule.bot_instance_id.trim()) {
-      contactsQuery = contactsQuery.or(`bot_instance_id.eq.${schedule.bot_instance_id.trim()},bot_instance_id.is.null`)
-    }
 
     const { data: imageContacts } = await contactsQuery
     const normalizedImageContacts = (imageContacts ?? []).map((c) => normalizeContactForResponse(c as Record<string, unknown>))
@@ -420,9 +417,6 @@ async function handleDispatch(request: NextRequest) {
     .in("id", contactIds)
     .eq("is_active", true)
 
-  if (typeof originalBotInstanceId === "string" && originalBotInstanceId.trim()) {
-    contactsQuery = contactsQuery.or(`bot_instance_id.eq.${originalBotInstanceId.trim()},bot_instance_id.is.null`)
-  }
 
   const { data: contacts } = await contactsQuery
 

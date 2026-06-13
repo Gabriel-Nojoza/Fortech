@@ -41,7 +41,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (botInstanceId) {
-      query = query.or(`bot_instance_id.eq.${botInstanceId},bot_instance_id.is.null`)
+      // Mostra contatos da instancia solicitada OU de qualquer outra — o WhatsApp que envia
+      // e determinado pela rotina, nao pelo contato. Filtro apenas remove contatos de
+      // empresas diferentes (garantido pelo eq company_id acima).
     }
 
     const { data, error } = await query
