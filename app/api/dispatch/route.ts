@@ -353,7 +353,7 @@ async function handleDispatch(request: NextRequest) {
       .eq("is_active", true)
 
     if (typeof schedule.bot_instance_id === "string" && schedule.bot_instance_id.trim()) {
-      contactsQuery = contactsQuery.eq("bot_instance_id", schedule.bot_instance_id.trim())
+      contactsQuery = contactsQuery.or(`bot_instance_id.eq.${schedule.bot_instance_id.trim()},bot_instance_id.is.null`)
     }
 
     const { data: imageContacts } = await contactsQuery
@@ -421,7 +421,7 @@ async function handleDispatch(request: NextRequest) {
     .eq("is_active", true)
 
   if (typeof originalBotInstanceId === "string" && originalBotInstanceId.trim()) {
-    contactsQuery = contactsQuery.eq("bot_instance_id", originalBotInstanceId.trim())
+    contactsQuery = contactsQuery.or(`bot_instance_id.eq.${originalBotInstanceId.trim()},bot_instance_id.is.null`)
   }
 
   const { data: contacts } = await contactsQuery
