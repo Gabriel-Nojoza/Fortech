@@ -679,7 +679,7 @@ export default function SchedulesPage() {
     setFormCron(DEFAULT_SCHEDULE_CRON)
     setFormFormat("PDF")
     setFormMessage(DEFAULT_SCHEDULE_MESSAGE)
-    setFormImageUrl("")
+    setFormImageUrls([])
     setFormContactIds([])
     setFormActive(true)
     setFormDisableAfterSend(false)
