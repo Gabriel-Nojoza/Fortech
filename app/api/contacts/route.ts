@@ -64,7 +64,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json((data ?? []).map((contact) => normalizeContactForResponse(contact)))
+    const normalized = (data ?? []).map((contact) => normalizeContactForResponse(contact))
+    const seen = new Set<string>()
+    const deduplicated = normalized.filter((contact) => {
+      const key = contact.type === "group"
+        ? `group:${contact.whatsapp_group_id ?? contact.name}`
+        : `individual:${contact.phone ?? contact.name}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    return NextResponse.json(deduplicated)
   } catch (error) {
     if (isAuthContextError(error)) {
       return NextResponse.json(
