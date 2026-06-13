@@ -101,6 +101,7 @@ export async function POST(request: Request) {
       .select("*")
       .eq("company_id", companyId)
       .eq("bot_instance_id", botInstance.id)
+      .limit(5000)
 
     if (error) {
       if (isMissingBotInstanceIdColumnError(error, "contacts")) {

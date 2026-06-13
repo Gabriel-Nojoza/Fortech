@@ -34,7 +34,9 @@ export async function GET(request: NextRequest) {
       .from("contacts")
       .select("*")
       .eq("company_id", companyId)
-      .order("created_at", { ascending: false })
+      .order("type", { ascending: true })
+      .order("name", { ascending: true })
+      .limit(5000)
 
     if (type && type !== "all") {
       query = query.eq("type", type)
