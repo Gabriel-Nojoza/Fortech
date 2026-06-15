@@ -241,26 +241,29 @@ export async function POST(request: Request) {
     }
 
     if (inserts.length > 0) {
-      for (const insertChunk of chunkArray(inserts, 200)) {
-        const { error: insertError } = await supabase.from("contacts").insert(insertChunk)
-        if (!insertError) {
-          continue
+      const groupInserts = inserts.filter((i) => i.type === "group" && i.whatsapp_group_id)
+      const individualInserts = inserts.filter((i) => i.type === "individual" && i.phone)
+
+      for (const chunk of chunkArray(groupInserts, 200)) {
+        const { error } = await supabase
+          .from("contacts")
+          .upsert(chunk, { onConflict: "company_id,whatsapp_group_id", ignoreDuplicates: false })
+        if (error) {
+          console.error("Erro ao upsert grupos:", error.message)
+          for (const item of chunk) {
+            failedItems.push({ key: `group:${item.whatsapp_group_id ?? ""}`, error: error.message })
+          }
         }
+      }
 
-        console.error("Erro em lote ao inserir contatos do bot:", insertError.message)
-
-        for (const insertItem of insertChunk) {
-          const { error: singleInsertError } = await supabase
-            .from("contacts")
-            .insert(insertItem)
-
-          if (singleInsertError) {
-            const normalizedInsertItem = normalizeContactForResponse(insertItem)
-            const key =
-              normalizedInsertItem.type === "group"
-                ? `group:${normalizedInsertItem.whatsapp_group_id ?? ""}`
-                : `individual:${normalizedInsertItem.phone ?? ""}`
-            failedItems.push({ key, error: singleInsertError.message })
+      for (const chunk of chunkArray(individualInserts, 200)) {
+        const { error } = await supabase
+          .from("contacts")
+          .upsert(chunk, { onConflict: "company_id,phone", ignoreDuplicates: false })
+        if (error) {
+          console.error("Erro ao upsert individuais:", error.message)
+          for (const item of chunk) {
+            failedItems.push({ key: `individual:${item.phone ?? ""}`, error: error.message })
           }
         }
       }
