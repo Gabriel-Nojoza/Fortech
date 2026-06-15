@@ -340,6 +340,14 @@ export async function POST(request: NextRequest) {
           "Captura da pagina do sistema falhou, tentando ExportTo",
           browserPdfError
         )
+
+        // PNG nao tem fallback via API nativa (requer Premium) — retorna erro direto
+        if (format === "PNG") {
+          return jsonError(
+            `Nao foi possivel exportar o relatorio em PNG. ${browserPdfErrorMessage || "Tente novamente."}`,
+            500
+          )
+        }
       }
     }
 
