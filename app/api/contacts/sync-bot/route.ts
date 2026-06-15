@@ -247,7 +247,7 @@ export async function POST(request: Request) {
       for (const chunk of chunkArray(groupInserts, 200)) {
         const { error } = await supabase
           .from("contacts")
-          .upsert(chunk, { onConflict: "company_id,whatsapp_group_id", ignoreDuplicates: false })
+          .upsert(chunk, { ignoreDuplicates: true })
         if (error) {
           console.error("Erro ao upsert grupos:", error.message)
           for (const item of chunk) {
@@ -259,7 +259,7 @@ export async function POST(request: Request) {
       for (const chunk of chunkArray(individualInserts, 200)) {
         const { error } = await supabase
           .from("contacts")
-          .upsert(chunk, { onConflict: "company_id,phone", ignoreDuplicates: false })
+          .upsert(chunk, { ignoreDuplicates: true })
         if (error) {
           console.error("Erro ao upsert individuais:", error.message)
           for (const item of chunk) {
