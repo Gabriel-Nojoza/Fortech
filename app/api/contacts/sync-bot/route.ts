@@ -20,6 +20,7 @@ type ExistingContact = {
   phone: string | null
   type: "individual" | "group"
   whatsapp_group_id: string | null
+  bot_instance_id: string | null
   is_active: boolean
 }
 
@@ -100,7 +101,6 @@ export async function POST(request: Request) {
       .from("contacts")
       .select("*")
       .eq("company_id", companyId)
-      .eq("bot_instance_id", botInstance.id)
       .limit(5000)
 
     if (error) {
@@ -167,7 +167,8 @@ export async function POST(request: Request) {
           existingGroup.name !== item.name ||
           existingGroup.type !== "group" ||
           getEffectiveWhatsAppGroupId(existingGroup) !== groupId ||
-          !existingGroup.is_active
+          !existingGroup.is_active ||
+          existingGroup.bot_instance_id !== botInstance.id
         ) {
           updates.push({
             id: existingGroup.id,
@@ -218,7 +219,8 @@ export async function POST(request: Request) {
         normalizePhone(existingIndividual.phone) !== normalizedPhone ||
         existingIndividual.type !== "individual" ||
         existingIndividual.whatsapp_group_id !== null ||
-        !existingIndividual.is_active
+        !existingIndividual.is_active ||
+        existingIndividual.bot_instance_id !== botInstance.id
       ) {
         updates.push({
           id: existingIndividual.id,
