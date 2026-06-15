@@ -8,11 +8,13 @@ import {
   getExportStatus,
   isPowerBiEntityNotFoundError,
   isPowerBiFeatureNotAvailableError,
+  isPowerBiDedicatedCapacityError,
 } from "@/lib/powerbi"
 import {
   exportPowerBIReportDocument,
   sanitizeFileName,
 } from "@/lib/powerbi-report-pdf"
+import { pdfToPng } from "@/lib/report-pdf"
 import {
   getPrimarySchedulePageName,
   resolveSchedulePageNames,
@@ -369,6 +371,35 @@ export async function POST(request: NextRequest) {
       if (isPowerBiEntityNotFoundError(exportError)) {
         await deactivateMissingReport(supabase, companyId, report.id)
         return jsonError(getMissingReportMessage(), 404)
+      }
+
+      // PNG exige Premium no Power BI — fallback: exporta como PDF e converte para PNG via screenshot
+      if (format === "PNG" && isPowerBiDedicatedCapacityError(exportError)) {
+        try {
+          console.log("[reports/export] PNG requer Premium, usando fallback PDF->PNG via screenshot")
+          const pdfBuffer = await exportPowerBIReportDocument({
+            token,
+            workspaceId: workspace.pbi_workspace_id,
+            reportId: report.pbi_report_id,
+            reportName: report.name,
+            embedUrl: report.embed_url,
+            pageNames: pbiPageNames,
+            pageName: pbiPageName,
+            pdfProfile,
+          })
+          const pngBuffer = await pdfToPng(pdfBuffer.buffer)
+          return new Response(pngBuffer, {
+            status: 200,
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Disposition": `inline; filename="${safeName}.png"`,
+              "Cache-Control": "no-store",
+            },
+          })
+        } catch (fallbackError) {
+          console.error("[reports/export] Fallback PDF->PNG falhou", fallbackError)
+          return jsonError("Nao foi possivel exportar o relatorio em PNG. O workspace do Power BI nao esta em capacidade dedicada (Premium).", 500)
+        }
       }
 
       if (format === "PDF" && preferNativePowerBiExport) {

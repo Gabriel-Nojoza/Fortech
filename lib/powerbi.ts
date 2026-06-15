@@ -191,6 +191,11 @@ export function isPowerBiFeatureNotAvailableError(error: unknown) {
   return /FeatureNotAvailableError/i.test(message)
 }
 
+export function isPowerBiDedicatedCapacityError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return /not on dedicated capacity/i.test(message) || /InvalidRequest/i.test(message) && /dedicated capacity/i.test(message)
+}
+
 async function getConfig(): Promise<PowerBIConfig> {
   const { companyId } = await getRequestContext()
   return getConfigForCompany(companyId)
