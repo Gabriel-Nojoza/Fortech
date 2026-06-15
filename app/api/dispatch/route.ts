@@ -360,7 +360,6 @@ async function handleDispatch(request: NextRequest) {
       return NextResponse.json({ error: "Nenhum contato ativo vinculado" }, { status: 400 })
     }
 
-    const imageMessage = applyMessageTemplate(schedule.message_template, schedule.name)
     let sent = 0
 
     for (const contact of normalizedImageContacts) {
@@ -371,7 +370,7 @@ async function handleDispatch(request: NextRequest) {
             instance_id: schedule.bot_instance_id ?? null,
             phone: contact.phone,
             whatsapp_group_id: contact.whatsapp_group_id,
-            message: imgIndex === 0 ? (imageMessage || null) : null,
+            message: null,
             document_url: imageUrl,
             file_name: "imagem.jpg",
             mimetype: "image/jpeg",
