@@ -24,6 +24,10 @@ type ExistingContact = {
   is_active: boolean
 }
 
+function isDuplicateKeyError(error: { code?: string; message?: string }) {
+  return error.code === "23505" || (typeof error.message === "string" && error.message.includes("duplicate key value"))
+}
+
 function normalizePhone(phone: string | null | undefined) {
   const normalized = typeof phone === "string" ? phone.replace(/\D/g, "") : ""
   return normalized || null
@@ -249,9 +253,13 @@ export async function POST(request: Request) {
           .from("contacts")
           .upsert(chunk, { ignoreDuplicates: true })
         if (error) {
-          console.error("Erro ao upsert grupos:", error.message)
-          for (const item of chunk) {
-            failedItems.push({ key: `group:${item.whatsapp_group_id ?? ""}`, error: error.message })
+          if (isDuplicateKeyError(error)) {
+            console.warn("Contato grupo duplicado ignorado na sincronizacao")
+          } else {
+            console.error("Erro ao upsert grupos:", error.message)
+            for (const item of chunk) {
+              failedItems.push({ key: `group:${item.whatsapp_group_id ?? ""}`, error: error.message })
+            }
           }
         }
       }
@@ -261,9 +269,13 @@ export async function POST(request: Request) {
           .from("contacts")
           .upsert(chunk, { ignoreDuplicates: true })
         if (error) {
-          console.error("Erro ao upsert individuais:", error.message)
-          for (const item of chunk) {
-            failedItems.push({ key: `individual:${item.phone ?? ""}`, error: error.message })
+          if (isDuplicateKeyError(error)) {
+            console.warn("Contato individual duplicado ignorado na sincronizacao")
+          } else {
+            console.error("Erro ao upsert individuais:", error.message)
+            for (const item of chunk) {
+              failedItems.push({ key: `individual:${item.phone ?? ""}`, error: error.message })
+            }
           }
         }
       }
