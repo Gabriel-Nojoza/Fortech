@@ -28,53 +28,47 @@ async function findChromePath(): Promise<string> {
   )
 }
 
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+async function isValidPngFile(filePath: string): Promise<boolean> {
+  try {
+    const fd = await fs.promises.open(filePath, "r")
+    const header = Buffer.alloc(8)
+    const { bytesRead } = await fd.read(header, 0, 8, 0)
+    await fd.close()
+    return bytesRead === 8 && header.equals(PNG_MAGIC)
+  } catch {
+    return false
+  }
+}
+
+async function runGhostscript(args: string[]): Promise<void> {
+  await execFileAsync("gs", args).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === "ENOENT") {
+      throw new Error("Ghostscript (gs) nao encontrado. Instale com: apt-get install -y ghostscript")
+    }
+    throw err
+  })
+}
+
 export async function pdfToPng(pdfBuffer: Buffer): Promise<Buffer> {
   const tmpDir = os.tmpdir()
   const id = `pbi_${Date.now()}_${Math.random().toString(36).slice(2)}`
   const tmpPdf = path.join(tmpDir, `${id}.pdf`)
   const tmpPng = path.join(tmpDir, `${id}.png`)
 
+  const baseArgs = ["-dNOPAUSE", "-dBATCH", "-sDEVICE=png16m", "-r150", "-dFirstPage=1", "-dLastPage=1"]
+
   try {
     await fs.promises.writeFile(tmpPdf, pdfBuffer)
 
-    const gsArgs = [
-      "-dNOPAUSE",
-      "-dBATCH",
-      "-sDEVICE=png16m",
-      "-r150",
-      "-dFirstPage=1",
-      "-dLastPage=1",
-      `-sOutputFile=${tmpPng}`,
-      tmpPdf,
-    ]
+    // Try with CropBox first (removes black borders around the report)
+    await runGhostscript([...baseArgs, "-dUseCropBox", `-sOutputFile=${tmpPng}`, tmpPdf])
 
-    // Windows usa gswin64c ou gswin32c; Linux/Mac usa gs
-    const gsCandidates =
-      process.platform === "win32"
-        ? ["gswin64c", "gswin32c", "gs"]
-        : ["gs"]
-
-    let gsError: Error | null = null
-    for (const cmd of gsCandidates) {
-      try {
-        await execFileAsync(cmd, gsArgs)
-        gsError = null
-        break
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          gsError = err as Error
-          continue
-        }
-        throw err
-      }
-    }
-
-    if (gsError) {
-      throw new Error(
-        process.platform === "win32"
-          ? "Ghostscript nao encontrado. Instale em https://www.ghostscript.com/releases/gsdnld.html"
-          : "Ghostscript (gs) nao encontrado. Instale com: apt-get install -y ghostscript"
-      )
+    if (!(await isValidPngFile(tmpPng))) {
+      // CropBox produced an invalid PNG (PDF has no CropBox) — retry without it
+      fs.unlink(tmpPng, () => {})
+      await runGhostscript([...baseArgs, `-sOutputFile=${tmpPng}`, tmpPdf])
     }
 
     if (!fs.existsSync(tmpPng)) {
