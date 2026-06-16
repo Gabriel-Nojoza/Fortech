@@ -580,7 +580,6 @@ async function sendGenericPayload(instance, input) {
     await instance.socket.sendMessage(jid, isImage
       ? {
           image: documentPayload.buffer,
-          mimetype: documentPayload.mimeType,
           caption: caption || message || undefined,
         }
       : {
