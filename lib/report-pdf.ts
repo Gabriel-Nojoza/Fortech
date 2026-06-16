@@ -37,22 +37,45 @@ export async function pdfToPng(pdfBuffer: Buffer): Promise<Buffer> {
   try {
     await fs.promises.writeFile(tmpPdf, pdfBuffer)
 
-    await execFileAsync("gs", [
+    const gsArgs = [
       "-dNOPAUSE",
       "-dBATCH",
       "-sDEVICE=png16m",
       "-r150",
       "-dFirstPage=1",
       "-dLastPage=1",
-      "-dUseCropBox",
       `-sOutputFile=${tmpPng}`,
       tmpPdf,
-    ]).catch((err: NodeJS.ErrnoException) => {
-      if (err.code === "ENOENT") {
-        throw new Error("Ghostscript (gs) nao encontrado. Instale com: apt-get install -y ghostscript")
+    ]
+
+    // Windows usa gswin64c ou gswin32c; Linux/Mac usa gs
+    const gsCandidates =
+      process.platform === "win32"
+        ? ["gswin64c", "gswin32c", "gs"]
+        : ["gs"]
+
+    let gsError: Error | null = null
+    for (const cmd of gsCandidates) {
+      try {
+        await execFileAsync(cmd, gsArgs)
+        gsError = null
+        break
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          gsError = err as Error
+          continue
+        }
+        throw err
       }
-      throw err
-    })
+    }
+
+    if (gsError) {
+      throw new Error(
+        process.platform === "win32"
+          ? "Ghostscript nao encontrado. Instale em https://www.ghostscript.com/releases/gsdnld.html"
+          : "Ghostscript (gs) nao encontrado. Instale com: apt-get install -y ghostscript"
+      )
+    }
 
     if (!fs.existsSync(tmpPng)) {
       throw new Error("Ghostscript nao gerou o arquivo PNG esperado")
