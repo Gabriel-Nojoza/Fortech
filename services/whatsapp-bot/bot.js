@@ -542,6 +542,18 @@ async function waitForSocketUser(instance, timeoutMs = 30000) {
   throw new Error("Bot ainda nao autenticado no WhatsApp")
 }
 
+async function waitForCredentials(instance, timeoutMs = 30000) {
+  if (instance.socket?.authState?.creds?.me) return
+
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    if (instance.socket?.authState?.creds?.me) return
+  }
+
+  throw new Error("Credenciais do bot nao carregadas (creds.me indefinido)")
+}
+
 async function verifyAndResolveJid(instance, jid) {
   if (isGroupJid(jid) || !isIndividualJid(jid)) {
     return jid
@@ -566,6 +578,7 @@ async function verifyAndResolveJid(instance, jid) {
 async function sendGenericPayload(instance, input) {
   await waitForSocket(instance)
   await waitForSocketUser(instance)
+  await waitForCredentials(instance)
 
   const rawJid = resolveRecipientJid(instance, input)
   const jid = await verifyAndResolveJid(instance, rawJid)
