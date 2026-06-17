@@ -162,7 +162,7 @@ type FormReportSelection = {
 
 type ScheduleDialogMode = "create" | "edit" | "duplicate"
 
-const POWERBI_FORMATS: ScheduleExportFormat[] = ["PDF", "PNG", "PPTX"]
+const POWERBI_FORMATS: ScheduleExportFormat[] = ["PDF", "PNG", "HTML", "PPTX"]
 const AUTOMATION_FORMATS: ScheduleExportFormat[] = ["csv", "xlsx", "pdf", "table"]
 const DEFAULT_SCHEDULE_CRON = "0 8 * * 1-5"
 const DEFAULT_SCHEDULE_MESSAGE = "Segue o relatorio {report_name} em anexo."
@@ -170,6 +170,7 @@ const DEFAULT_SCHEDULE_MESSAGE = "Segue o relatorio {report_name} em anexo."
 function formatLabel(format: ScheduleExportFormat) {
   if (format === "table") return "Tabela (texto)"
   if (format === "xlsx") return "Excel (.xlsx)"
+  if (format === "HTML") return "HTML (visuais completos)"
   return format.toUpperCase()
 }
 

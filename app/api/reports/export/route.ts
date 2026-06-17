@@ -13,7 +13,8 @@ import {
   exportPowerBIReportDocument,
   sanitizeFileName,
 } from "@/lib/powerbi-report-pdf"
-import { pdfToPng } from "@/lib/report-pdf"
+import { pdfToPng, captureReportScreenshot } from "@/lib/report-pdf"
+import { generateReportEmbedToken } from "@/lib/powerbi"
 import {
   getPrimarySchedulePageName,
   resolveSchedulePageNames,
@@ -193,6 +194,7 @@ export async function POST(request: NextRequest) {
 
     const reportId = String(body?.report_id ?? "").trim()
     const format = String(body?.format ?? "PDF").trim().toUpperCase()
+    const htmlCapture = body?.html_capture === true || body?.html_capture === "true" || format === "HTML"
     const pbiPageNames = resolveSchedulePageNames(body ?? {})
     const pbiPageName = getPrimarySchedulePageName(pbiPageNames)
 
@@ -222,9 +224,9 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    if (!["PDF", "PNG", "PPTX"].includes(format)) {
+    if (!["PDF", "PNG", "PPTX", "HTML"].includes(format)) {
       return new Response(
-        JSON.stringify({ error: "Formato invalido. Use PDF, PNG ou PPTX." }),
+        JSON.stringify({ error: "Formato invalido. Use PDF, PNG, PPTX ou HTML." }),
         {
           status: 400,
           headers: { "Content-Type": "application/json" },
@@ -285,6 +287,34 @@ export async function POST(request: NextRequest) {
     const safeName = sanitizeFileName(report.name || "relatorio")
     let browserPdfErrorMessage: string | null = null
     let nativePdfError: unknown = null
+
+    if (htmlCapture && (format === "PNG" || format === "HTML")) {
+      if (!report.embed_url) {
+        return jsonError("Este relatorio nao possui URL de embed configurada", 422)
+      }
+
+      const embedToken = await generateReportEmbedToken(
+        token,
+        workspace.pbi_workspace_id,
+        report.pbi_report_id
+      )
+
+      const pngBuffer = await captureReportScreenshot({
+        embedUrl: report.embed_url,
+        embedToken,
+        reportId: report.pbi_report_id,
+        pageName: pbiPageName ?? null,
+      })
+
+      return new Response(pngBuffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Content-Disposition": `inline; filename="${safeName}.png"`,
+          "Cache-Control": "no-store",
+        },
+      })
+    }
 
     if ((format === "PDF" || format === "PNG") && !preferNativePowerBiExport) {
       try {

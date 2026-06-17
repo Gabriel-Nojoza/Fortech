@@ -82,6 +82,88 @@ export async function pdfToPng(pdfBuffer: Buffer): Promise<Buffer> {
   }
 }
 
+export async function captureReportScreenshot(input: {
+  embedUrl: string
+  embedToken: string
+  reportId: string
+  pageName?: string | null
+  viewportWidth?: number
+  viewportHeight?: number
+}): Promise<Buffer> {
+  const executablePath = await findChromePath()
+  const width = input.viewportWidth ?? 1280
+  const height = input.viewportHeight ?? 720
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #fff; width: ${width}px; height: ${height}px; }
+    #pbi-container { width: ${width}px; height: ${height}px; }
+  </style>
+</head>
+<body>
+  <div id="pbi-container"></div>
+  <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2/dist/powerbi.min.js"></script>
+  <script>
+    window._pbiRendered = false;
+    window._pbiError = null;
+
+    var models = window['powerbi-client'].models;
+    var container = document.getElementById('pbi-container');
+    var config = {
+      type: 'report',
+      id: ${JSON.stringify(input.reportId)},
+      embedUrl: ${JSON.stringify(input.embedUrl)},
+      accessToken: ${JSON.stringify(input.embedToken)},
+      tokenType: models.TokenType.Embed,
+      ${input.pageName ? `pageName: ${JSON.stringify(input.pageName)},` : ""}
+      settings: {
+        filterPaneEnabled: false,
+        navContentPaneEnabled: false,
+        background: models.BackgroundType.Default,
+      },
+    };
+
+    var report = window['powerbi'].embed(container, config);
+
+    report.on('rendered', function() {
+      // Extra delay so custom visuals finish painting
+      setTimeout(function() { window._pbiRendered = true; }, 2000);
+    });
+
+    report.on('error', function(event) {
+      window._pbiError = JSON.stringify(event.detail);
+      window._pbiRendered = true;
+    });
+  </script>
+</body>
+</html>`
+
+  const browser = await puppeteer.launch({
+    executablePath,
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+  })
+
+  try {
+    const page = await browser.newPage()
+    await page.setViewport({ width, height })
+    await page.setContent(html, { waitUntil: "load", timeout: 30000 })
+    await page.waitForFunction("window._pbiRendered === true", { timeout: 60000 })
+
+    const element = await page.$("#pbi-container")
+    if (!element) throw new Error("Container do Power BI nao encontrado na pagina")
+
+    const screenshot = await element.screenshot({ type: "png" })
+    return Buffer.from(screenshot)
+  } finally {
+    await browser.close()
+  }
+}
+
 export async function buildPdfFromHtml(html: string): Promise<Buffer> {
   const executablePath = await findChromePath()
 

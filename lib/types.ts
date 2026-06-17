@@ -55,6 +55,7 @@ export interface WhatsAppBotInstance {
 export type ScheduleExportFormat =
   | "PDF"
   | "PNG"
+  | "HTML"
   | "PPTX"
   | "table"
   | "csv"
