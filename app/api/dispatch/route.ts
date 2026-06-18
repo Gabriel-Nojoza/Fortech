@@ -106,7 +106,7 @@ function fireAudioDispatch(options: {
   appUrl: string
   secret: string
   companyId: string
-  report: { id?: string | null; name?: string | null; dataset_id?: string | null } | null
+  report: { id?: string | null; name?: string | null; dataset_id?: string | null; pbi_report_id?: string | null; workspaceId?: string | null; pbi_page_name?: string | null } | null
   contacts: Array<{ phone?: string | null; whatsapp_group_id?: string | null }>
   botInstanceId: string | null
 }) {
@@ -126,6 +126,9 @@ function fireAudioDispatch(options: {
       report_id: options.report.id,
       report_name: options.report.name ?? "Relatório",
       dataset_id: options.report.dataset_id,
+      pbi_report_id: options.report.pbi_report_id ?? null,
+      workspace_id: options.report.workspaceId ?? null,
+      page_name: options.report.pbi_page_name ?? null,
       contacts: options.contacts.map((c) => ({
         phone: c.phone ?? null,
         whatsapp_group_id: c.whatsapp_group_id ?? null,
@@ -814,7 +817,13 @@ async function handleDispatch(request: NextRequest) {
         appUrl,
         secret: process.env.PLATFORM_SCHEDULER_SECRET?.trim() || callbackSecret,
         companyId,
-        report: primaryReport as Record<string, unknown> | null,
+        report: primaryReport ? {
+          ...(primaryReport as Record<string, unknown>),
+          workspaceId: (primaryReport as Record<string, unknown>).workspaces
+            ? ((primaryReport as Record<string, unknown>).workspaces as Record<string, string>).pbi_workspace_id ?? null
+            : null,
+          pbi_page_name: primaryScheduleReportConfig.pbi_page_name ?? null,
+        } : null,
         contacts: normalizedContacts,
         botInstanceId: schedule.bot_instance_id ?? null,
       })
@@ -957,7 +966,13 @@ async function handleDispatch(request: NextRequest) {
     appUrl: getRequestOrigin(request),
     secret: process.env.PLATFORM_SCHEDULER_SECRET?.trim() || callbackSecret,
     companyId,
-    report: primaryReport as Record<string, unknown> | null,
+    report: primaryReport ? {
+      ...(primaryReport as Record<string, unknown>),
+      workspaceId: (primaryReport as Record<string, unknown>).workspaces
+        ? ((primaryReport as Record<string, unknown>).workspaces as Record<string, string>).pbi_workspace_id ?? null
+        : null,
+      pbi_page_name: primaryScheduleReportConfig.pbi_page_name ?? null,
+    } : null,
     contacts: normalizedContacts,
     botInstanceId: schedule.bot_instance_id ?? null,
   })

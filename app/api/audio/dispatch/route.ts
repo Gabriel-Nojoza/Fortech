@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
     const reportId = typeof body?.report_id === "string" ? body.report_id.trim() : null
     const reportName = typeof body?.report_name === "string" ? body.report_name.trim() : "Relatório"
     const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : null
+    const pbiReportId = typeof body?.pbi_report_id === "string" ? body.pbi_report_id.trim() : null
+    const workspaceId = typeof body?.workspace_id === "string" ? body.workspace_id.trim() : null
+    const pageName = typeof body?.page_name === "string" ? body.page_name.trim() : null
     const botInstanceId = typeof body?.bot_instance_id === "string" ? body.bot_instance_id.trim() : null
     const voice = typeof body?.voice === "string" ? body.voice.trim() : undefined
 
@@ -78,6 +81,9 @@ export async function POST(request: NextRequest) {
       reportId,
       reportName,
       datasetId,
+      pbiReportId,
+      workspaceId,
+      pageName,
       contacts,
       botInstanceId,
       voice,

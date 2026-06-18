@@ -873,3 +873,58 @@ export async function getDatasetLastRefresh(
     return null
   }
 }
+
+export async function listPageVisuals(
+  token: string,
+  workspaceId: string,
+  reportId: string,
+  pageName: string
+): Promise<Array<{ id: string; title: string; type: string }>> {
+  try {
+    const res = await fetch(
+      `${PBI_API_BASE}/groups/${workspaceId}/reports/${reportId}/pages/${pageName}/visuals`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    if (!res.ok) return []
+    const json = await res.json() as { value?: Array<{ id: string; title: string; type: string }> }
+    return json.value ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function exportVisualData(
+  token: string,
+  workspaceId: string,
+  reportId: string,
+  pageName: string,
+  visualId: string
+): Promise<Array<Record<string, unknown>>> {
+  try {
+    const res = await fetch(
+      `${PBI_API_BASE}/groups/${workspaceId}/reports/${reportId}/pages/${pageName}/visuals/${visualId}/exportData`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ rows: 50 }),
+      }
+    )
+    if (!res.ok) return []
+    const json = await res.json() as { data?: string }
+    if (!json.data) return []
+
+    // Parse CSV — primeira linha é cabeçalho
+    const lines = json.data.trim().split("\n")
+    if (lines.length < 2) return []
+    const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""))
+    return lines.slice(1).map((line) => {
+      const values = line.split(",").map((v) => v.trim().replace(/^"|"$/g, ""))
+      return Object.fromEntries(headers.map((h, i) => [h, values[i] ?? ""]))
+    })
+  } catch {
+    return []
+  }
+}
