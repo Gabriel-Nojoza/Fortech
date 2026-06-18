@@ -8,36 +8,17 @@ import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 
 const execFileAsync = promisify(execFile)
 
-async function generateAudioScript(
-  reportName: string,
-  data: Record<string, unknown>
-): Promise<string> {
-  const dataLines = Object.entries(data)
+function buildAudioScript(reportName: string, data: Record<string, unknown>): string {
+  const entries = Object.entries(data)
     .filter(([, v]) => v !== null && v !== undefined && v !== "")
-    .map(([k, v]) => `- ${k}: ${v}`)
-    .join("\n")
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(". ")
 
-  const prompt = dataLines
-    ? `Você é um assistente de análise de negócios. Crie um texto de narração em áudio (máximo 80 palavras) em português brasileiro sobre o relatório "${reportName}".\n\nDados do relatório:\n${dataLines}\n\nO texto deve:\n- Iniciar com uma saudação profissional curta\n- Mencionar os principais números de forma natural\n- Ser conversacional, como se estivesse sendo narrado\n- Terminar com uma mensagem motivacional de uma frase\n\nResponda APENAS com o texto de narração, sem markdown, listas ou explicações.`
-    : `Você é um assistente de análise de negócios. Crie um texto de narração em áudio (máximo 60 palavras) em português brasileiro informando que o relatório "${reportName}" foi enviado e está disponível para consulta. Seja profissional e motivacional. Responda APENAS com o texto de narração.`
-
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 90_000)
-
-  try {
-    const resp = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "llama3.2", prompt, stream: false }),
-      signal: controller.signal,
-    })
-
-    if (!resp.ok) throw new Error(`Ollama retornou ${resp.status}`)
-    const json = await resp.json() as { response?: unknown }
-    return typeof json.response === "string" ? json.response.trim() : ""
-  } finally {
-    clearTimeout(timeoutId)
+  if (!entries) {
+    return `Relatório ${reportName} atualizado e disponível para consulta.`
   }
+
+  return `Relatório ${reportName} atualizado. ${entries}.`
 }
 
 async function textToOgg(text: string, voice = "pt-BR-FranciscaNeural"): Promise<Buffer> {
@@ -104,8 +85,8 @@ export async function generateAndSendReportAudio(input: {
       }
     }
 
-    const script = await generateAudioScript(input.reportName, reportData)
-    if (!script) throw new Error("Ollama nao gerou o roteiro de audio")
+    const script = buildAudioScript(input.reportName, reportData)
+    if (!script) throw new Error("Nao foi possivel gerar o roteiro de audio")
 
     console.log("[audio] script gerado", { reportName: input.reportName, words: script.split(/\s+/).length })
 
