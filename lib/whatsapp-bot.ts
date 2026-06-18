@@ -53,6 +53,7 @@ export type WhatsAppBotSendPayload = {
   document_url?: string | null
   file_name?: string | null
   mimetype?: string | null
+  audio_base64?: string | null
 }
 
 export type WhatsAppBotSendResult = {

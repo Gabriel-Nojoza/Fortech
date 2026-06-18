@@ -102,6 +102,38 @@ function applyMessageTemplate(template: string | null | undefined, reportName: s
 }
 
 
+function fireAudioDispatch(options: {
+  appUrl: string
+  secret: string
+  companyId: string
+  report: { id?: string | null; name?: string | null; dataset_id?: string | null } | null
+  contacts: Array<{ phone?: string | null; whatsapp_group_id?: string | null }>
+  botInstanceId: string | null
+}) {
+  if (!options.secret || !options.report?.dataset_id || !options.report?.id) return
+
+  fetch(`${options.appUrl.replace(/\/+$/, "")}/api/audio/dispatch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-callback-secret": options.secret,
+    },
+    body: JSON.stringify({
+      company_id: options.companyId,
+      report_id: options.report.id,
+      report_name: options.report.name ?? "Relatório",
+      dataset_id: options.report.dataset_id,
+      contacts: options.contacts.map((c) => ({
+        phone: c.phone ?? null,
+        whatsapp_group_id: c.whatsapp_group_id ?? null,
+      })),
+      bot_instance_id: options.botInstanceId ?? null,
+    }),
+  }).catch((err: unknown) => {
+    console.error("[dispatch] audio fire-and-forget falhou", err instanceof Error ? err.message : err)
+  })
+}
+
 export async function POST(request: NextRequest) {
   try {
     return await handleDispatch(request)
@@ -772,6 +804,15 @@ async function handleDispatch(request: NextRequest) {
         .eq("company_id", companyId)
         .eq("id", schedule_id)
 
+      fireAudioDispatch({
+        appUrl,
+        secret: process.env.PLATFORM_SCHEDULER_SECRET?.trim() || callbackSecret,
+        companyId,
+        report: primaryReport as Record<string, unknown> | null,
+        contacts: normalizedContacts,
+        botInstanceId: schedule.bot_instance_id ?? null,
+      })
+
       return NextResponse.json({
         success: true,
         logs_created: (insertedLogs ?? []).length,
@@ -905,6 +946,15 @@ async function handleDispatch(request: NextRequest) {
   if (dispatchErrorMessage) {
     return NextResponse.json({ error: dispatchErrorMessage }, { status: 502 })
   }
+
+  fireAudioDispatch({
+    appUrl: getRequestOrigin(request),
+    secret: process.env.PLATFORM_SCHEDULER_SECRET?.trim() || callbackSecret,
+    companyId,
+    report: primaryReport as Record<string, unknown> | null,
+    contacts: normalizedContacts,
+    botInstanceId: schedule.bot_instance_id ?? null,
+  })
 
   return NextResponse.json({ success: true, logs_created: (insertedLogs ?? []).length })
 }

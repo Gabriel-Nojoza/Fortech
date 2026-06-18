@@ -588,6 +588,25 @@ async function sendGenericPayload(instance, input) {
   const caption = typeof input?.caption === "string" ? input.caption.trim() : ""
   const text = typeof input?.text === "string" ? input.text.trim() : ""
 
+  const audioBase64 = typeof input?.audio_base64 === "string" ? input.audio_base64.trim() : ""
+  if (audioBase64) {
+    const audioBuffer = Buffer.from(audioBase64, "base64")
+    const isPtt = !isGroupJid(jid)
+    await instance.socket.sendMessage(jid, {
+      audio: audioBuffer,
+      mimetype: "audio/ogg; codecs=opus",
+      ptt: isPtt,
+    })
+    return {
+      jid,
+      phone: getPhoneFromJid(jid),
+      whatsapp_group_id: isGroupJid(jid) ? jid : null,
+      has_document: true,
+      file_name: "audio.ogg",
+      mimetype: "audio/ogg; codecs=opus",
+    }
+  }
+
   if (documentPayload) {
     const isImage = documentPayload.mimeType.startsWith("image/")
     await instance.socket.sendMessage(jid, isImage
