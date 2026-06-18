@@ -110,9 +110,12 @@ function fireAudioDispatch(options: {
   contacts: Array<{ phone?: string | null; whatsapp_group_id?: string | null }>
   botInstanceId: string | null
 }) {
+  console.log("[audio] fireAudioDispatch", { hasSecret: !!options.secret, reportId: options.report?.id, datasetId: options.report?.dataset_id })
   if (!options.secret || !options.report?.dataset_id || !options.report?.id) return
 
-  fetch(`${options.appUrl.replace(/\/+$/, "")}/api/audio/dispatch`, {
+  const audioUrl = `${options.appUrl.replace(/\/+$/, "")}/api/audio/dispatch`
+  console.log("[audio] disparando fetch", audioUrl)
+  fetch(audioUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -129,6 +132,9 @@ function fireAudioDispatch(options: {
       })),
       bot_instance_id: options.botInstanceId ?? null,
     }),
+  }).then(async (res) => {
+    const text = await res.text().catch(() => "")
+    console.log("[audio] resposta do dispatch", res.status, text.slice(0, 200))
   }).catch((err: unknown) => {
     console.error("[dispatch] audio fire-and-forget falhou", err instanceof Error ? err.message : err)
   })

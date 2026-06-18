@@ -8,17 +8,42 @@ import { sendWhatsAppBotMessage } from "@/lib/whatsapp-bot"
 
 const execFileAsync = promisify(execFile)
 
-function buildAudioScript(reportName: string, data: Record<string, unknown>): string {
-  const entries = Object.entries(data)
+function buildAudioScript(
+  reportName: string,
+  rows: Array<Record<string, unknown>>,
+  dimensionKey: string | null
+): string {
+  if (rows.length === 0) {
+    return `Relatório ${reportName} atualizado e disponível para consulta.`
+  }
+
+  // Se tiver breakdown por dimensão (múltiplas linhas)
+  if (dimensionKey && rows.length > 1) {
+    const parts = rows
+      .filter((row) => row[dimensionKey] !== null && row[dimensionKey] !== undefined)
+      .map((row) => {
+        const label = String(row[dimensionKey])
+        const metrics = Object.entries(row)
+          .filter(([k, v]) => k !== dimensionKey && v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(", ")
+        return metrics ? `${label} — ${metrics}` : label
+      })
+      .filter(Boolean)
+
+    if (parts.length === 0) return `Relatório ${reportName} atualizado e disponível para consulta.`
+    return `Relatório ${reportName} atualizado. ${parts.join(". ")}.`
+  }
+
+  // Totais apenas (uma linha)
+  const entries = Object.entries(rows[0])
     .filter(([, v]) => v !== null && v !== undefined && v !== "")
     .map(([k, v]) => `${k}: ${v}`)
     .join(". ")
 
-  if (!entries) {
-    return `Relatório ${reportName} atualizado e disponível para consulta.`
-  }
-
-  return `Relatório ${reportName} atualizado. ${entries}.`
+  return entries
+    ? `Relatório ${reportName} atualizado. ${entries}.`
+    : `Relatório ${reportName} atualizado e disponível para consulta.`
 }
 
 async function textToOgg(text: string, voice = "pt-BR-FranciscaNeural"): Promise<Buffer> {
@@ -68,27 +93,66 @@ export async function generateAndSendReportAudio(input: {
 
     const visibleMeasures = metadata.measures
       .filter((m) => !m.isHidden && m.tableName && m.measureName)
-      .slice(0, 8)
+      .slice(0, 5)
 
-    let reportData: Record<string, unknown> = {}
+    // Detecta automaticamente a primeira coluna de texto visível para breakdown
+    const dimensionColumn = metadata.columns.find(
+      (c) =>
+        !c.isHidden &&
+        (c.dataType === "string" || c.dataType === "text") &&
+        !metadata.tables.find((t) => t.name === c.tableName)?.isHidden
+    )
 
-    for (const measure of visibleMeasures) {
+    let rows: Array<Record<string, unknown>> = []
+    let dimensionKey: string | null = null
+
+    if (dimensionColumn && visibleMeasures.length > 0) {
+      // Busca dados por linha usando SUMMARIZECOLUMNS
+      const tableName = dimensionColumn.tableName.replace(/'/g, "''")
+      const colName = dimensionColumn.columnName.replace(/'/g, "''")
+      const measureDefs = visibleMeasures
+        .map((m) => `"${m.measureName.replace(/"/g, '\\"')}", [${m.measureName}]`)
+        .join(", ")
+
+      const dax = `EVALUATE TOPN(10, SUMMARIZECOLUMNS('${tableName}'[${colName}], ${measureDefs}), [${visibleMeasures[0].measureName}], 0)`
+
       try {
-        const daxQuery = `EVALUATE ROW("${measure.measureName.replace(/"/g, '\\"')}", [${measure.measureName}])`
-        const result = await executeDAXQuery(token, input.datasetId, daxQuery)
+        const result = await executeDAXQuery(token, input.datasetId, dax)
         if (result.rows.length > 0) {
-          const value = Object.values(result.rows[0])[0]
-          if (value !== null && value !== undefined) reportData[measure.measureName] = value
+          // Normaliza o nome da chave de dimensão (Power BI retorna com prefixo da tabela)
+          const firstRowKeys = Object.keys(result.rows[0])
+          dimensionKey = firstRowKeys.find((k) =>
+            k.toLowerCase().includes(colName.toLowerCase()) || k.includes("[")
+          ) ?? firstRowKeys[0]
+          rows = result.rows
         }
       } catch {
-        // medida indisponível — ignora e continua
+        // fallback para totais
       }
     }
 
-    const script = buildAudioScript(input.reportName, reportData)
+    // Fallback: busca totais se não conseguiu breakdown
+    if (rows.length === 0) {
+      const totals: Record<string, unknown> = {}
+      for (const measure of visibleMeasures) {
+        try {
+          const daxQuery = `EVALUATE ROW("${measure.measureName.replace(/"/g, '\\"')}", [${measure.measureName}])`
+          const result = await executeDAXQuery(token, input.datasetId, daxQuery)
+          if (result.rows.length > 0) {
+            const value = Object.values(result.rows[0])[0]
+            if (value !== null && value !== undefined) totals[measure.measureName] = value
+          }
+        } catch {
+          // medida indisponível — ignora e continua
+        }
+      }
+      if (Object.keys(totals).length > 0) rows = [totals]
+    }
+
+    const script = buildAudioScript(input.reportName, rows, dimensionKey)
     if (!script) throw new Error("Nao foi possivel gerar o roteiro de audio")
 
-    console.log("[audio] script gerado", { reportName: input.reportName, words: script.split(/\s+/).length })
+    console.log("[audio] script gerado", { reportName: input.reportName, words: script.split(/\s+/).length, rows: rows.length, dimensionKey })
 
     const audioBuffer = await textToOgg(script, input.voice ?? "pt-BR-FranciscaNeural")
     const audioBase64 = audioBuffer.toString("base64")
