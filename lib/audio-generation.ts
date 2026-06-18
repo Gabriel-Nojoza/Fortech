@@ -91,17 +91,16 @@ export async function generateAndSendReportAudio(input: {
 
     let reportData: Record<string, unknown> = {}
 
-    if (visibleMeasures.length > 0) {
-      const rowItems = visibleMeasures
-        .map((m) => `"${m.measureName}", '${m.tableName}'[${m.measureName}]`)
-        .join(", ")
-      const daxQuery = `EVALUATE ROW(${rowItems})`
-
+    for (const measure of visibleMeasures) {
       try {
+        const daxQuery = `EVALUATE ROW("${measure.measureName.replace(/"/g, '\\"')}", [${measure.measureName}])`
         const result = await executeDAXQuery(token, input.datasetId, daxQuery)
-        if (result.rows.length > 0) reportData = result.rows[0]
-      } catch (daxErr) {
-        console.warn("[audio] DAX query failed, continuing without data", daxErr instanceof Error ? daxErr.message : daxErr)
+        if (result.rows.length > 0) {
+          const value = Object.values(result.rows[0])[0]
+          if (value !== null && value !== undefined) reportData[measure.measureName] = value
+        }
+      } catch {
+        // medida indisponível — ignora e continua
       }
     }
 
