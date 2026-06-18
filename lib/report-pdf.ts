@@ -91,7 +91,7 @@ export async function captureReportScreenshot(input: {
   viewportHeight?: number
 }): Promise<Buffer> {
   const executablePath = await findChromePath()
-  const width = input.viewportWidth ?? 1280
+  const width = input.viewportWidth ?? 1024
   const height = input.viewportHeight ?? 1100
 
   const html = `<!DOCTYPE html>
