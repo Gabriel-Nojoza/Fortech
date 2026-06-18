@@ -91,7 +91,7 @@ export async function captureReportScreenshot(input: {
   viewportHeight?: number
 }): Promise<Buffer> {
   const executablePath = await findChromePath()
-  const width = input.viewportWidth ?? 1920
+  const width = input.viewportWidth ?? 1280
   const height = input.viewportHeight ?? 1100
 
   const html = `<!DOCTYPE html>
@@ -150,7 +150,7 @@ export async function captureReportScreenshot(input: {
 
   try {
     const page = await browser.newPage()
-    await page.setViewport({ width, height, deviceScaleFactor: 3 })
+    await page.setViewport({ width, height, deviceScaleFactor: 2 })
     await page.setContent(html, { waitUntil: "load", timeout: 30000 })
     await page.waitForFunction("window._pbiRendered === true", { timeout: 60000 })
 
