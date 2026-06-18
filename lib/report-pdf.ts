@@ -150,7 +150,7 @@ export async function captureReportScreenshot(input: {
 
   try {
     const page = await browser.newPage()
-    await page.setViewport({ width, height })
+    await page.setViewport({ width, height, deviceScaleFactor: 2 })
     await page.setContent(html, { waitUntil: "load", timeout: 30000 })
     await page.waitForFunction("window._pbiRendered === true", { timeout: 60000 })
 
