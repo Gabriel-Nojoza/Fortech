@@ -109,9 +109,11 @@ function fireAudioDispatch(options: {
   report: { id?: string | null; name?: string | null; dataset_id?: string | null; pbi_report_id?: string | null; workspaceId?: string | null; pbi_page_name?: string | null } | null
   contacts: Array<{ phone?: string | null; whatsapp_group_id?: string | null }>
   botInstanceId: string | null
+  sendMode?: string | null
 }) {
-  console.log("[audio] fireAudioDispatch", { hasSecret: !!options.secret, reportId: options.report?.id, datasetId: options.report?.dataset_id })
-  if (!options.secret || !options.report?.dataset_id || !options.report?.id) return
+  const sendMode = options.sendMode === "audio" || options.sendMode === "text" ? options.sendMode : null
+  console.log("[audio] fireAudioDispatch", { sendMode, hasSecret: !!options.secret, reportId: options.report?.id, datasetId: options.report?.dataset_id })
+  if (!sendMode || !options.secret || !options.report?.dataset_id || !options.report?.id) return
 
   const audioUrl = `${options.appUrl.replace(/\/+$/, "")}/api/audio/dispatch`
   console.log("[audio] disparando fetch", audioUrl)
@@ -129,6 +131,7 @@ function fireAudioDispatch(options: {
       pbi_report_id: options.report.pbi_report_id ?? null,
       workspace_id: options.report.workspaceId ?? null,
       page_name: options.report.pbi_page_name ?? null,
+      send_mode: sendMode,
       contacts: options.contacts.map((c) => ({
         phone: c.phone ?? null,
         whatsapp_group_id: c.whatsapp_group_id ?? null,
@@ -826,6 +829,7 @@ async function handleDispatch(request: NextRequest) {
         } : null,
         contacts: normalizedContacts,
         botInstanceId: schedule.bot_instance_id ?? null,
+        sendMode: schedule.send_mode ?? null,
       })
 
       return NextResponse.json({
@@ -975,6 +979,7 @@ async function handleDispatch(request: NextRequest) {
     } : null,
     contacts: normalizedContacts,
     botInstanceId: schedule.bot_instance_id ?? null,
+    sendMode: schedule.send_mode ?? null,
   })
 
   return NextResponse.json({ success: true, logs_created: (insertedLogs ?? []).length })

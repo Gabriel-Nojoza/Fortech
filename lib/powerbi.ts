@@ -881,16 +881,44 @@ export async function listPageVisuals(
   pageName: string
 ): Promise<Array<{ id: string; title: string; type: string }>> {
   try {
-    const res = await fetch(
-      `${PBI_API_BASE}/groups/${workspaceId}/reports/${reportId}/pages/${pageName}/visuals`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
-    if (!res.ok) return []
-    const json = await res.json() as { value?: Array<{ id: string; title: string; type: string }> }
+    const url = `${PBI_API_BASE}/groups/${workspaceId}/reports/${reportId}/pages/${pageName}/visuals`
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    const text = await res.text()
+    if (!res.ok) {
+      console.log("[audio] listPageVisuals erro", res.status, text.slice(0, 300))
+      return []
+    }
+    const json = JSON.parse(text) as { value?: Array<{ id: string; title: string; type: string }> }
     return json.value ?? []
-  } catch {
+  } catch (err) {
+    console.log("[audio] listPageVisuals exception", err instanceof Error ? err.message : err)
     return []
   }
+}
+
+function parseCSVRow(line: string): string[] {
+  const values: string[] = []
+  let current = ""
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"'
+        i++
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (char === "," && !inQuotes) {
+      values.push(current.trim())
+      current = ""
+    } else {
+      current += char
+    }
+  }
+  values.push(current.trim())
+  return values
 }
 
 export async function exportVisualData(
@@ -916,12 +944,11 @@ export async function exportVisualData(
     const json = await res.json() as { data?: string }
     if (!json.data) return []
 
-    // Parse CSV — primeira linha é cabeçalho
     const lines = json.data.trim().split("\n")
     if (lines.length < 2) return []
-    const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""))
+    const headers = parseCSVRow(lines[0])
     return lines.slice(1).map((line) => {
-      const values = line.split(",").map((v) => v.trim().replace(/^"|"$/g, ""))
+      const values = parseCSVRow(line)
       return Object.fromEntries(headers.map((h, i) => [h, values[i] ?? ""]))
     })
   } catch {

@@ -549,6 +549,7 @@ export default function SchedulesPage() {
   ])
   const [formCron, setFormCron] = useState("0 8 * * 1-5")
   const [formFormat, setFormFormat] = useState<ScheduleExportFormat>("PDF")
+  const [formSendMode, setFormSendMode] = useState<"none" | "audio" | "text">("none")
   const [formMessage, setFormMessage] = useState(
     "Segue o relatorio {report_name} em anexo."
   )
@@ -679,6 +680,7 @@ export default function SchedulesPage() {
     setFormReportSelections([createFormReportSelection()])
     setFormCron(DEFAULT_SCHEDULE_CRON)
     setFormFormat("PDF")
+    setFormSendMode("none")
     setFormMessage(DEFAULT_SCHEDULE_MESSAGE)
     setFormImageUrls([])
     setFormContactIds([])
@@ -745,6 +747,11 @@ export default function SchedulesPage() {
     )
     setFormCron(schedule.cron_expression)
     setFormFormat(normalizeScheduleFormat(schedule.export_format))
+    setFormSendMode(
+      schedule.send_mode === "audio" || schedule.send_mode === "text"
+        ? schedule.send_mode
+        : "none"
+    )
     setFormMessage(schedule.message_template ?? DEFAULT_SCHEDULE_MESSAGE)
     setFormImageUrls(
       Array.isArray(schedule.image_urls) && schedule.image_urls.length > 0
@@ -864,6 +871,7 @@ export default function SchedulesPage() {
         })),
         cron_expression: formCron,
         export_format: formFormat,
+        send_mode: formSendMode,
         message_template: formMessage || null,
         image_url: formImageUrls[0] ?? null,
         image_urls: formImageUrls.length > 0 ? formImageUrls : null,
@@ -1900,6 +1908,28 @@ export default function SchedulesPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label>Narração do Relatório</Label>
+              <Select
+                value={formSendMode}
+                onValueChange={(v) => setFormSendMode(v as "none" | "audio" | "text")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Não enviar narração</SelectItem>
+                  <SelectItem value="audio">Enviar áudio explicando o relatório</SelectItem>
+                  <SelectItem value="text">Enviar texto explicando o relatório</SelectItem>
+                </SelectContent>
+              </Select>
+              {formSendMode !== "none" && (
+                <p className="text-xs text-muted-foreground">
+                  A IA vai analisar o relatório e {formSendMode === "audio" ? "enviar uma mensagem de voz" : "enviar uma mensagem de texto"} descrevendo os dados de cada supervisor/fornecedor.
+                </p>
+              )}
             </div>
 
             <CronBuilder

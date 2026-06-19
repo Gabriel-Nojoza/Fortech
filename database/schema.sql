@@ -185,6 +185,9 @@ CREATE TABLE IF NOT EXISTS public.schedules (
   image_url        text,
   image_urls       jsonb,
   disable_after_send boolean NOT NULL DEFAULT false,
+  -- Modo de envio de narração: 'none' = só relatório, 'audio' = voz, 'text' = texto
+  send_mode        text        NOT NULL DEFAULT 'none'
+                               CHECK (send_mode IN ('none', 'audio', 'text')),
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz
 );

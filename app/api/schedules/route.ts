@@ -136,6 +136,7 @@ const baseScheduleSchema = z.object({
   image_url: z.string().url().nullable().optional(),
   image_urls: z.array(z.string().url()).nullable().optional(),
   disable_after_send: z.boolean().optional(),
+  send_mode: z.enum(["none", "audio", "text"]).default("none"),
   is_active: z.boolean().default(true),
   contact_ids: z.array(z.string().trim().min(1)).optional(),
 })

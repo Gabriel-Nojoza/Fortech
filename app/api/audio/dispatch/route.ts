@@ -58,6 +58,8 @@ export async function POST(request: NextRequest) {
     const pageName = typeof body?.page_name === "string" ? body.page_name.trim() : null
     const botInstanceId = typeof body?.bot_instance_id === "string" ? body.bot_instance_id.trim() : null
     const voice = typeof body?.voice === "string" ? body.voice.trim() : undefined
+    const rawSendMode = typeof body?.send_mode === "string" ? body.send_mode.trim() : "audio"
+    const sendMode = rawSendMode === "text" ? "text" : "audio"
 
     const rawContacts = Array.isArray(body?.contacts) ? (body.contacts as unknown[]) : []
     const contacts = (rawContacts as Array<Record<string, unknown>>)
@@ -87,6 +89,7 @@ export async function POST(request: NextRequest) {
       contacts,
       botInstanceId,
       voice,
+      sendMode,
     })
 
     return NextResponse.json({ ok: true, sent: result.sent, error: result.error ?? null })
