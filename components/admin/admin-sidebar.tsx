@@ -11,6 +11,7 @@ import {
   Sun,
   LogOut,
   MessageSquare,
+  Clock,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTheme } from "next-themes"
@@ -41,6 +42,7 @@ const adminNav = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Resumo operacional", href: "/admin/operational-summary", icon: Activity },
   { title: "Uso do Chat", href: "/admin/chat-usage", icon: MessageSquare },
+  { title: "Rotinas", href: "/admin/schedules", icon: Clock },
   { title: "Usuarios", href: "/admin/users", icon: Users },
   { title: "Configuracoes", href: "/admin/settings", icon: Settings },
 ]

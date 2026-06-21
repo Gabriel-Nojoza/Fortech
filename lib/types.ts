@@ -84,6 +84,7 @@ export interface Schedule {
   image_url?: string | null
   image_urls?: string[] | null
   disable_after_send?: boolean
+  send_mode?: "none" | "audio" | "text" | null
   is_active: boolean
   last_run_at: string | null
   next_run_at: string | null

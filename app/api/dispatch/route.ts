@@ -101,51 +101,6 @@ function applyMessageTemplate(template: string | null | undefined, reportName: s
   })
 }
 
-
-function fireAudioDispatch(options: {
-  appUrl: string
-  secret: string
-  companyId: string
-  report: { id?: string | null; name?: string | null; dataset_id?: string | null; pbi_report_id?: string | null; workspaceId?: string | null; pbi_page_name?: string | null } | null
-  contacts: Array<{ phone?: string | null; whatsapp_group_id?: string | null }>
-  botInstanceId: string | null
-  sendMode?: string | null
-}) {
-  const sendMode = options.sendMode === "audio" || options.sendMode === "text" ? options.sendMode : null
-  console.log("[audio] fireAudioDispatch", { sendMode, hasSecret: !!options.secret, reportId: options.report?.id, datasetId: options.report?.dataset_id })
-  if (!sendMode || !options.secret || !options.report?.dataset_id || !options.report?.id) return
-
-  const audioUrl = `${options.appUrl.replace(/\/+$/, "")}/api/audio/dispatch`
-  console.log("[audio] disparando fetch", audioUrl)
-  fetch(audioUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-callback-secret": options.secret,
-    },
-    body: JSON.stringify({
-      company_id: options.companyId,
-      report_id: options.report.id,
-      report_name: options.report.name ?? "Relatório",
-      dataset_id: options.report.dataset_id,
-      pbi_report_id: options.report.pbi_report_id ?? null,
-      workspace_id: options.report.workspaceId ?? null,
-      page_name: options.report.pbi_page_name ?? null,
-      send_mode: sendMode,
-      contacts: options.contacts.map((c) => ({
-        phone: c.phone ?? null,
-        whatsapp_group_id: c.whatsapp_group_id ?? null,
-      })),
-      bot_instance_id: options.botInstanceId ?? null,
-    }),
-  }).then(async (res) => {
-    const text = await res.text().catch(() => "")
-    console.log("[audio] resposta do dispatch", res.status, text.slice(0, 200))
-  }).catch((err: unknown) => {
-    console.error("[dispatch] audio fire-and-forget falhou", err instanceof Error ? err.message : err)
-  })
-}
-
 export async function POST(request: NextRequest) {
   try {
     return await handleDispatch(request)
@@ -816,22 +771,6 @@ async function handleDispatch(request: NextRequest) {
         .eq("company_id", companyId)
         .eq("id", schedule_id)
 
-      fireAudioDispatch({
-        appUrl,
-        secret: process.env.PLATFORM_SCHEDULER_SECRET?.trim() || callbackSecret,
-        companyId,
-        report: primaryReport ? {
-          ...(primaryReport as Record<string, unknown>),
-          workspaceId: (primaryReport as Record<string, unknown>).workspaces
-            ? ((primaryReport as Record<string, unknown>).workspaces as Record<string, string>).pbi_workspace_id ?? null
-            : null,
-          pbi_page_name: primaryScheduleReportConfig.pbi_page_name ?? null,
-        } : null,
-        contacts: normalizedContacts,
-        botInstanceId: schedule.bot_instance_id ?? null,
-        sendMode: schedule.send_mode ?? null,
-      })
-
       return NextResponse.json({
         success: true,
         logs_created: (insertedLogs ?? []).length,
@@ -915,6 +854,7 @@ async function handleDispatch(request: NextRequest) {
           whatsapp_group_id: contact.whatsapp_group_id,
         })),
         bot_instance_id: schedule.bot_instance_id ?? null,
+        send_mode: schedule.send_mode ?? "none",
         message,
         dispatch_log_ids: (insertedLogs ?? []).map((log) => log.id),
         dispatch_targets: dispatchTargets,
@@ -965,22 +905,6 @@ async function handleDispatch(request: NextRequest) {
   if (dispatchErrorMessage) {
     return NextResponse.json({ error: dispatchErrorMessage }, { status: 502 })
   }
-
-  fireAudioDispatch({
-    appUrl: getRequestOrigin(request),
-    secret: process.env.PLATFORM_SCHEDULER_SECRET?.trim() || callbackSecret,
-    companyId,
-    report: primaryReport ? {
-      ...(primaryReport as Record<string, unknown>),
-      workspaceId: (primaryReport as Record<string, unknown>).workspaces
-        ? ((primaryReport as Record<string, unknown>).workspaces as Record<string, string>).pbi_workspace_id ?? null
-        : null,
-      pbi_page_name: primaryScheduleReportConfig.pbi_page_name ?? null,
-    } : null,
-    contacts: normalizedContacts,
-    botInstanceId: schedule.bot_instance_id ?? null,
-    sendMode: schedule.send_mode ?? null,
-  })
 
   return NextResponse.json({ success: true, logs_created: (insertedLogs ?? []).length })
 }
