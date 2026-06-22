@@ -445,6 +445,15 @@ async function refreshGroupDirectory(instance) {
       group.id = groupId
     }
     upsertGroupCache(instance, group)
+
+    if (Array.isArray(group.participants)) {
+      for (const participant of group.participants) {
+        const participantJid = typeof participant.id === "string" ? participant.id : ""
+        if (participantJid.endsWith("@s.whatsapp.net")) {
+          upsertContactCache(instance, { id: participantJid })
+        }
+      }
+    }
   }
 }
 
@@ -901,6 +910,8 @@ async function listarGrupos(instance) {
     console.log(`- ${group.subject} -> ${id}`)
   }
   console.log("=== Fim da lista de grupos ===\n")
+
+  void syncContactsToDb(instance)
 }
 
 async function getLatestPdfPath(moment, group) {
