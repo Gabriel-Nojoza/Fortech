@@ -15,11 +15,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "document_base64 obrigatorio" }, { status: 400 })
   }
 
-  // Remove data URI prefix, whitespace/newlines e = inicial (n8n expression prefix)
+  // Mantém apenas caracteres base64 válidos (A-Z, a-z, 0-9, +, /, =)
   const cleanBase64 = String(document_base64)
     .replace(/^data:[^;]+;base64,/, "")
-    .replace(/\s/g, "")
-    .replace(/^=+/, "")
+    .replace(/[^A-Za-z0-9+/=]/g, "")
 
   const ollamaRes = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
