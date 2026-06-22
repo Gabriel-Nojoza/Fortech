@@ -101,7 +101,7 @@ async function syncContactsToDb(instance) {
     .from("contacts")
     .select("id, phone, whatsapp_group_id, type, name, bot_instance_id, is_active")
     .eq("company_id", instance.companyId)
-    .limit(5000)
+    .limit(50000)
 
   const existingByPhone = new Map()
   const existingByGroupId = new Map()

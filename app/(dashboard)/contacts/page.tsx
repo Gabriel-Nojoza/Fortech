@@ -133,7 +133,7 @@ export default function ContactsPage() {
     null
   const resolvedBotInstanceId = selectedBotInstance?.id ?? ""
   const contactsKey = resolvedBotInstanceId
-    ? `/api/contacts?bot_instance_id=${resolvedBotInstanceId}`
+    ? `/api/contacts?bot_instance_id=${resolvedBotInstanceId}${typeFilter !== "all" ? `&type=${typeFilter}` : ""}`
     : null
   const botQrKey = resolvedBotInstanceId
     ? `/api/bot/qr?instance_id=${resolvedBotInstanceId}`
