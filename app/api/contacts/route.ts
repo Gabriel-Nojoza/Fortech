@@ -30,23 +30,35 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type")
     const botInstanceId = searchParams.get("bot_instance_id")
 
-    let query = supabase
-      .from("contacts")
-      .select("*")
-      .eq("company_id", companyId)
-      .order("type", { ascending: false })
-      .order("name", { ascending: true })
-      .limit(50000)
+    function buildBaseQuery(t: string) {
+      let q = supabase
+        .from("contacts")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("type", t)
+        .order("name", { ascending: true })
+        .limit(5000)
+      if (botInstanceId) {
+        q = q.or(`bot_instance_id.eq.${botInstanceId},bot_instance_id.is.null`)
+      }
+      return q
+    }
+
+    let data: unknown[]
+    let error: { message: string; code?: string } | null
 
     if (type && type !== "all") {
-      query = query.eq("type", type)
+      const result = await buildBaseQuery(type)
+      data = result.data ?? []
+      error = result.error
+    } else {
+      const [individualsResult, groupsResult] = await Promise.all([
+        buildBaseQuery("individual"),
+        buildBaseQuery("group"),
+      ])
+      error = individualsResult.error ?? groupsResult.error
+      data = [...(individualsResult.data ?? []), ...(groupsResult.data ?? [])]
     }
-
-    if (botInstanceId) {
-      query = query.or(`bot_instance_id.eq.${botInstanceId},bot_instance_id.is.null`)
-    }
-
-    const { data, error } = await query
 
     if (error) {
       if (isMissingBotInstanceIdColumnError(error, "contacts")) {
@@ -59,10 +71,10 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: (error as { message: string }).message }, { status: 500 })
     }
 
-    const normalized = (data ?? []).map((contact) => normalizeContactForResponse(contact))
+    const normalized = (data as Record<string, unknown>[]).map((contact) => normalizeContactForResponse(contact))
     const seen = new Set<string>()
     const deduplicated = normalized.filter((contact) => {
       const key = contact.type === "group"
