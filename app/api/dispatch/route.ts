@@ -286,6 +286,20 @@ async function handleDispatch(request: NextRequest) {
     schedule.bot_instance_id = resolvedBotInstance.id
   }
 
+  // ── Narração configurada a nível de empresa (sobrescreve send_mode da rotina) ──
+  const { data: narrationRow } = await supabase
+    .from("company_settings")
+    .select("value")
+    .eq("company_id", companyId)
+    .eq("key", "narration_mode")
+    .maybeSingle()
+
+  const narrationValue = narrationRow?.value as Record<string, unknown> | null
+  const companySendMode: "audio" | "text" | "none" =
+    narrationValue?.send_mode === "audio" ? "audio"
+    : narrationValue?.send_mode === "text" ? "text"
+    : "none"
+
   // ── Verificar limite mensal de relatórios ──
   const { data: limitsRow } = await supabase
     .from("company_settings")
@@ -854,7 +868,7 @@ async function handleDispatch(request: NextRequest) {
           whatsapp_group_id: contact.whatsapp_group_id,
         })),
         bot_instance_id: schedule.bot_instance_id ?? null,
-        send_mode: schedule.send_mode ?? "none",
+        send_mode: companySendMode,
         message,
         dispatch_log_ids: (insertedLogs ?? []).map((log) => log.id),
         dispatch_targets: dispatchTargets,
