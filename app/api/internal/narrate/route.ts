@@ -17,24 +17,23 @@ export async function POST(request: NextRequest) {
 
   // Mantém apenas caracteres base64 válidos (A-Z, a-z, 0-9, +, /, =)
   const rawStr = String(document_base64)
-  // 1. Remove data URL prefix and all non-base64 chars (including invisible unicode)
-  const stripped = rawStr
-    .replace(/^data:[^;]+;base64,/, "")
-    .replace(/[^A-Za-z0-9+/=]/g, "")
+  // n8n stores binary as URL-safe base64 (uses - and _ instead of + and /)
+  // Strip whitespace and data URL prefix, then decode with base64url
+  const stripped = rawStr.replace(/^data:[^;]+;base64,/, "").replace(/\s/g, "")
 
   console.log("[narrate] raw:", rawStr.length, "stripped:", stripped.length, "first30:", stripped.substring(0, 30))
 
-  if (stripped.length < 100) {
+  const buf = Buffer.from(stripped, "base64url")
+  console.log("[narrate] buf:", buf.length)
+
+  if (buf.length < 100) {
     return NextResponse.json({
-      error: "base64 muito curto",
-      debug: { raw_length: rawStr.length, stripped_length: stripped.length }
+      error: "base64 muito curto apos decodificacao",
+      debug: { raw_length: rawStr.length, stripped_length: stripped.length, buf_length: buf.length, first50: stripped.substring(0, 50) }
     }, { status: 400 })
   }
 
-  // 2. Decode and re-encode through Buffer to guarantee correct padding
-  const buf = Buffer.from(stripped, "base64")
   const cleanBase64 = buf.toString("base64")
-  console.log("[narrate] buf:", buf.length, "cleanBase64:", cleanBase64.length)
 
   const model = process.env.OLLAMA_VISION_MODEL || "llava:latest"
 
