@@ -9,6 +9,8 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys"
 import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { default as ws } from "ws"
+// Polyfill WebSocket para Node.js < 22 (exigido pelo @supabase/realtime-js)
+if (!globalThis.WebSocket) globalThis.WebSocket = ws
 import QRCode from "qrcode"
 import qrcodeTerminal from "qrcode-terminal"
 import express from "express"
