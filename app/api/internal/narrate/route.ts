@@ -16,9 +16,19 @@ export async function POST(request: NextRequest) {
   }
 
   // Mantém apenas caracteres base64 válidos (A-Z, a-z, 0-9, +, /, =)
-  const cleanBase64 = String(document_base64)
+  const rawStr = String(document_base64)
+  const cleanBase64 = rawStr
     .replace(/^data:[^;]+;base64,/, "")
     .replace(/[^A-Za-z0-9+/=]/g, "")
+
+  console.log("[narrate] raw length:", rawStr.length, "clean length:", cleanBase64.length, "first 30:", cleanBase64.substring(0, 30))
+
+  if (cleanBase64.length < 100) {
+    return NextResponse.json({
+      error: "base64 muito curto apos limpeza",
+      debug: { raw_length: rawStr.length, clean_length: cleanBase64.length, first_chars: cleanBase64.substring(0, 50) }
+    }, { status: 400 })
+  }
 
   const ollamaRes = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
