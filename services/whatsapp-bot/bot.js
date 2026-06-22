@@ -169,13 +169,16 @@ async function syncContactsToDb(instance) {
   const groupInserts = inserts.filter((i) => i.type === "group")
   const individualInserts = inserts.filter((i) => i.type === "individual")
   for (const chunk of chunkArray(groupInserts, 200)) {
-    await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true }).catch((e) => console.error(`[${instance.id}] Erro ao inserir grupos no banco:`, e.message))
+    const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true })
+    if (error) console.error(`[${instance.id}] Erro ao inserir grupos no banco:`, error.message)
   }
   for (const chunk of chunkArray(individualInserts, 200)) {
-    await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true }).catch((e) => console.error(`[${instance.id}] Erro ao inserir contatos no banco:`, e.message))
+    const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true })
+    if (error) console.error(`[${instance.id}] Erro ao inserir contatos no banco:`, error.message)
   }
   for (const update of updates) {
-    await supabase.from("contacts").update(update.payload).eq("id", update.id).catch((e) => console.error(`[${instance.id}] Erro ao atualizar contato no banco:`, e.message))
+    const { error } = await supabase.from("contacts").update(update.payload).eq("id", update.id)
+    if (error) console.error(`[${instance.id}] Erro ao atualizar contato no banco:`, error.message)
   }
 
   console.log(`[${instance.id}] Banco sincronizado: ${inserts.length} inseridos, ${updates.length} atualizados`)
