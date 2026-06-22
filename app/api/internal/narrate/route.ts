@@ -15,6 +15,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "document_base64 obrigatorio" }, { status: 400 })
   }
 
+  // Remove data URI prefix (data:image/png;base64,...) e whitespace/newlines
+  const cleanBase64 = String(document_base64)
+    .replace(/^data:[^;]+;base64,/, "")
+    .replace(/\s/g, "")
+
   const ollamaRes = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -24,7 +29,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "user",
-          images: [document_base64],
+          images: [cleanBase64],
           content:
             "Você é um analista de dados especialista em Power BI. Analise este relatório e faça uma narração profissional em português dos principais indicadores, tendências, alertas, oportunidades e conclusões.",
         },
