@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       .from("contacts")
       .select("*")
       .eq("company_id", companyId)
-      .order("type", { ascending: true })
+      .order("type", { ascending: false })
       .order("name", { ascending: true })
       .limit(50000)
 
