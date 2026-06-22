@@ -78,6 +78,7 @@ function buildDefaultRuntimeState(instanceId) {
     phone_number: null,
     display_name: null,
     jid: null,
+    contacts_ready: false,
   }
 }
 
@@ -881,10 +882,19 @@ function bindSocketEvents(instance, saveCreds) {
     void saveCreds()
   })
 
-  instance.socket.ev.on("messaging-history.set", ({ contacts = [], chats = [] }) => {
+  instance.socket.ev.on("messaging-history.set", ({ contacts = [], chats = [], messages = [], isLatest }) => {
     contacts.forEach((contact) => upsertContactCache(instance, contact))
     chats.forEach((chat) => upsertChatCache(instance, chat))
+    messages.forEach((msg) => {
+      const jid = msg.key?.remoteJid
+      if (!jid || !isIndividualJid(jid)) return
+      const pushName = typeof msg.pushName === "string" ? msg.pushName.trim() : ""
+      if (pushName) upsertContactCache(instance, { id: jid, name: pushName, notify: pushName })
+    })
     void saveContactsCache(instance)
+    if (isLatest) {
+      void writeRuntimeState(instance.id, { contacts_ready: true })
+    }
   })
 
   instance.socket.ev.on("contacts.upsert", (contacts) => {
@@ -1039,6 +1049,7 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
     phone_number: null,
     display_name: null,
     jid: null,
+    contacts_ready: false,
   })
 
   try {

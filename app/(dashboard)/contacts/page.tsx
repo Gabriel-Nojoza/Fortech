@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import useSWR, { mutate } from "swr"
 import {
   Plus,
@@ -156,6 +156,21 @@ export default function ContactsPage() {
   useEffect(() => {
     setManualBotQrUrl(botQrConfig?.manual_qr_code_url ?? "")
   }, [botQrConfig?.manual_qr_code_url])
+
+  const lastAutoSyncedAt = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      botQrConfig?.status === "connected" &&
+      botQrConfig?.contacts_ready === true &&
+      botQrConfig?.connected_at &&
+      lastAutoSyncedAt.current !== botQrConfig.connected_at &&
+      !syncingContacts
+    ) {
+      lastAutoSyncedAt.current = botQrConfig.connected_at
+      handleSyncContactsFromBot()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [botQrConfig?.contacts_ready, botQrConfig?.connected_at, botQrConfig?.status])
 
   if (!mounted) {
     return (

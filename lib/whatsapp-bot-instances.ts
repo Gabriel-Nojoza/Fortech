@@ -89,6 +89,7 @@ export function normalizeBotInstanceForResponse(
     display_name: runtimeState?.display_name ?? null,
     jid: runtimeState?.jid ?? null,
     source: runtimeQrCodeUrl ? "runtime" : manualQrCodeUrl ? "manual" : "none",
+    contacts_ready: runtimeState?.contacts_ready ?? false,
   }
 }
 

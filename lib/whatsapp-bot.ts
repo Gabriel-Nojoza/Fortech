@@ -19,6 +19,7 @@ export type WhatsAppBotRuntimeState = {
   phone_number: string | null
   display_name: string | null
   jid: string | null
+  contacts_ready: boolean
 }
 
 const DEFAULT_WHATSAPP_BOT_RUNTIME_STATE: WhatsAppBotRuntimeState = {
@@ -31,6 +32,7 @@ const DEFAULT_WHATSAPP_BOT_RUNTIME_STATE: WhatsAppBotRuntimeState = {
   phone_number: null,
   display_name: null,
   jid: null,
+  contacts_ready: false,
 }
 
 export type WhatsAppBotDirectoryEntry = {
@@ -355,6 +357,7 @@ function normalizeWhatsAppBotRuntimeState(
     phone_number: typeof parsed?.phone_number === "string" ? parsed.phone_number : null,
     display_name: typeof parsed?.display_name === "string" ? parsed.display_name : null,
     jid: typeof parsed?.jid === "string" ? parsed.jid : null,
+    contacts_ready: parsed?.contacts_ready === true,
   }
 }
 
