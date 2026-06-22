@@ -1,8 +1,13 @@
+import { config as loadDotenv } from "dotenv"
+loadDotenv()
+loadDotenv({ path: ".env.local" })
+
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys"
+import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import QRCode from "qrcode"
 import qrcodeTerminal from "qrcode-terminal"
 import express from "express"
@@ -35,6 +40,143 @@ const grupos = [
 ]
 
 const instances = new Map()
+
+let _supabaseClient = null
+let _supportsWhatsappGroupId = null
+
+function getSupabaseClient() {
+  if (_supabaseClient) return _supabaseClient
+  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim()
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim()
+  if (!url || !key) return null
+  _supabaseClient = createSupabaseClient(url, key, { auth: { persistSession: false } })
+  return _supabaseClient
+}
+
+async function checkSupportsWhatsappGroupId(supabase) {
+  if (_supportsWhatsappGroupId !== null) return _supportsWhatsappGroupId
+  const { error } = await supabase.from("contacts").select("whatsapp_group_id").limit(1)
+  _supportsWhatsappGroupId = !error
+  return _supportsWhatsappGroupId
+}
+
+async function resolveCompanyId(instanceId) {
+  if (!instanceId || instanceId === DEFAULT_INSTANCE_KEY) return null
+  const supabase = getSupabaseClient()
+  if (!supabase) return null
+  try {
+    const { data } = await supabase
+      .from("whatsapp_bot_instances")
+      .select("company_id")
+      .eq("id", instanceId)
+      .single()
+    return data?.company_id ?? null
+  } catch {
+    return null
+  }
+}
+
+function chunkArray(items, size) {
+  const chunks = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
+async function syncContactsToDb(instance) {
+  if (!instance.companyId) return
+  const supabase = getSupabaseClient()
+  if (!supabase) return
+
+  const items = buildDirectory(instance)
+  if (items.length === 0) return
+
+  const supportsGroupId = await checkSupportsWhatsappGroupId(supabase)
+
+  const { data: existing } = await supabase
+    .from("contacts")
+    .select("id, phone, whatsapp_group_id, type, name, bot_instance_id, is_active")
+    .eq("company_id", instance.companyId)
+    .limit(5000)
+
+  const existingByPhone = new Map()
+  const existingByGroupId = new Map()
+  for (const c of existing ?? []) {
+    if (c.type === "individual" && c.phone) {
+      existingByPhone.set(c.phone.replace(/\D/g, ""), c)
+    }
+    if (c.type === "group") {
+      const gid = supportsGroupId ? c.whatsapp_group_id : c.phone
+      if (gid) existingByGroupId.set(gid, c)
+    }
+  }
+
+  const inserts = []
+  const updates = []
+  const botInstanceId = instance.id === DEFAULT_INSTANCE_KEY ? null : instance.id
+
+  for (const item of items) {
+    if (item.type === "individual") {
+      const normalizedPhone = normalizePhone(item.phone)
+      if (!normalizedPhone) continue
+      const formattedPhone = `+${normalizedPhone}`
+      const existingContact = existingByPhone.get(normalizedPhone)
+      if (!existingContact) {
+        const payload = {
+          company_id: instance.companyId,
+          bot_instance_id: botInstanceId,
+          name: item.name,
+          phone: formattedPhone,
+          type: "individual",
+          is_active: true,
+        }
+        if (supportsGroupId) payload.whatsapp_group_id = null
+        inserts.push(payload)
+      } else if (existingContact.name !== item.name || !existingContact.is_active || existingContact.bot_instance_id !== botInstanceId) {
+        updates.push({
+          id: existingContact.id,
+          payload: { name: item.name, is_active: true, bot_instance_id: botInstanceId, updated_at: new Date().toISOString() },
+        })
+      }
+    } else if (item.type === "group") {
+      const groupId = item.whatsapp_group_id
+      if (!groupId) continue
+      const existingGroup = existingByGroupId.get(groupId)
+      if (!existingGroup) {
+        const payload = {
+          company_id: instance.companyId,
+          bot_instance_id: botInstanceId,
+          name: item.name,
+          phone: groupId,
+          type: "group",
+          is_active: true,
+        }
+        if (supportsGroupId) payload.whatsapp_group_id = groupId
+        inserts.push(payload)
+      } else if (existingGroup.name !== item.name || !existingGroup.is_active || existingGroup.bot_instance_id !== botInstanceId) {
+        updates.push({
+          id: existingGroup.id,
+          payload: { name: item.name, is_active: true, bot_instance_id: botInstanceId, updated_at: new Date().toISOString() },
+        })
+      }
+    }
+  }
+
+  const groupInserts = inserts.filter((i) => i.type === "group")
+  const individualInserts = inserts.filter((i) => i.type === "individual")
+  for (const chunk of chunkArray(groupInserts, 200)) {
+    await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true }).catch((e) => console.error(`[${instance.id}] Erro ao inserir grupos no banco:`, e.message))
+  }
+  for (const chunk of chunkArray(individualInserts, 200)) {
+    await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true }).catch((e) => console.error(`[${instance.id}] Erro ao inserir contatos no banco:`, e.message))
+  }
+  for (const update of updates) {
+    await supabase.from("contacts").update(update.payload).eq("id", update.id).catch((e) => console.error(`[${instance.id}] Erro ao atualizar contato no banco:`, e.message))
+  }
+
+  console.log(`[${instance.id}] Banco sincronizado: ${inserts.length} inseridos, ${updates.length} atualizados`)
+}
 
 ensureDirectory(AUTH_DIR)
 ensureDirectory(AUTH_INSTANCES_DIR)
@@ -123,55 +265,17 @@ function getInstanceEntry(instanceId) {
     contacts: new Map(),
     chats: new Map(),
     groups: new Map(),
+    companyId: null,
   }
 
   instances.set(config.id, entry)
   return entry
 }
 
-function getContactsCachePath(instanceId) {
-  const normalizedId = normalizeInstanceId(instanceId)
-  if (!normalizedId || normalizedId === DEFAULT_INSTANCE_KEY) {
-    return path.join(RUNTIME_DIR, "contacts-cache.json")
-  }
-  return path.join(RUNTIME_INSTANCES_DIR, `contacts-cache-${normalizedId}.json`)
-}
-
 function clearDirectoryCache(instance) {
   instance.contacts.clear()
   instance.chats.clear()
   instance.groups.clear()
-}
-
-async function saveContactsCache(instance) {
-  try {
-    const data = {
-      contacts: [...instance.contacts.entries()],
-      chats: [...instance.chats.entries()],
-      groups: [...instance.groups.entries()],
-    }
-    await fs.promises.writeFile(getContactsCachePath(instance.id), JSON.stringify(data), "utf-8")
-  } catch {
-    // non-fatal: cache will rebuild from WhatsApp events
-  }
-}
-
-async function loadContactsCache(instance) {
-  try {
-    const raw = await fs.promises.readFile(getContactsCachePath(instance.id), "utf-8")
-    const data = JSON.parse(raw)
-    if (Array.isArray(data.contacts)) {
-      for (const [k, v] of data.contacts) instance.contacts.set(k, v)
-    }
-    if (Array.isArray(data.chats)) {
-      for (const [k, v] of data.chats) instance.chats.set(k, v)
-    }
-    if (Array.isArray(data.groups)) {
-      for (const [k, v] of data.groups) instance.groups.set(k, v)
-    }
-  } catch {
-    // no cache yet or corrupted — starts fresh
-  }
 }
 
 async function readRuntimeState(instanceId) {
@@ -891,54 +995,45 @@ function bindSocketEvents(instance, saveCreds) {
       const pushName = typeof msg.pushName === "string" ? msg.pushName.trim() : ""
       if (pushName) upsertContactCache(instance, { id: jid, name: pushName, notify: pushName })
     })
-    void saveContactsCache(instance)
     if (isLatest) {
+      void syncContactsToDb(instance)
       void writeRuntimeState(instance.id, { contacts_ready: true })
     }
   })
 
   instance.socket.ev.on("contacts.upsert", (contacts) => {
     contacts.forEach((contact) => upsertContactCache(instance, contact))
-    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("contacts.update", (contacts) => {
     contacts.forEach((contact) => upsertContactCache(instance, contact))
-    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("chats.upsert", (chats) => {
     chats.forEach((chat) => upsertChatCache(instance, chat))
-    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("chats.update", (chats) => {
     chats.forEach((chat) => upsertChatCache(instance, chat))
-    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("groups.upsert", (groups) => {
     groups.forEach((group) => upsertGroupCache(instance, group))
-    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("groups.update", (groups) => {
     groups.forEach((group) => upsertGroupCache(instance, group))
-    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("messages.upsert", ({ messages, type }) => {
     if (type !== "notify") return
-    let changed = false
     messages.forEach((msg) => {
       const jid = msg.key?.remoteJid
       if (!jid || !isIndividualJid(jid) || msg.key?.fromMe) return
       const pushName = typeof msg.pushName === "string" ? msg.pushName.trim() : ""
       upsertChatCache(instance, { jid, name: pushName || undefined })
       if (pushName) upsertContactCache(instance, { id: jid, name: pushName, notify: pushName })
-      changed = true
     })
-    if (changed) void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("connection.update", async (update) => {
@@ -972,6 +1067,8 @@ function bindSocketEvents(instance, saveCreds) {
         last_error: null,
         ...identity,
       })
+
+      instance.companyId = await resolveCompanyId(instance.id)
 
       await listarGrupos(instance)
     }
@@ -1039,8 +1136,6 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
   instance.isStarting = true
   instance.allowAuthStateWrites = true
   clearRestartTimer(instance)
-
-  await loadContactsCache(instance)
 
   await writeRuntimeState(instance.id, {
     status: "starting",

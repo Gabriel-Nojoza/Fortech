@@ -634,14 +634,17 @@ export default function SchedulesPage() {
     setFormFormat((current) => (options.includes(current) ? current : options[0]))
   }, [hasAutomationSelected])
 
+  const normalizeContactSearch = (v: string | null | undefined) =>
+    (v ?? "").normalize("NFD").replace(/\p{Mn}/gu, "").toLowerCase().trim()
+
   const filteredContacts = activeContacts.filter((contact) => {
-    const search = contactSearch.trim().toLowerCase()
+    const search = normalizeContactSearch(contactSearch)
     if (!search) return true
 
     return (
-      contact.name.toLowerCase().includes(search) ||
-      (contact.phone ?? "").toLowerCase().includes(search) ||
-      (contact.whatsapp_group_id ?? "").toLowerCase().includes(search)
+      normalizeContactSearch(contact.name).includes(search) ||
+      normalizeContactSearch(contact.phone).includes(search) ||
+      normalizeContactSearch(contact.whatsapp_group_id).includes(search)
     )
   })
 

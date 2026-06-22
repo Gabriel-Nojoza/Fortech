@@ -8,7 +8,9 @@
     "start": "node bot.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "dotenv": "^16.0.0",
     "express": "^5.2.1",
     "node-cron": "^4.2.1",
     "qrcode": "^1.5.4",
