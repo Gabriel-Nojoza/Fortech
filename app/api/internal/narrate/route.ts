@@ -36,15 +36,29 @@ export async function POST(request: NextRequest) {
   const cleanBase64 = buf.toString("base64")
   console.log("[narrate] buf:", buf.length, "cleanBase64:", cleanBase64.length)
 
-  const ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
+  const model = process.env.OLLAMA_VISION_MODEL || "llava:latest"
+
+  const ollamaRes = await fetch(`${OLLAMA_URL}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "llava:latest",
+      model,
       stream: false,
-      images: [cleanBase64],
-      prompt:
-        "Você é um analista de dados especialista em Power BI. Analise este relatório e faça uma narração profissional em português dos principais indicadores, tendências, alertas, oportunidades e conclusões.",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: `data:image/png;base64,${cleanBase64}` },
+            },
+            {
+              type: "text",
+              text: "Você é um analista de dados especialista em Power BI. Analise este relatório e faça uma narração profissional em português dos principais indicadores, tendências, alertas, oportunidades e conclusões.",
+            },
+          ],
+        },
+      ],
     }),
   })
 
@@ -54,7 +68,7 @@ export async function POST(request: NextRequest) {
   }
 
   const data = await ollamaRes.json()
-  const narration: string = data?.response ?? ""
+  const narration: string = data?.choices?.[0]?.message?.content ?? ""
 
   return NextResponse.json({ narration, send_mode })
 }
