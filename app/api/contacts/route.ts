@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       .eq("company_id", companyId)
       .order("type", { ascending: true })
       .order("name", { ascending: true })
-      .limit(5000)
+      .limit(50000)
 
     if (type && type !== "all") {
       query = query.eq("type", type)
