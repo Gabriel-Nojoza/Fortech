@@ -17,18 +17,18 @@ export async function POST(request: NextRequest) {
 
   // Mantém apenas caracteres base64 válidos (A-Z, a-z, 0-9, +, /, =)
   const rawStr = String(document_base64)
-  const cleanBase64 = rawStr
-    .replace(/^data:[^;]+;base64,/, "")
-    .replace(/[^A-Za-z0-9+/=]/g, "")
+  const stripped = rawStr.replace(/^data:[^;]+;base64,/, "").replace(/\s/g, "")
 
-  console.log("[narrate] raw length:", rawStr.length, "clean length:", cleanBase64.length, "first 30:", cleanBase64.substring(0, 30))
+  console.log("[narrate] raw length:", rawStr.length, "stripped length:", stripped.length, "first 30:", stripped.substring(0, 30), "char codes:", Array.from(stripped.substring(0, 5)).map(c => c.charCodeAt(0)))
 
-  if (cleanBase64.length < 100) {
+  const buf = Buffer.from(stripped, "base64")
+  if (buf.length < 100) {
     return NextResponse.json({
-      error: "base64 muito curto apos limpeza",
-      debug: { raw_length: rawStr.length, clean_length: cleanBase64.length, first_chars: cleanBase64.substring(0, 50) }
+      error: "base64 muito curto apos decodificacao",
+      debug: { raw_length: rawStr.length, buf_length: buf.length, first_chars: stripped.substring(0, 50) }
     }, { status: 400 })
   }
+  const cleanBase64 = buf.toString("base64")
 
   const ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
     method: "POST",
