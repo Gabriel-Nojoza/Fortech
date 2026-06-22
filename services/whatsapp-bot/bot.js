@@ -8,6 +8,7 @@ import makeWASocket, {
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys"
 import { createClient as createSupabaseClient } from "@supabase/supabase-js"
+import { default as ws } from "ws"
 import QRCode from "qrcode"
 import qrcodeTerminal from "qrcode-terminal"
 import express from "express"
@@ -49,7 +50,7 @@ function getSupabaseClient() {
   const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim()
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim()
   if (!url || !key) return null
-  _supabaseClient = createSupabaseClient(url, key, { auth: { persistSession: false } })
+  _supabaseClient = createSupabaseClient(url, key, { auth: { persistSession: false }, realtime: { transport: ws } })
   return _supabaseClient
 }
 
