@@ -128,10 +128,49 @@ function getInstanceEntry(instanceId) {
   return entry
 }
 
+function getContactsCachePath(instanceId) {
+  const normalizedId = normalizeInstanceId(instanceId)
+  if (!normalizedId || normalizedId === DEFAULT_INSTANCE_KEY) {
+    return path.join(RUNTIME_DIR, "contacts-cache.json")
+  }
+  return path.join(RUNTIME_INSTANCES_DIR, `contacts-cache-${normalizedId}.json`)
+}
+
 function clearDirectoryCache(instance) {
   instance.contacts.clear()
   instance.chats.clear()
   instance.groups.clear()
+}
+
+async function saveContactsCache(instance) {
+  try {
+    const data = {
+      contacts: [...instance.contacts.entries()],
+      chats: [...instance.chats.entries()],
+      groups: [...instance.groups.entries()],
+    }
+    await fs.promises.writeFile(getContactsCachePath(instance.id), JSON.stringify(data), "utf-8")
+  } catch {
+    // non-fatal: cache will rebuild from WhatsApp events
+  }
+}
+
+async function loadContactsCache(instance) {
+  try {
+    const raw = await fs.promises.readFile(getContactsCachePath(instance.id), "utf-8")
+    const data = JSON.parse(raw)
+    if (Array.isArray(data.contacts)) {
+      for (const [k, v] of data.contacts) instance.contacts.set(k, v)
+    }
+    if (Array.isArray(data.chats)) {
+      for (const [k, v] of data.chats) instance.chats.set(k, v)
+    }
+    if (Array.isArray(data.groups)) {
+      for (const [k, v] of data.groups) instance.groups.set(k, v)
+    }
+  } catch {
+    // no cache yet or corrupted — starts fresh
+  }
 }
 
 async function readRuntimeState(instanceId) {
@@ -845,30 +884,51 @@ function bindSocketEvents(instance, saveCreds) {
   instance.socket.ev.on("messaging-history.set", ({ contacts = [], chats = [] }) => {
     contacts.forEach((contact) => upsertContactCache(instance, contact))
     chats.forEach((chat) => upsertChatCache(instance, chat))
+    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("contacts.upsert", (contacts) => {
     contacts.forEach((contact) => upsertContactCache(instance, contact))
+    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("contacts.update", (contacts) => {
     contacts.forEach((contact) => upsertContactCache(instance, contact))
+    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("chats.upsert", (chats) => {
     chats.forEach((chat) => upsertChatCache(instance, chat))
+    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("chats.update", (chats) => {
     chats.forEach((chat) => upsertChatCache(instance, chat))
+    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("groups.upsert", (groups) => {
     groups.forEach((group) => upsertGroupCache(instance, group))
+    void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("groups.update", (groups) => {
     groups.forEach((group) => upsertGroupCache(instance, group))
+    void saveContactsCache(instance)
+  })
+
+  instance.socket.ev.on("messages.upsert", ({ messages, type }) => {
+    if (type !== "notify") return
+    let changed = false
+    messages.forEach((msg) => {
+      const jid = msg.key?.remoteJid
+      if (!jid || !isIndividualJid(jid) || msg.key?.fromMe) return
+      const pushName = typeof msg.pushName === "string" ? msg.pushName.trim() : ""
+      upsertChatCache(instance, { jid, name: pushName || undefined })
+      if (pushName) upsertContactCache(instance, { id: jid, name: pushName, notify: pushName })
+      changed = true
+    })
+    if (changed) void saveContactsCache(instance)
   })
 
   instance.socket.ev.on("connection.update", async (update) => {
@@ -970,6 +1030,8 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
   instance.allowAuthStateWrites = true
   clearRestartTimer(instance)
 
+  await loadContactsCache(instance)
+
   await writeRuntimeState(instance.id, {
     status: "starting",
     qr_code_data_url: "",
@@ -988,6 +1050,8 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
       auth: state,
       printQRInTerminal: false,
       browser: ["SolucaoInteligenteBot", "Chrome", "1.0.0"],
+      syncFullHistory: true,
+      getMessage: async () => ({ conversation: "" }),
     })
 
     bindSocketEvents(instance, saveCreds)
