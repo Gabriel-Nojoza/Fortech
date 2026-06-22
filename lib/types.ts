@@ -50,6 +50,7 @@ export interface WhatsAppBotInstance {
   jid: string | null
   is_default?: boolean | null
   created_at?: string | null
+  contacts_ready?: boolean
 }
 
 export type ScheduleExportFormat =
