@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "user",
-          content: "Describe the data and numbers you see in this image. List the main metrics and values visible.",
+          content: "Você é um analista de dados. Analise esta imagem de relatório e descreva em português: os principais indicadores e métricas visíveis, os valores numéricos mais relevantes, tendências ou comparações que aparecem nos dados. Seja objetivo e direto, listando os pontos principais em até 5 tópicos.",
           images: [cleanBase64],
         },
       ],
