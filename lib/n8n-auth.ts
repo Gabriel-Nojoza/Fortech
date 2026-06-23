@@ -48,6 +48,12 @@ async function getCompanyIdFromCallbackSecret(secret: string) {
   return match?.company_id ?? null
 }
 
+function stripN8nPrefix(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const s = value.trim().replace(/^=+/, "")
+  return s || null
+}
+
 async function getCompanyIdFromBody(request: Request): Promise<string | null> {
   try {
     const cloned = request.clone()
@@ -56,13 +62,10 @@ async function getCompanyIdFromBody(request: Request): Promise<string | null> {
 
     const supabase = createServiceClient()
 
-    // Try dispatch_log_id or dispatch_log_ids
+    // Try dispatch_log_id or dispatch_log_ids (strip n8n "=" prefix)
     const logId =
-      typeof body.dispatch_log_id === "string" && body.dispatch_log_id.trim()
-        ? body.dispatch_log_id.trim()
-        : Array.isArray(body.dispatch_log_ids) && typeof body.dispatch_log_ids[0] === "string"
-          ? body.dispatch_log_ids[0].trim()
-          : null
+      stripN8nPrefix(body.dispatch_log_id) ??
+      (Array.isArray(body.dispatch_log_ids) ? stripN8nPrefix(body.dispatch_log_ids[0]) : null)
 
     if (logId) {
       const { data } = await supabase
