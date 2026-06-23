@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "system",
-          content: "You are a business intelligence analyst. You will receive an image of a business report, spreadsheet, dashboard or data table. Analyze only what is actually visible in the image. Do not invent or hallucinate content. If you cannot read something, say 'Não identificado'. Always respond in Portuguese.",
+          content: "Você é um analista de Business Intelligence. Receberá uma imagem de um relatório empresarial, planilha, dashboard ou tabela de dados. Analise apenas o que estiver visível na imagem. Não invente nem crie informações. Se não conseguir ler algo, informe 'Não identificado'. Responda sempre em português.",
         },
         {
           role: "user",
