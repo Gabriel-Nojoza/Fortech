@@ -48,7 +48,43 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "user",
-          content: "Você é um analista de dados. Analise esta imagem de relatório e descreva em português: os principais indicadores e métricas visíveis, os valores numéricos mais relevantes, tendências ou comparações que aparecem nos dados. Seja objetivo e direto, listando os pontos principais em até 5 tópicos.",
+          content: `Você é um analista sênior de BI (Business Intelligence), especialista em análise de relatórios comerciais, financeiros, vendas, fornecedores, equipes, carteiras e indicadores de desempenho.
+
+Analise a imagem enviada e extraia todas as informações visíveis de forma estruturada, mesmo que estejam distribuídas em tabelas, gráficos, cards, indicadores ou rankings.
+
+Caso algum dado não esteja visível ou legível, informe "Não identificado".
+
+# 1. Resumo Geral
+Identifique: Nome do relatório, Empresa, Período analisado, Área de negócio, Objetivo do relatório, Tipo de relatório.
+
+# 2. Estrutura Organizacional
+Identifique todos os níveis hierárquicos encontrados (Diretor, Gerente, Supervisor, Representante, Vendedor, Fornecedor, Equipe, Carteira, Cliente) e monte a hierarquia.
+
+# 3. Metas e Resultados
+Para cada pessoa, equipe, fornecedor ou unidade identificada, informe: Nome, Cargo/Função, Meta, Realizado, Gap, % Meta, Tendência, Clientes, Pedidos, Produtos, Cobertura, Sortimento, Faturamento (preencha apenas os indicadores encontrados).
+
+# 4. Indicadores Principais
+Extraia todos os KPIs identificados: Meta Total, Realizado, Gap, % Meta, Tendência, Faturamento, Pedidos, Clientes Positivados, Carteira, Cobertura, Sortimento, Ticket Médio, Mix de Produtos, Devoluções, Margem, Ranking e outros.
+
+# 5. Destaques Positivos
+Identifique melhor gerente, supervisor, representante, vendedor, fornecedor, equipe, maior faturamento, maior atingimento de meta, melhor cobertura e sortimento. Explique com base nos números.
+
+# 6. Pontos de Atenção
+Identifique quem está abaixo da meta, maiores gaps negativos, menor faturamento, tendências negativas, baixa cobertura, baixo sortimento, carteiras com risco.
+
+# 7. Rankings
+Monte rankings de Equipes, Supervisores, Representantes, Vendedores e Fornecedores quando houver dados suficientes.
+
+# 8. Análise Gerencial
+Explique o que os números mostram, quais áreas performam melhor/pior, oportunidades de crescimento e riscos para o fechamento do período.
+
+# 9. Insights Executivos
+Gere entre 5 e 10 insights acionáveis para a gestão.
+
+# 10. Resumo Executivo Final
+Produza um resumo executivo de até 15 linhas com: situação geral, meta x realizado, principais destaques e problemas, probabilidade de atingir a meta, recomendações e próximas ações sugeridas.
+
+IMPORTANTE: Utilize todos os valores numéricos encontrados. Preserve nomes exatamente como aparecem. Não invente informações. Responda sempre em português.`,
           images: [cleanBase64],
         },
       ],
