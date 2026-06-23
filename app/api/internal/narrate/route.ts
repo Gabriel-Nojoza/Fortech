@@ -5,43 +5,17 @@ import { getAccessToken, executeDAXQuery } from "@/lib/powerbi"
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://72.60.12.165:11434"
 const NARRATE_SECRET = process.env.NARRATE_SECRET || process.env.N8N_CALLBACK_SECRET || ""
 
-const BI_PROMPT = `Você é um analista sênior de BI (Business Intelligence), especialista em análise de relatórios comerciais, financeiros, vendas, fornecedores, equipes, carteiras e indicadores de desempenho.
+const BI_PROMPT = `Você receberá dados extraídos de um relatório Power BI. Produza um resumo executivo com os principais indicadores encontrados.
 
-Analise os dados fornecidos e extraia todas as informações de forma estruturada.
+REGRA ABSOLUTA: Use APENAS os valores que estão nos dados. NUNCA invente nomes, números ou percentuais. Se um dado não existir, ignore aquele ponto.
 
-Caso algum dado não esteja disponível, informe "Não identificado".
+O resumo deve cobrir, quando disponíveis nos dados:
+- Indicadores principais (meta, realizado, % atingimento, gap)
+- Maiores e menores valores encontrados (quem está acima e abaixo da meta)
+- Total geral ou consolidado
+- 2 ou 3 destaques positivos e pontos de atenção com os números reais
 
-# 1. Resumo Geral
-Identifique: Nome do relatório, Empresa, Período analisado, Área de negócio, Objetivo do relatório, Tipo de relatório.
-
-# 2. Estrutura Organizacional
-Identifique todos os níveis hierárquicos encontrados (Diretor, Gerente, Supervisor, Representante, Vendedor, Fornecedor, Equipe, Carteira, Cliente) e monte a hierarquia.
-
-# 3. Metas e Resultados
-Para cada pessoa, equipe, fornecedor ou unidade identificada, informe: Nome, Cargo/Função, Meta, Realizado, Gap, % Meta, Tendência, Clientes, Pedidos, Produtos, Cobertura, Sortimento, Faturamento (preencha apenas os indicadores encontrados).
-
-# 4. Indicadores Principais
-Extraia todos os KPIs identificados: Meta Total, Realizado, Gap, % Meta, Tendência, Faturamento, Pedidos, Clientes Positivados, Carteira, Cobertura, Sortimento, Ticket Médio, Mix de Produtos, Devoluções, Margem, Ranking e outros.
-
-# 5. Destaques Positivos
-Identifique melhor gerente, supervisor, representante, vendedor, fornecedor, equipe, maior faturamento, maior atingimento de meta, melhor cobertura e sortimento. Explique com base nos números.
-
-# 6. Pontos de Atenção
-Identifique quem está abaixo da meta, maiores gaps negativos, menor faturamento, tendências negativas, baixa cobertura, baixo sortimento, carteiras com risco.
-
-# 7. Rankings
-Monte rankings de Equipes, Supervisores, Representantes, Vendedores e Fornecedores quando houver dados suficientes.
-
-# 8. Análise Gerencial
-Explique o que os números mostram, quais áreas performam melhor/pior, oportunidades de crescimento e riscos para o fechamento do período.
-
-# 9. Insights Executivos
-Gere entre 5 e 10 insights acionáveis para a gestão.
-
-# 10. Resumo Executivo Final
-Produza um resumo executivo de até 15 linhas com: situação geral, meta x realizado, principais destaques e problemas, probabilidade de atingir a meta, recomendações e próximas ações sugeridas.
-
-IMPORTANTE: Utilize todos os valores numéricos encontrados. Preserve nomes exatamente como aparecem. Não invente informações. Responda sempre em português.`
+Formato: texto corrido em português, objetivo, sem títulos ou seções. Máximo de 20 linhas. Cite sempre os nomes e valores exatamente como aparecem nos dados.`
 
 async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
   const supabase = createServiceClient()
@@ -79,6 +53,7 @@ async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
     .map((r) => String(r["Name"]))
     .slice(0, 5)
 
+  console.log("[narrate] tabelas encontradas:", tables)
   if (tables.length === 0) return null
 
   const tableTexts: string[] = []
@@ -92,6 +67,7 @@ async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
       if (result.rows.length === 0) continue
 
       const cols = result.columns.map((c: { name: string }) => c.name)
+      console.log(`[narrate] tabela "${tableName}": ${result.rows.length} linhas, cols: ${cols.join(", ")}`)
       const header = cols.join(" | ")
       const rows = result.rows.slice(0, 200).map((row: Record<string, unknown>) =>
         cols.map((c: string) => String(row[c] ?? "")).join(" | ")
