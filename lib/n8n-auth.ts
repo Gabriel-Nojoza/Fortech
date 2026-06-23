@@ -135,6 +135,12 @@ export async function resolveRequestCompanyContext(
         source: "n8n_secret",
       }
     }
+
+    // No secret provided — fall back to dispatch_log_id / company_id in body
+    const companyId = await getCompanyIdFromBody(request)
+    if (companyId) {
+      return { companyId, source: "n8n_secret" }
+    }
   }
 
   const context = await getRequestContext()
