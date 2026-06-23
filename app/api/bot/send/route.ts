@@ -5,6 +5,7 @@ import {
 } from "@/lib/whatsapp-bot"
 import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
+import { resolveConnectedBotInstance } from "@/lib/whatsapp-bot-instances"
 
 function toOptionalString(value: unknown) {
   if (typeof value !== "string") return null
@@ -56,6 +57,10 @@ export async function POST(request: NextRequest) {
     const queryInstanceId = toOptionalString(new URL(request.url).searchParams.get("instance_id"))
     if (!payload.instance_id && queryInstanceId) {
       payload.instance_id = queryInstanceId
+    }
+    if (!payload.instance_id && companyId) {
+      const resolved = await resolveConnectedBotInstance(supabase, companyId, null)
+      if (resolved) payload.instance_id = resolved.id
     }
     const metadata = normalizeDispatchMetadata(body)
     dispatchLogId = metadata.dispatchLogId
