@@ -9,7 +9,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { document_base64, send_mode } = await request.json()
+  const body = await request.json()
+  const { document_base64 } = body
+  const send_mode = String(body.send_mode ?? "none").replace(/^=+/, "")
 
   if (!document_base64) {
     return NextResponse.json({ error: "document_base64 obrigatorio" }, { status: 400 })
