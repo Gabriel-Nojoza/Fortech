@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "user",
-          content: "Você é um analista de dados especialista em Power BI. Analise este relatório e faça uma narração profissional em português dos principais indicadores, tendências, alertas, oportunidades e conclusões.",
+          content: "Describe the data and numbers you see in this image. List the main metrics and values visible.",
           images: [cleanBase64],
         },
       ],
