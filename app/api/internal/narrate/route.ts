@@ -5,17 +5,211 @@ import { getAccessToken, executeDAXQuery } from "@/lib/powerbi"
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://72.60.12.165:11434"
 const NARRATE_SECRET = process.env.NARRATE_SECRET || process.env.N8N_CALLBACK_SECRET || ""
 
-const BI_PROMPT = `Você receberá dados extraídos de um relatório Power BI. Produza um resumo executivo com os principais indicadores encontrados.
+// ─── helpers numéricos ────────────────────────────────────────────────────────
 
-REGRA ABSOLUTA: Use APENAS os valores que estão nos dados. NUNCA invente nomes, números ou percentuais. Se um dado não existir, ignore aquele ponto.
+function parseNum(val: unknown): number | null {
+  if (val === null || val === undefined || val === "") return null
+  const str = String(val).replace(/\s/g, "").replace(/R\$/g, "").replace(/\./g, "").replace(",", ".")
+  const n = parseFloat(str)
+  return isNaN(n) ? null : n
+}
 
-O resumo deve cobrir, quando disponíveis nos dados:
-- Indicadores principais (meta, realizado, % atingimento, gap)
-- Maiores e menores valores encontrados (quem está acima e abaixo da meta)
-- Total geral ou consolidado
-- 2 ou 3 destaques positivos e pontos de atenção com os números reais
+function fmtBRL(n: number): string {
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+}
 
-Formato: texto corrido em português, objetivo, sem títulos ou seções. Máximo de 20 linhas. Cite sempre os nomes e valores exatamente como aparecem nos dados.`
+// Alguns datasets guardam % como 0.80, outros como 80 — normaliza para 0-100
+function normPct(v: number): number {
+  return Math.abs(v) <= 1.5 ? v * 100 : v
+}
+
+// ─── detecção de papel da coluna/medida ──────────────────────────────────────
+
+function metricRole(
+  name: string
+): "meta" | "realizado" | "pct_meta" | "gap" | "tendencia" | "pct_tend" | "other" {
+  const l = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+  const hasPct = l.includes("%") || l.includes("pct")
+  const hasMeta = l.includes("meta") || l.includes("target") || l.includes("objetivo")
+  const hasTend = l.includes("tend")
+  const hasGap = l.includes("gap") || l.includes("difer")
+  const hasReal =
+    l.includes("realiz") ||
+    l.includes("pedido") ||
+    /\bvl\b/.test(l) ||
+    /\bvi\b/.test(l) ||
+    l.includes("fatur") ||
+    l.includes("venda")
+
+  if (hasPct && hasMeta && !hasTend) return "pct_meta"
+  if (hasPct && hasTend) return "pct_tend"
+  if (hasMeta && !hasPct && !hasTend) return "meta"
+  if (hasGap && !hasPct) return "gap"
+  if (hasTend && !hasPct && !hasMeta) return "tendencia"
+  if (hasReal && !hasMeta) return "realizado"
+  return "other"
+}
+
+function isTextType(dataType: string): boolean {
+  return dataType.toLowerCase().includes("string") || dataType.toLowerCase().includes("text")
+}
+
+function isDateName(name: string): boolean {
+  const l = name.toLowerCase()
+  return (
+    l.includes("data") ||
+    l.includes("date") ||
+    l.includes("ano") ||
+    l.includes("mes") ||
+    l.includes("semana") ||
+    l.includes("trimest") ||
+    l.includes("periodo") ||
+    l.includes("year") ||
+    l.includes("month")
+  )
+}
+
+// ─── montagem do texto (sem LLM) ─────────────────────────────────────────────
+
+function buildNarration(
+  reportName: string,
+  columns: string[],
+  rows: Record<string, unknown>[],
+  idCol: string
+): string {
+  const out: string[] = [`*${reportName}*`, ""]
+
+  if (rows.length === 0) return ""
+
+  const metaCol = columns.find((c) => metricRole(c) === "meta")
+  const realCol = columns.find((c) => metricRole(c) === "realizado")
+  const pctCol = columns.find((c) => metricRole(c) === "pct_meta")
+  const gapCol = columns.find((c) => metricRole(c) === "gap")
+  const tendCol = columns.find((c) => metricRole(c) === "tendencia")
+  const pctTendCol = columns.find((c) => metricRole(c) === "pct_tend")
+
+  const totalRow = rows.find((r) =>
+    String(r[idCol] ?? "")
+      .toLowerCase()
+      .includes("total")
+  )
+
+  const dataRows = rows.filter((r) => {
+    const v = String(r[idCol] ?? "").trim()
+    return v && !v.toLowerCase().includes("total")
+  })
+
+  const aggVal = (col: string | undefined, avg = false): number | null => {
+    if (!col) return null
+    if (totalRow) return parseNum(totalRow[col])
+    const vals = dataRows.map((r) => parseNum(r[col])).filter((v): v is number => v !== null)
+    if (vals.length === 0) return null
+    return avg ? vals.reduce((a, b) => a + b, 0) / vals.length : vals.reduce((a, b) => a + b, 0)
+  }
+
+  if (metaCol && realCol) {
+    const meta = aggVal(metaCol)
+    const real = aggVal(realCol)
+    const pctRaw = aggVal(pctCol, true)
+    const pct =
+      pctRaw !== null
+        ? normPct(pctRaw)
+        : meta && real && meta !== 0
+          ? (real / meta) * 100
+          : null
+    const gap =
+      gapCol != null
+        ? aggVal(gapCol)
+        : meta != null && real != null
+          ? real - meta
+          : null
+    const tend = aggVal(tendCol)
+    const pctTendRaw = aggVal(pctTendCol, true)
+    const pctTend = pctTendRaw !== null ? normPct(pctTendRaw) : null
+
+    // ── totais ────────────────────────────────────────────────────────────────
+    const totParts: string[] = []
+    if (meta !== null) totParts.push(`Meta: ${fmtBRL(meta)}`)
+    if (real !== null)
+      totParts.push(`Realizado: ${fmtBRL(real)}${pct !== null ? ` (${pct.toFixed(0)}%)` : ""}`)
+    if (gap !== null) totParts.push(`Gap: ${gap >= 0 ? "+" : ""}${fmtBRL(gap)}`)
+    out.push(totParts.join(" | "))
+
+    if (tend !== null || pctTend !== null) {
+      const tp: string[] = []
+      if (tend !== null) tp.push(`Tendência: ${fmtBRL(tend)}`)
+      if (pctTend !== null) tp.push(`(${pctTend.toFixed(0)}%)`)
+      out.push(tp.join(" "))
+    }
+
+    // ── ranking por % meta ────────────────────────────────────────────────────
+    const sortCol = pctCol ?? realCol
+    const sorted = [...dataRows]
+      .filter((r) => String(r[idCol] ?? "").trim())
+      .filter((r) => parseNum(r[sortCol]) !== null)
+      .sort((a, b) => (parseNum(b[sortCol]) ?? 0) - (parseNum(a[sortCol]) ?? 0))
+
+    const rowLine = (r: Record<string, unknown>): string => {
+      const name = String(r[idCol] ?? "").trim()
+      const m = metaCol ? parseNum(r[metaCol]) : null
+      const rv = realCol ? parseNum(r[realCol]) : null
+      const pRaw = pctCol ? parseNum(r[pctCol]) : null
+      const p =
+        pRaw !== null
+          ? normPct(pRaw)
+          : m && rv && m !== 0
+            ? (rv / m) * 100
+            : null
+      const pts = [name]
+      if (p !== null) pts.push(`${p.toFixed(0)}%`)
+      if (rv !== null && m !== null) pts.push(`(${fmtBRL(rv)} / ${fmtBRL(m)})`)
+      return `• ${pts.join(": ")}`
+    }
+
+    if (sorted.length > 0) {
+      out.push("")
+      out.push("*Melhores:*")
+      sorted.slice(0, 5).forEach((r) => out.push(rowLine(r)))
+    }
+
+    const below = sorted
+      .filter((r) => {
+        const pRaw = pctCol ? parseNum(r[pctCol]) : null
+        const m = metaCol ? parseNum(r[metaCol]) : null
+        const rv = realCol ? parseNum(r[realCol]) : null
+        const p =
+          pRaw !== null ? normPct(pRaw) : m && rv && m !== 0 ? (rv / m) * 100 : null
+        return p !== null && p < 100
+      })
+      .reverse()
+
+    if (below.length > 0) {
+      out.push("")
+      out.push("*Abaixo da meta:*")
+      below.slice(0, 5).forEach((r) => out.push(rowLine(r)))
+    }
+  } else {
+    // sem meta/realizado identificados — resume os numéricos
+    const numCols = columns.filter(
+      (c) => c !== idCol && dataRows.some((r) => parseNum(r[c]) !== null)
+    )
+    out.push(`${dataRows.length} registros`)
+    for (const col of numCols.slice(0, 4)) {
+      const vals = dataRows.map((r) => parseNum(r[col])).filter((v): v is number => v !== null)
+      if (vals.length === 0) continue
+      const total = vals.reduce((a, b) => a + b, 0)
+      const max = Math.max(...vals)
+      out.push(`${col}: total ${fmtBRL(total)} | máx ${fmtBRL(max)}`)
+    }
+  }
+
+  return out.join("\n").trim()
+}
+
+// ─── narração via DAX (sem LLM) ──────────────────────────────────────────────
 
 async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
   const supabase = createServiceClient()
@@ -25,7 +219,6 @@ async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
     .select("company_id, schedule_id")
     .eq("id", dispatchLogId)
     .single()
-
   if (!log?.company_id || !log?.schedule_id) return null
 
   const { data: schedule } = await supabase
@@ -34,7 +227,6 @@ async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
     .eq("id", log.schedule_id)
     .eq("company_id", log.company_id)
     .single()
-
   if (!schedule?.report_id) return null
 
   const { data: report } = await supabase
@@ -42,22 +234,89 @@ async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
     .select("dataset_id, name")
     .eq("id", schedule.report_id)
     .single()
-
   if (!report?.dataset_id) return null
 
   const token = await getAccessToken(log.company_id)
 
-  const tablesResult = await executeDAXQuery(token, report.dataset_id, "EVALUATE INFO.VIEW.TABLES()")
-  const tables = tablesResult.rows
+  // ── Fase 1: SUMMARIZECOLUMNS com medidas reais ────────────────────────────
+  try {
+    const [measRes, colsRes] = await Promise.all([
+      executeDAXQuery(token, report.dataset_id, "EVALUATE INFO.VIEW.MEASURES()"),
+      executeDAXQuery(token, report.dataset_id, "EVALUATE INFO.VIEW.COLUMNS()"),
+    ])
+
+    const measures = measRes.rows
+      .filter((r) => !r["IsHidden"] && r["Name"] && !String(r["Name"]).startsWith("_"))
+      .map((r) => ({ name: String(r["Name"] ?? ""), table: String(r["TableName"] ?? "") }))
+
+    const textCols = colsRes.rows
+      .filter(
+        (r) =>
+          !r["IsHidden"] &&
+          isTextType(String(r["DataType"] ?? "")) &&
+          !isDateName(String(r["Name"] ?? ""))
+      )
+      .map((r) => ({ name: String(r["Name"] ?? ""), table: String(r["TableName"] ?? "") }))
+
+    const pick = (role: ReturnType<typeof metricRole>) =>
+      measures.filter((m) => metricRole(m.name) === role)
+
+    const metaMs = pick("meta")
+    const realMs = pick("realizado")
+    const pctMs = pick("pct_meta")
+    const gapMs = pick("gap")
+    const tendMs = pick("tendencia")
+    const pctTMs = pick("pct_tend")
+
+    console.log("[narrate] medidas:", {
+      meta: metaMs.map((m) => m.name),
+      realizado: realMs.map((m) => m.name),
+      pct: pctMs.map((m) => m.name),
+    })
+
+    if (metaMs.length > 0 && realMs.length > 0 && textCols.length > 0) {
+      const dim = textCols[0]
+      const dimRef = `'${dim.table}'[${dim.name}]`
+
+      const selected = [
+        ...metaMs.slice(0, 1),
+        ...realMs.slice(0, 1),
+        ...pctMs.slice(0, 1),
+        ...gapMs.slice(0, 1),
+        ...tendMs.slice(0, 1),
+        ...pctTMs.slice(0, 1),
+      ]
+
+      const measureDax = selected.map((m) => `"${m.name}", [${m.name}]`).join(",\n    ")
+      const dax = `EVALUATE SUMMARIZECOLUMNS(\n    ${dimRef},\n    ${measureDax}\n)`
+
+      const result = await executeDAXQuery(token, report.dataset_id, dax)
+
+      if (result.rows.length > 0) {
+        const cols = result.columns.map((c: { name: string }) => c.name)
+        console.log("[narrate] SUMMARIZECOLUMNS ok:", result.rows.length, "linhas, cols:", cols.join(", "))
+        const narration = buildNarration(report.name, cols, result.rows, dim.name)
+        if (narration) return narration
+      }
+    }
+  } catch (err) {
+    console.warn("[narrate] SUMMARIZECOLUMNS falhou:", err)
+  }
+
+  // ── Fase 2: TOPN bruto com formatação programática ────────────────────────
+  const tablesResult = await executeDAXQuery(
+    token,
+    report.dataset_id,
+    "EVALUATE INFO.VIEW.TABLES()"
+  )
+  const tableNames = tablesResult.rows
     .filter((r) => !r["IsHidden"] && r["Name"] && !String(r["Name"]).startsWith("$"))
     .map((r) => String(r["Name"]))
     .slice(0, 5)
 
-  console.log("[narrate] tabelas encontradas:", tables)
-  if (tables.length === 0) return null
+  console.log("[narrate] tabelas TOPN:", tableNames)
 
-  const tableTexts: string[] = []
-  for (const tableName of tables) {
+  for (const tableName of tableNames) {
     try {
       const result = await executeDAXQuery(
         token,
@@ -67,50 +326,34 @@ async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
       if (result.rows.length === 0) continue
 
       const cols = result.columns.map((c: { name: string }) => c.name)
-      console.log(`[narrate] tabela "${tableName}": ${result.rows.length} linhas, cols: ${cols.join(", ")}`)
-      const header = cols.join(" | ")
-      const rows = result.rows.slice(0, 200).map((row: Record<string, unknown>) =>
-        cols.map((c: string) => String(row[c] ?? "")).join(" | ")
-      )
-      tableTexts.push(`### ${tableName}\n${header}\n${rows.join("\n")}`)
+      const hasMetric = cols.some((c: string) => metricRole(c) !== "other")
+      if (!hasMetric) continue
+
+      const idCol =
+        cols.find(
+          (c: string) =>
+            result.rows.some((r) => {
+              const v = r[c]
+              return typeof v === "string" && v.trim() && isNaN(Number(v))
+            }) && !isDateName(c)
+        ) ?? cols[0]
+
+      console.log(`[narrate] TOPN "${tableName}": ${result.rows.length} linhas, id: ${idCol}`)
+      const narration = buildNarration(report.name, cols, result.rows, idCol)
+      if (narration) return narration
     } catch {
-      // tabela sem acesso, ignora
+      // tabela inacessível
     }
   }
 
-  if (tableTexts.length === 0) return null
-
-  const dataText = tableTexts.join("\n\n")
-  const textModel = process.env.OLLAMA_TEXT_MODEL || "llama3.2:latest"
-
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: textModel,
-      stream: false,
-      options: { temperature: 0 },
-      messages: [
-        {
-          role: "system",
-          content: "Você é um analista sênior de Business Intelligence. Analise os dados fornecidos e responda em português. Use apenas os dados disponíveis. Não invente informações.",
-        },
-        {
-          role: "user",
-          content: `Relatório: ${report.name}\n\nDados extraídos do Power BI:\n${dataText}\n\n${BI_PROMPT}`,
-        },
-      ],
-    }),
-  })
-
-  if (!res.ok) throw new Error(`Ollama text error: ${res.status}`)
-
-  const data = await res.json()
-  return data?.message?.content ?? null
+  return null
 }
 
+// ─── POST handler ─────────────────────────────────────────────────────────────
+
 export async function POST(request: NextRequest) {
-  const secret = request.headers.get("x-narrate-secret") ?? request.headers.get("x-callback-secret")
+  const secret =
+    request.headers.get("x-narrate-secret") ?? request.headers.get("x-callback-secret")
   if (NARRATE_SECRET && secret !== NARRATE_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
@@ -119,12 +362,12 @@ export async function POST(request: NextRequest) {
   const send_mode = String(body.send_mode ?? "none").replace(/^=+/, "")
   const dispatchLogId = String(body.dispatch_log_id ?? "").trim().replace(/^=+/, "") || null
 
-  // Caminho principal: DAX + llama3.2
+  // Caminho principal: programático via DAX (sem LLM)
   if (dispatchLogId) {
     try {
       const narration = await narrateFromDAX(dispatchLogId)
       if (narration) {
-        console.log("[narrate] DAX narration ok, length:", narration.length)
+        console.log("[narrate] programmatic ok, length:", narration.length)
         return NextResponse.json({ narration, send_mode })
       }
     } catch (err) {
@@ -132,10 +375,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fallback: visão (llava)
+  // Fallback: visão (llava) — usado apenas quando dispatch_log_id não resolveu
   const { document_base64 } = body
   if (!document_base64) {
-    return NextResponse.json({ error: "document_base64 ou dispatch_log_id obrigatorio" }, { status: 400 })
+    return NextResponse.json(
+      { error: "document_base64 ou dispatch_log_id obrigatorio" },
+      { status: 400 }
+    )
   }
 
   const rawStr = String(document_base64)
@@ -164,11 +410,13 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "system",
-          content: "Você é um analista de Business Intelligence. Receberá uma imagem de um relatório empresarial. Analise apenas o que estiver visível. Não invente informações. Responda em português.",
+          content:
+            "Você é um analista de Business Intelligence. Receberá uma imagem de um relatório empresarial. Analise apenas o que estiver visível. Não invente informações. Responda em português.",
         },
         {
           role: "user",
-          content: BI_PROMPT,
+          content:
+            "Resuma os principais indicadores visíveis neste relatório em texto corrido, máximo 15 linhas. Use apenas os números que aparecem na imagem.",
           images: [cleanBase64],
         },
       ],
