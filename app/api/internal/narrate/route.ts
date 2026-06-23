@@ -17,21 +17,19 @@ export async function POST(request: NextRequest) {
 
   // Mantém apenas caracteres base64 válidos (A-Z, a-z, 0-9, +, /, =)
   const rawStr = String(document_base64)
-  const stripped = rawStr.replace(/^data:[^;]+;base64,/, "").replace(/\s/g, "")
-
-  // Log char codes of positions 0-25 to find the invalid character
-  const codes25 = Array.from(stripped.substring(0, 25)).map(c => c.charCodeAt(0))
-  console.log("[narrate] raw:", rawStr.length, "stripped:", stripped.length)
-  console.log("[narrate] codes[0-25]:", codes25)
-  console.log("[narrate] chars[0-25]:", stripped.substring(0, 25))
+  // n8n sends the = expression-mode prefix as part of the value — strip it along with any data URL prefix and whitespace
+  const stripped = rawStr
+    .replace(/^data:[^;]+;base64,/, "")
+    .replace(/\s/g, "")
+    .replace(/^=+/, "")
 
   const buf = Buffer.from(stripped, "base64")
-  console.log("[narrate] buf:", buf.length)
+  console.log("[narrate] raw:", rawStr.length, "stripped:", stripped.length, "buf:", buf.length, "first8:", stripped.substring(0, 8))
 
   if (buf.length < 100) {
     return NextResponse.json({
       error: "base64 muito curto",
-      debug: { raw_length: rawStr.length, buf_length: buf.length, codes_0_25: codes25, chars_0_25: stripped.substring(0, 25) }
+      debug: { raw_length: rawStr.length, stripped_length: stripped.length, buf_length: buf.length }
     }, { status: 400 })
   }
 
