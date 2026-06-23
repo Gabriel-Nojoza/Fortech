@@ -17,7 +17,9 @@ function getSecretFromRequest(request: Request) {
       ? authHeader.slice(7).trim()
       : null
 
-  return querySecret || headerSecret || bearerSecret || ""
+  const raw = querySecret || headerSecret || bearerSecret || ""
+  // n8n 2.8.4 prepends "=" to expression values — strip it so secrets match correctly
+  return raw.replace(/^=+/, "")
 }
 
 async function getCompanyIdFromCallbackSecret(secret: string) {
