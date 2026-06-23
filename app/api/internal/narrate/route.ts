@@ -72,6 +72,40 @@ function isDateName(name: string): boolean {
   )
 }
 
+// Pontua a coluna como candidata a dimensão principal do relatório.
+// Tabelas de vendedor/supervisor pontuam alto; tabelas de clientes/fatos pontuam baixo.
+function scoreDim(tableName: string, colName: string): number {
+  const tl = tableName.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+  const cl = colName.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+  let s = 0
+  if (/fornec|vended|repres|supervis|equip|colabo|funcion|gestor|gerente|rca|hierarq|regiao|filial|setor/.test(tl)) s += 20
+  if (/estrutur|time\b|pessoa|cargo/.test(tl)) s += 10
+  if (/meta|budget|target|objetivo/.test(tl)) s += 5
+  if (/cliente|customer|parceiro|contato/.test(tl)) s += 1
+  if (/pedido|venda|fatur|transac|item|nota|lancam|moviment/.test(tl)) s -= 15
+  if (/data\b|date\b|calend|tempo|semana|ano\b|year|month/.test(tl)) s -= 20
+  if (/\bnome\b|\bname\b|descri/.test(cl)) s += 5
+  if (/codigo|code|\bcod\b/.test(cl)) s += 3
+  if (/telefon|email|cpf|cnpj|cep|ender/.test(cl)) s -= 10
+  return s
+}
+
+// Verifica se o resultado do SUMMARIZECOLUMNS faz sentido para um relatório de BI.
+function isValidResult(rows: Record<string, unknown>[], metaCol: string | undefined): boolean {
+  if (rows.length < 2) return false
+  if (!metaCol) return true
+  const vals = rows.map((r) => parseNum(r[metaCol])).filter((v): v is number => v !== null)
+  if (vals.length === 0) return true
+  // Valores absurdos (> 1 trilhão) indicam contexto de medida errado
+  if (vals.some((v) => Math.abs(v) > 1_000_000_000_000)) return false
+  // Todos iguais com mais de 3 linhas = dimensão não está filtrando a medida
+  if (vals.length > 3) {
+    const unique = new Set(vals.map((v) => Math.round(Math.abs(v) / 100)))
+    if (unique.size === 1) return false
+  }
+  return true
+}
+
 // ─── montagem do texto (sem LLM) ─────────────────────────────────────────────
 
 function buildNarration(
@@ -275,9 +309,6 @@ async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
     })
 
     if (metaMs.length > 0 && realMs.length > 0 && textCols.length > 0) {
-      const dim = textCols[0]
-      const dimRef = `'${dim.table}'[${dim.name}]`
-
       const selected = [
         ...metaMs.slice(0, 1),
         ...realMs.slice(0, 1),
@@ -286,17 +317,35 @@ async function narrateFromDAX(dispatchLogId: string): Promise<string | null> {
         ...tendMs.slice(0, 1),
         ...pctTMs.slice(0, 1),
       ]
-
       const measureDax = selected.map((m) => `"${m.name}", [${m.name}]`).join(",\n    ")
-      const dax = `EVALUATE SUMMARIZECOLUMNS(\n    ${dimRef},\n    ${measureDax}\n)`
 
-      const result = await executeDAXQuery(token, report.dataset_id, dax)
+      // Ordena candidatos: tabelas de vendedor/supervisor primeiro
+      const candidates = textCols
+        .map((col) => ({ ...col, score: scoreDim(col.table, col.name) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
 
-      if (result.rows.length > 0) {
-        const cols = result.columns.map((c: { name: string }) => c.name)
-        console.log("[narrate] SUMMARIZECOLUMNS ok:", result.rows.length, "linhas, cols:", cols.join(", "))
-        const narration = buildNarration(report.name, cols, result.rows, dim.name)
-        if (narration) return narration
+      for (const dim of candidates) {
+        try {
+          const dimRef = `'${dim.table}'[${dim.name}]`
+          const dax = `EVALUATE TOPN(500, SUMMARIZECOLUMNS(\n    ${dimRef},\n    ${measureDax}\n))`
+          const result = await executeDAXQuery(token, report.dataset_id, dax)
+          if (result.rows.length === 0) continue
+
+          const cols = result.columns.map((c: { name: string }) => c.name)
+          const metaCol = cols.find((c: string) => metricRole(c) === "meta")
+
+          if (!isValidResult(result.rows, metaCol)) {
+            console.warn(`[narrate] dim "${dim.table}[${dim.name}]" invalida, proxima...`)
+            continue
+          }
+
+          console.log(`[narrate] SUMMARIZECOLUMNS ok: ${result.rows.length} linhas, dim: ${dim.table}[${dim.name}]`)
+          const narration = buildNarration(report.name, cols, result.rows, dim.name)
+          if (narration) return narration
+        } catch (err) {
+          console.warn(`[narrate] dim "${dim.table}[${dim.name}]" erro:`, err)
+        }
       }
     }
   } catch (err) {
