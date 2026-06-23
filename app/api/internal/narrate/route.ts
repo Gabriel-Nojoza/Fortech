@@ -45,7 +45,12 @@ export async function POST(request: NextRequest) {
     body: JSON.stringify({
       model,
       stream: false,
+      options: { temperature: 0 },
       messages: [
+        {
+          role: "system",
+          content: "You are a business intelligence analyst. You will receive an image of a business report, spreadsheet, dashboard or data table. Analyze only what is actually visible in the image. Do not invent or hallucinate content. If you cannot read something, say 'Não identificado'. Always respond in Portuguese.",
+        },
         {
           role: "user",
           content: `Você é um analista sênior de BI (Business Intelligence), especialista em análise de relatórios comerciais, financeiros, vendas, fornecedores, equipes, carteiras e indicadores de desempenho.
