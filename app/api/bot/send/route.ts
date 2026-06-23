@@ -7,7 +7,9 @@ import { resolveRequestCompanyContext } from "@/lib/n8n-auth"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
 
 function toOptionalString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null
+  if (typeof value !== "string") return null
+  const s = value.trim().replace(/^=+/, "")
+  return s || null
 }
 
 function normalizeSendPayload(body: unknown): WhatsAppBotSendPayload {
