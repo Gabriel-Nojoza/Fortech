@@ -92,7 +92,7 @@ async function syncContactsToDb(instance) {
   const supabase = getSupabaseClient()
   if (!supabase) return
 
-  const items = buildDirectory(instance)
+  const items = await buildDirectory(instance)
   if (items.length === 0) return
 
   const supportsGroupId = await checkSupportsWhatsappGroupId(supabase)
@@ -368,7 +368,12 @@ function getNormalizedJid(jid) {
 
 function getPhoneFromJid(jid) {
   const normalized = getNormalizedJid(jid)
-  if (!normalized || isGroupJid(normalized) || normalized === "status@broadcast") {
+  if (
+    !normalized ||
+    isGroupJid(normalized) ||
+    normalized.endsWith("@lid") ||
+    normalized === "status@broadcast"
+  ) {
     return null
   }
 
@@ -424,6 +429,42 @@ function upsertChatCache(instance, chat) {
   })
 }
 
+async function resolvePhoneJid(instance, jid) {
+  const normalized = getNormalizedJid(jid)
+  if (!normalized || isGroupJid(normalized) || normalized === "status@broadcast") {
+    return null
+  }
+
+  if (!normalized.endsWith("@lid")) {
+    return normalized
+  }
+
+  try {
+    const pn = await instance.socket?.signalRepository?.lidMapping?.getPNForLID(normalized)
+    return typeof pn === "string" && pn.endsWith("@s.whatsapp.net") ? pn : null
+  } catch {
+    return null
+  }
+}
+
+async function upsertMessageSenderCache(instance, msg) {
+  const remoteJid = getNormalizedJid(msg?.key?.remoteJid)
+  const senderJid = isGroupJid(remoteJid)
+    ? getNormalizedJid(msg?.key?.participant)
+    : remoteJid
+
+  if (!senderJid || !isIndividualJid(senderJid) || msg?.key?.fromMe) {
+    return
+  }
+
+  const resolvedJid = (await resolvePhoneJid(instance, senderJid)) || senderJid
+  const pushName = typeof msg?.pushName === "string" ? msg.pushName.trim() : ""
+  upsertChatCache(instance, { jid: resolvedJid, name: pushName || undefined })
+  if (pushName) {
+    upsertContactCache(instance, { id: resolvedJid, name: pushName, notify: pushName })
+  }
+}
+
 function upsertGroupCache(instance, group) {
   const jid = getNormalizedJid(group?.id)
   if (!jid) {
@@ -455,17 +496,22 @@ async function refreshGroupDirectory(instance) {
     if (Array.isArray(group.participants)) {
       for (const participant of group.participants) {
         const participantJid = typeof participant.id === "string" ? participant.id : ""
-        if (participantJid.endsWith("@s.whatsapp.net")) {
-          upsertContactCache(instance, { id: participantJid })
+        if (isIndividualJid(participantJid)) {
+          const resolvedJid = await resolvePhoneJid(instance, participantJid)
+          if (resolvedJid) {
+            upsertContactCache(instance, { id: resolvedJid })
+          }
         }
       }
     }
   }
 }
 
-function buildDirectory(instance) {
+async function buildDirectory(instance) {
   const items = []
   const ownJid = getNormalizedJid(instance.socket?.user?.id)
+  const ownPhoneJid = await resolvePhoneJid(instance, ownJid)
+  const ownPhone = getPhoneFromJid(ownPhoneJid || ownJid)
 
   for (const [jid, group] of instance.groups.entries()) {
     if (!jid) continue
@@ -481,19 +527,20 @@ function buildDirectory(instance) {
   const seenIndividuals = new Set()
   const individualJids = new Set([...instance.contacts.keys(), ...instance.chats.keys()])
   for (const jid of individualJids) {
-    if (!isIndividualJid(jid) || jid === ownJid) {
+    const resolvedJid = (await resolvePhoneJid(instance, jid)) || jid
+    if (!isIndividualJid(jid) || jid === ownJid || resolvedJid === ownPhoneJid) {
       continue
     }
 
-    const phone = instance.contacts.get(jid)?.phoneNumber || getPhoneFromJid(jid)
-    if (!phone || seenIndividuals.has(phone)) {
+    const phone = getPhoneFromJid(resolvedJid)
+    if (!phone || phone === ownPhone || seenIndividuals.has(phone)) {
       continue
     }
     seenIndividuals.add(phone)
 
     const name = instance.contacts.get(jid)?.name || instance.chats.get(jid)?.name || phone
     items.push({
-      jid,
+      jid: resolvedJid,
       type: "individual",
       name,
       phone,
@@ -1003,15 +1050,10 @@ function bindSocketEvents(instance, saveCreds) {
     void saveCreds()
   })
 
-  instance.socket.ev.on("messaging-history.set", ({ contacts = [], chats = [], messages = [], isLatest }) => {
+  instance.socket.ev.on("messaging-history.set", async ({ contacts = [], chats = [], messages = [], isLatest }) => {
     contacts.forEach((contact) => upsertContactCache(instance, contact))
     chats.forEach((chat) => upsertChatCache(instance, chat))
-    messages.forEach((msg) => {
-      const jid = msg.key?.remoteJid
-      if (!jid || !isIndividualJid(jid)) return
-      const pushName = typeof msg.pushName === "string" ? msg.pushName.trim() : ""
-      if (pushName) upsertContactCache(instance, { id: jid, name: pushName, notify: pushName })
-    })
+    await Promise.all(messages.map((msg) => upsertMessageSenderCache(instance, msg)))
     if (isLatest) {
       void syncContactsToDb(instance)
       void writeRuntimeState(instance.id, { contacts_ready: true })
@@ -1045,11 +1087,7 @@ function bindSocketEvents(instance, saveCreds) {
   instance.socket.ev.on("messages.upsert", ({ messages, type }) => {
     if (type !== "notify") return
     messages.forEach((msg) => {
-      const jid = msg.key?.remoteJid
-      if (!jid || !isIndividualJid(jid) || msg.key?.fromMe) return
-      const pushName = typeof msg.pushName === "string" ? msg.pushName.trim() : ""
-      upsertChatCache(instance, { jid, name: pushName || undefined })
-      if (pushName) upsertContactCache(instance, { id: jid, name: pushName, notify: pushName })
+      void upsertMessageSenderCache(instance, msg)
     })
   })
 
@@ -1311,7 +1349,7 @@ app.get("/directory", async (req, res) => {
 
     return res.json({
       instance_id: instance.id,
-      items: buildDirectory(instance),
+      items: await buildDirectory(instance),
     })
   } catch (error) {
     return res.status(500).json({

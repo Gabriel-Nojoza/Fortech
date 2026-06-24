@@ -28,6 +28,7 @@ function normalizeSendPayload(body: unknown): WhatsAppBotSendPayload {
     document_url: toOptionalString(record.document_url),
     file_name: toOptionalString(record.file_name),
     mimetype: toOptionalString(record.mimetype),
+    audio_base64: toOptionalString(record.audio_base64),
   }
 }
 
@@ -78,10 +79,11 @@ export async function POST(request: NextRequest) {
       !payload.caption &&
       !payload.text &&
       !payload.document_base64 &&
-      !payload.document_url
+      !payload.document_url &&
+      !payload.audio_base64
     ) {
       return NextResponse.json(
-        { error: "Informe uma mensagem, document_base64 ou document_url" },
+        { error: "Informe uma mensagem, document_base64, audio_base64 ou document_url" },
         { status: 400 }
       )
     }
