@@ -166,14 +166,16 @@ async function syncContactsToDb(instance) {
     }
   }
 
-  const groupInserts = inserts.filter((i) => i.type === "group")
-  const individualInserts = inserts.filter((i) => i.type === "individual")
+  const seenPhones = new Set()
+  const groupInserts = inserts.filter((i) => i.type === "group" && !seenPhones.has(i.phone) && seenPhones.add(i.phone))
+  const seenIndividuals = new Set()
+  const individualInserts = inserts.filter((i) => i.type === "individual" && !seenIndividuals.has(i.phone) && seenIndividuals.add(i.phone))
   for (const chunk of chunkArray(groupInserts, 200)) {
-    const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true })
+    const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true, onConflict: "company_id,phone" })
     if (error) console.error(`[${instance.id}] Erro ao inserir grupos no banco:`, error.message)
   }
   for (const chunk of chunkArray(individualInserts, 200)) {
-    const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true })
+    const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true, onConflict: "company_id,phone" })
     if (error) console.error(`[${instance.id}] Erro ao inserir contatos no banco:`, error.message)
   }
   for (const update of updates) {
