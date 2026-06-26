@@ -1014,10 +1014,16 @@ export default function SchedulesPage() {
         throw new Error(extractApiErrorMessage(data) ?? "Erro no disparo")
       }
 
+      const respData = data as { logs_created?: unknown; skipped?: unknown; reason?: unknown } | null
+
+      if (respData?.skipped) {
+        const reason = typeof respData.reason === "string" ? respData.reason : "Fora do horario de envio configurado"
+        toast.warning(`Disparo ignorado: ${reason}`)
+        return
+      }
+
       const logsCreated =
-        typeof (data as { logs_created?: unknown } | null)?.logs_created === "number"
-          ? (data as { logs_created: number }).logs_created
-          : 0
+        typeof respData?.logs_created === "number" ? respData.logs_created : 0
 
       toast.success(`Disparo iniciado! ${logsCreated} logs criados.`)
       mutate("/api/logs?limit=10")
