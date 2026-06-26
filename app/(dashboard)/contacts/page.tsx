@@ -202,7 +202,7 @@ export default function ContactsPage() {
     return matchesSearch && matchesType
   })
 
-  const canViewContacts = Boolean(resolvedBotInstanceId) && botQrConfig?.status === "connected"
+  const canViewContacts = Boolean(resolvedBotInstanceId)
   const visibleContacts = canViewContacts ? filtered : []
 
   const savedManualBotQrUrl = (botQrConfig?.manual_qr_code_url ?? "").trim()
@@ -316,10 +316,11 @@ export default function ContactsPage() {
     setSaving(true)
 
     try {
+      const normalizedPhone = formPhone ? formPhone.replace(/[\s\-()]/g, "") : null
       const payload = {
         ...(editContact ? { id: editContact.id } : {}),
         name: formName.trim(),
-        phone: formPhone || null,
+        phone: normalizedPhone,
         type: formType,
         whatsapp_group_id: formGroupId || null,
         bot_instance_id: resolvedBotInstanceId,
@@ -333,16 +334,19 @@ export default function ContactsPage() {
       })
 
       if (!res.ok) {
-        throw new Error("Erro ao salvar")
+        const data = await res.json().catch(() => null)
+        const msg: string = data?.error ?? ""
+        if (msg.includes("duplicate key") || msg.includes("unique constraint")) {
+          throw new Error("Esse telefone ja esta cadastrado nesta empresa.")
+        }
+        throw new Error(msg || "Erro ao salvar")
       }
 
       toast.success(editContact ? "Contato atualizado!" : "Contato criado!")
       setDialogOpen(false)
-      if (contactsKey) {
-        mutate(contactsKey)
-      }
-    } catch {
-      toast.error("Erro ao salvar contato")
+      mutate((key) => typeof key === "string" && key.startsWith("/api/contacts"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao salvar contato")
     } finally {
       setSaving(false)
     }
@@ -359,9 +363,7 @@ export default function ContactsPage() {
       }
 
       toast.success("Contato excluido!")
-      if (contactsKey) {
-        mutate(contactsKey)
-      }
+      mutate((key) => typeof key === "string" && key.startsWith("/api/contacts"))
     } catch {
       toast.error("Erro ao excluir contato")
     } finally {
@@ -837,12 +839,8 @@ export default function ContactsPage() {
               <p className="py-12 text-center text-sm text-muted-foreground">
                 {!resolvedBotInstanceId
                   ? "Selecione um WhatsApp para visualizar os contatos desse numero."
-                  : !canViewContacts
-                  ? "Esse WhatsApp esta desconectado. Gere o QR e conecte o numero para visualizar os contatos dele."
                   : contacts?.length === 0
-                  ? botQrConfig?.status === "connected"
-                    ? "Nenhum contato cadastrado para esse numero. Clique em 'Sincronizar contatos' ou em 'Novo Contato'."
-                    : "Nenhum contato cadastrado para esse numero. Conecte o WhatsApp e sincronize para carregar os grupos e contatos dele."
+                  ? "Nenhum contato cadastrado para esse numero. Clique em 'Sincronizar contatos' ou em 'Novo Contato'."
                   : "Nenhum resultado encontrado."}
               </p>
             ) : (
