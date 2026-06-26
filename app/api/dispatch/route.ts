@@ -426,12 +426,25 @@ async function handleDispatch(request: NextRequest) {
   )
   const primaryReport = reportMap.get(primaryScheduleReportConfig.report_id) ?? null
 
-  const { data: scContacts } = await supabase
+  const { data: scContacts, error: scContactsError } = await supabase
     .from("schedule_contacts")
     .select("contact_id")
     .eq("schedule_id", schedule_id)
 
   const contactIds = (scContacts ?? []).map((sc) => sc.contact_id)
+
+  console.log("[dispatch] contacts debug", {
+    scheduleId: schedule_id,
+    companyId,
+    scContactsError: scContactsError?.message ?? null,
+    scheduleContactsCount: scContacts?.length ?? 0,
+    contactIds,
+  })
+
+  if (contactIds.length === 0) {
+    return NextResponse.json({ error: "Nenhum contato vinculado a esta rotina" }, { status: 400 })
+  }
+
   let contactsQuery = supabase
     .from("contacts")
     .select("*")
@@ -440,7 +453,13 @@ async function handleDispatch(request: NextRequest) {
     .eq("is_active", true)
 
 
-  const { data: contacts } = await contactsQuery
+  const { data: contacts, error: contactsError } = await contactsQuery
+
+  console.log("[dispatch] contacts fetched", {
+    scheduleId: schedule_id,
+    contactsError: contactsError?.message ?? null,
+    contactsFound: contacts?.length ?? 0,
+  })
 
   const normalizedContacts = (contacts ?? []).map((contact) =>
     normalizeContactForResponse(contact as Record<string, unknown>)
