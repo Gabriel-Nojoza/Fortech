@@ -6,13 +6,7 @@ import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -92,28 +86,21 @@ export default function AdminSchedulesPage() {
         <>
           <div className="flex items-center gap-4 rounded-md border p-4">
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium">Narração da empresa</span>
+              <span className="text-sm font-medium">Narração habilitada</span>
               <span className="text-xs text-muted-foreground">
-                Define como os relatórios desta empresa serão narrados ao ser enviados
+                Liga ou desliga narração para esta empresa. O cliente escolhe áudio ou texto no painel dele.
               </span>
             </div>
             <div className="ml-auto">
               {narrationLoading ? (
-                <Skeleton className="h-9 w-44" />
+                <Skeleton className="h-6 w-11" />
               ) : (
-                <Select
-                  value={narration?.send_mode ?? "none"}
-                  onValueChange={handleNarrationChange}
-                >
-                  <SelectTrigger className="w-44">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Não enviar narração</SelectItem>
-                    <SelectItem value="audio">Enviar áudio</SelectItem>
-                    <SelectItem value="text">Enviar texto</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Switch
+                  checked={narration?.send_mode !== "none"}
+                  onCheckedChange={(checked) =>
+                    handleNarrationChange(checked ? "text" : "none")
+                  }
+                />
               )}
             </div>
           </div>
