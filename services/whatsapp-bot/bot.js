@@ -1098,6 +1098,20 @@ function bindSocketEvents(instance, saveCreds) {
     const { connection, lastDisconnect, qr } = update
 
     if (qr) {
+      if (instance.pendingPairingPhone) {
+        const phone = instance.pendingPairingPhone
+        instance.pendingPairingPhone = null
+        try {
+          const code = await instance.socket.requestPairingCode(phone)
+          await writeRuntimeState(instance.id, { pairing_code: code })
+          console.log(`Codigo de pareamento gerado (${instance.id}): ${code}`)
+        } catch (e) {
+          console.error(`Erro ao gerar codigo de pareamento (${instance.id}):`, e?.message || e)
+          await writeRuntimeState(instance.id, { pairing_code: `ERR:${e?.message || "falha"}` })
+        }
+        return
+      }
+
       const qrCodeDataUrl = await QRCode.toDataURL(qr, { width: 512, margin: 1 })
 
       console.log(`\nLeia este QR (${instance.id}) com o WhatsApp em Dispositivos conectados:\n`)
@@ -1217,23 +1231,6 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
       syncFullHistory: true,
       getMessage: async () => ({ conversation: "" }),
     })
-
-    if (instance.pendingPairingPhone) {
-      const phone = instance.pendingPairingPhone
-      instance.pendingPairingPhone = null
-      // Deve ser chamado imediatamente, antes do QR ser gerado
-      setImmediate(async () => {
-        try {
-          if (!instance.socket) return
-          const code = await instance.socket.requestPairingCode(phone)
-          await writeRuntimeState(instance.id, { pairing_code: code })
-          console.log(`Codigo de pareamento gerado (${instance.id}): ${code}`)
-        } catch (e) {
-          console.error(`Erro ao gerar codigo de pareamento (${instance.id}):`, e?.message || e)
-          await writeRuntimeState(instance.id, { pairing_code: `ERR:${e?.message || "falha"}` })
-        }
-      })
-    }
 
     bindSocketEvents(instance, saveCreds)
   } catch (error) {
