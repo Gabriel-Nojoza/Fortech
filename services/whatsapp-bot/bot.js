@@ -275,6 +275,7 @@ function getInstanceEntry(instanceId) {
     groups: new Map(),
     companyId: null,
     pendingPairingPhone: null,
+    _groupSyncTimer: null,
   }
 
   instances.set(config.id, entry)
@@ -1058,6 +1059,7 @@ function bindSocketEvents(instance, saveCreds) {
     chats.forEach((chat) => upsertChatCache(instance, chat))
     await Promise.all(messages.map((msg) => upsertMessageSenderCache(instance, msg)))
     if (isLatest) {
+      await refreshGroupDirectory(instance)
       void syncContactsToDb(instance)
       void writeRuntimeState(instance.id, { contacts_ready: true })
     }
@@ -1081,6 +1083,11 @@ function bindSocketEvents(instance, saveCreds) {
 
   instance.socket.ev.on("groups.upsert", (groups) => {
     groups.forEach((group) => upsertGroupCache(instance, group))
+    if (instance._groupSyncTimer) clearTimeout(instance._groupSyncTimer)
+    instance._groupSyncTimer = setTimeout(() => {
+      instance._groupSyncTimer = null
+      void syncContactsToDb(instance)
+    }, 3000)
   })
 
   instance.socket.ev.on("groups.update", (groups) => {
