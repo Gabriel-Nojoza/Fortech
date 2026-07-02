@@ -1221,7 +1221,8 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
     if (instance.pendingPairingPhone) {
       const phone = instance.pendingPairingPhone
       instance.pendingPairingPhone = null
-      setTimeout(async () => {
+      // Deve ser chamado imediatamente, antes do QR ser gerado
+      setImmediate(async () => {
         try {
           if (!instance.socket) return
           const code = await instance.socket.requestPairingCode(phone)
@@ -1229,8 +1230,9 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
           console.log(`Codigo de pareamento gerado (${instance.id}): ${code}`)
         } catch (e) {
           console.error(`Erro ao gerar codigo de pareamento (${instance.id}):`, e?.message || e)
+          await writeRuntimeState(instance.id, { pairing_code: `ERR:${e?.message || "falha"}` })
         }
-      }, 3000)
+      })
     }
 
     bindSocketEvents(instance, saveCreds)
@@ -1390,36 +1392,44 @@ app.post("/pairing-code", async (req, res) => {
     return res.status(400).json({ error: "Bot ja conectado. Use 'Trocar celular' antes de conectar por numero." })
   }
 
-  await writeRuntimeState(instance.id, { pairing_code: null })
-  instance.pendingPairingPhone = phone
+  try {
+    await writeRuntimeState(instance.id, { pairing_code: null })
+    instance.pendingPairingPhone = phone
 
-  if (instance.socket) {
-    instance.pendingControlAction = "restart"
-    instance.socket.end()
-  } else {
-    await resetAuthState(instance.id)
-    clearDirectoryCache(instance)
-    await writeStoppedRuntimeState(instance.id, "starting")
-    scheduleBotStart(instance.id, 100)
-  }
-
-  const maxWait = 30000
-  const started = Date.now()
-  while (Date.now() - started < maxWait) {
-    await new Promise((r) => setTimeout(r, 600))
-    const state = await readRuntimeState(instance.id)
-    if (state?.pairing_code) {
-      const code = state.pairing_code
-      await writeRuntimeState(instance.id, { pairing_code: null })
-      return res.json({ code })
+    if (instance.socket) {
+      instance.pendingControlAction = "restart"
+      instance.socket.end()
+    } else {
+      await resetAuthState(instance.id)
+      clearDirectoryCache(instance)
+      await writeStoppedRuntimeState(instance.id, "starting")
+      scheduleBotStart(instance.id, 100)
     }
-    if (state?.status === "connected") {
-      return res.status(400).json({ error: "Bot conectou sem gerar codigo. Tente novamente." })
-    }
-  }
 
-  instance.pendingPairingPhone = null
-  return res.status(504).json({ error: "Timeout ao gerar codigo. Verifique se o numero esta correto." })
+    const maxWait = 30000
+    const started = Date.now()
+    while (Date.now() - started < maxWait) {
+      await new Promise((r) => setTimeout(r, 600))
+      const state = await readRuntimeState(instance.id)
+      if (typeof state?.pairing_code === "string" && state.pairing_code) {
+        const code = state.pairing_code
+        await writeRuntimeState(instance.id, { pairing_code: null })
+        if (code.startsWith("ERR:")) {
+          return res.status(500).json({ error: code.replace("ERR:", "").trim() || "Erro ao gerar codigo de pareamento" })
+        }
+        return res.json({ code })
+      }
+      if (state?.status === "connected") {
+        return res.status(400).json({ error: "Bot conectou sem gerar codigo. Tente novamente." })
+      }
+    }
+
+    instance.pendingPairingPhone = null
+    return res.status(504).json({ error: "Timeout ao gerar codigo. Verifique se o numero esta correto e tente novamente." })
+  } catch (error) {
+    instance.pendingPairingPhone = null
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Erro interno ao gerar codigo de pareamento" })
+  }
 })
 
 app.post("/control", async (req, res) => {
