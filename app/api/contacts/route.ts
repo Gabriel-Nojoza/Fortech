@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         .eq("company_id", companyId)
         .eq("type", t)
         .order("name", { ascending: true })
-        .limit(5000)
+        .limit(20000)
       if (botInstanceId) {
         q = q.or(`bot_instance_id.eq.${botInstanceId},bot_instance_id.is.null`)
       }
