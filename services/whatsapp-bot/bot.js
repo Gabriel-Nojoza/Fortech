@@ -89,101 +89,108 @@ function chunkArray(items, size) {
 
 async function syncContactsToDb(instance) {
   if (!instance.companyId) return
+  if (instance._syncingContacts) return
   const supabase = getSupabaseClient()
   if (!supabase) return
+  instance._syncingContacts = true
 
-  const items = await buildDirectory(instance)
-  if (items.length === 0) return
+  try {
+    const items = await buildDirectory(instance)
+    if (items.length === 0) return
 
-  const supportsGroupId = await checkSupportsWhatsappGroupId(supabase)
+    const supportsGroupId = await checkSupportsWhatsappGroupId(supabase)
 
-  const { data: existing } = await supabase
-    .from("contacts")
-    .select("id, phone, whatsapp_group_id, type, name, bot_instance_id, is_active")
-    .eq("company_id", instance.companyId)
-    .limit(50000)
+    const { data: existing } = await supabase
+      .from("contacts")
+      .select("id, phone, whatsapp_group_id, type, name, bot_instance_id, is_active")
+      .eq("company_id", instance.companyId)
+      .limit(50000)
 
-  const existingByPhone = new Map()
-  const existingByGroupId = new Map()
-  for (const c of existing ?? []) {
-    if (c.type === "individual" && c.phone) {
-      existingByPhone.set(c.phone.replace(/\D/g, ""), c)
-    }
-    if (c.type === "group") {
-      const gid = supportsGroupId ? c.whatsapp_group_id : c.phone
-      if (gid) existingByGroupId.set(gid, c)
-    }
-  }
-
-  const inserts = []
-  const updates = []
-  const botInstanceId = instance.id === DEFAULT_INSTANCE_KEY ? null : instance.id
-
-  for (const item of items) {
-    if (item.type === "individual") {
-      const normalizedPhone = normalizePhone(item.phone)
-      if (!normalizedPhone) continue
-      const formattedPhone = `+${normalizedPhone}`
-      const existingContact = existingByPhone.get(normalizedPhone)
-      if (!existingContact) {
-        const payload = {
-          company_id: instance.companyId,
-          bot_instance_id: botInstanceId,
-          name: item.name,
-          phone: formattedPhone,
-          type: "individual",
-          is_active: true,
-        }
-        if (supportsGroupId) payload.whatsapp_group_id = null
-        inserts.push(payload)
-      } else if (existingContact.name !== item.name || !existingContact.is_active || existingContact.bot_instance_id !== botInstanceId) {
-        updates.push({
-          id: existingContact.id,
-          payload: { name: item.name, is_active: true, bot_instance_id: botInstanceId, updated_at: new Date().toISOString() },
-        })
+    const existingByPhone = new Map()
+    const existingByGroupId = new Map()
+    for (const c of existing ?? []) {
+      if (c.type === "individual" && c.phone) {
+        existingByPhone.set(c.phone.replace(/\D/g, ""), c)
       }
-    } else if (item.type === "group") {
-      const groupId = item.whatsapp_group_id
-      if (!groupId) continue
-      const existingGroup = existingByGroupId.get(groupId)
-      if (!existingGroup) {
-        const payload = {
-          company_id: instance.companyId,
-          bot_instance_id: botInstanceId,
-          name: item.name,
-          phone: groupId,
-          type: "group",
-          is_active: true,
-        }
-        if (supportsGroupId) payload.whatsapp_group_id = groupId
-        inserts.push(payload)
-      } else if (existingGroup.name !== item.name || !existingGroup.is_active || existingGroup.bot_instance_id !== botInstanceId) {
-        updates.push({
-          id: existingGroup.id,
-          payload: { name: item.name, is_active: true, bot_instance_id: botInstanceId, updated_at: new Date().toISOString() },
-        })
+      if (c.type === "group") {
+        const gid = supportsGroupId ? c.whatsapp_group_id : c.phone
+        if (gid) existingByGroupId.set(gid, c)
       }
     }
-  }
 
-  const seenPhones = new Set()
-  const groupInserts = inserts.filter((i) => i.type === "group" && !seenPhones.has(i.phone) && seenPhones.add(i.phone))
-  const seenIndividuals = new Set()
-  const individualInserts = inserts.filter((i) => i.type === "individual" && !seenIndividuals.has(i.phone) && seenIndividuals.add(i.phone))
-  for (const chunk of chunkArray(groupInserts, 200)) {
-    const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true, onConflict: "company_id,phone" })
-    if (error) console.error(`[${instance.id}] Erro ao inserir grupos no banco:`, error.message)
-  }
-  for (const chunk of chunkArray(individualInserts, 200)) {
-    const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true, onConflict: "company_id,phone" })
-    if (error) console.error(`[${instance.id}] Erro ao inserir contatos no banco:`, error.message)
-  }
-  for (const update of updates) {
-    const { error } = await supabase.from("contacts").update(update.payload).eq("id", update.id)
-    if (error) console.error(`[${instance.id}] Erro ao atualizar contato no banco:`, error.message)
-  }
+    const inserts = []
+    const updates = []
+    const botInstanceId = instance.id === DEFAULT_INSTANCE_KEY ? null : instance.id
 
-  console.log(`[${instance.id}] Banco sincronizado: ${inserts.length} inseridos, ${updates.length} atualizados`)
+    for (const item of items) {
+      if (item.type === "individual") {
+        const normalizedPhone = normalizePhone(item.phone)
+        if (!normalizedPhone) continue
+        const formattedPhone = `+${normalizedPhone}`
+        const existingContact = existingByPhone.get(normalizedPhone)
+        if (!existingContact) {
+          const payload = {
+            company_id: instance.companyId,
+            bot_instance_id: botInstanceId,
+            name: item.name,
+            phone: formattedPhone,
+            type: "individual",
+            is_active: true,
+          }
+          if (supportsGroupId) payload.whatsapp_group_id = null
+          inserts.push(payload)
+        } else if (existingContact.name !== item.name || !existingContact.is_active || existingContact.bot_instance_id !== botInstanceId) {
+          updates.push({
+            id: existingContact.id,
+            payload: { name: item.name, is_active: true, bot_instance_id: botInstanceId, updated_at: new Date().toISOString() },
+          })
+        }
+      } else if (item.type === "group") {
+        const groupId = item.whatsapp_group_id
+        if (!groupId) continue
+        const existingGroup = existingByGroupId.get(groupId)
+        if (!existingGroup) {
+          const payload = {
+            company_id: instance.companyId,
+            bot_instance_id: botInstanceId,
+            name: item.name,
+            phone: groupId,
+            type: "group",
+            is_active: true,
+          }
+          if (supportsGroupId) payload.whatsapp_group_id = groupId
+          inserts.push(payload)
+        } else if (existingGroup.name !== item.name || !existingGroup.is_active || existingGroup.bot_instance_id !== botInstanceId) {
+          updates.push({
+            id: existingGroup.id,
+            payload: { name: item.name, is_active: true, bot_instance_id: botInstanceId, updated_at: new Date().toISOString() },
+          })
+        }
+      }
+    }
+
+    const seenPhones = new Set()
+    const groupInserts = inserts.filter((i) => i.type === "group" && !seenPhones.has(i.phone) && seenPhones.add(i.phone))
+    const seenIndividuals = new Set()
+    const individualInserts = inserts.filter((i) => i.type === "individual" && !seenIndividuals.has(i.phone) && seenIndividuals.add(i.phone))
+    const groupConflict = supportsGroupId ? "company_id,whatsapp_group_id" : "company_id,phone"
+    for (const chunk of chunkArray(groupInserts, 200)) {
+      const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true, onConflict: groupConflict })
+      if (error) console.error(`[${instance.id}] Erro ao inserir grupos no banco:`, error.message)
+    }
+    for (const chunk of chunkArray(individualInserts, 200)) {
+      const { error } = await supabase.from("contacts").upsert(chunk, { ignoreDuplicates: true, onConflict: "company_id,phone" })
+      if (error) console.error(`[${instance.id}] Erro ao inserir contatos no banco:`, error.message)
+    }
+    for (const update of updates) {
+      const { error } = await supabase.from("contacts").update(update.payload).eq("id", update.id)
+      if (error) console.error(`[${instance.id}] Erro ao atualizar contato no banco:`, error.message)
+    }
+
+    console.log(`[${instance.id}] Banco sincronizado: ${inserts.length} inseridos, ${updates.length} atualizados`)
+  } finally {
+    instance._syncingContacts = false
+  }
 }
 
 ensureDirectory(AUTH_DIR)
@@ -276,6 +283,7 @@ function getInstanceEntry(instanceId) {
     companyId: null,
     pendingPairingPhone: null,
     _groupSyncTimer: null,
+    _syncingContacts: false,
   }
 
   instances.set(config.id, entry)
