@@ -199,6 +199,44 @@ export async function controlWhatsAppBot(
   return normalizeWhatsAppBotRuntimeState(data, instanceId)
 }
 
+export async function requestWhatsAppBotPairingCode(
+  phone: string,
+  instanceId?: string | null
+): Promise<string> {
+  let response: Response
+
+  try {
+    response = await fetch(
+      withInstanceId(`${getWhatsAppBotServiceBaseUrl()}/pairing-code`, instanceId),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(35000),
+      }
+    )
+  } catch (error) {
+    throw new Error(
+      error instanceof Error && error.message
+        ? `Nao foi possivel conectar ao servico do bot. Detalhe: ${error.message}`
+        : `Nao foi possivel conectar ao servico do bot em ${getWhatsAppBotServiceBaseUrl()}.`
+    )
+  }
+
+  const data = (await response.json().catch(() => null)) as { code?: string; error?: string } | null
+
+  if (!response.ok) {
+    throw new Error(data?.error || "Nao foi possivel gerar o codigo de pareamento")
+  }
+
+  if (!data?.code) {
+    throw new Error("Codigo de pareamento nao retornado pelo bot")
+  }
+
+  return data.code
+}
+
 export async function fetchWhatsAppBotDirectory(
   instanceId?: string | null
 ): Promise<WhatsAppBotDirectoryEntry[]> {

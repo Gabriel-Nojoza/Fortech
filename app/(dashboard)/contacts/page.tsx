@@ -112,6 +112,11 @@ export default function ContactsPage() {
   const [botActionLoading, setBotActionLoading] = useState<
     "disconnect" | "restart" | "switch_phone" | null
   >(null)
+  const [pairingDialogOpen, setPairingDialogOpen] = useState(false)
+  const [pairingPhone, setPairingPhone] = useState("")
+  const [pairingCode, setPairingCode] = useState<string | null>(null)
+  const [pairingLoading, setPairingLoading] = useState(false)
+  const [pairingError, setPairingError] = useState("")
 
   const [formName, setFormName] = useState("")
   const [formPhone, setFormPhone] = useState("")
@@ -524,6 +529,44 @@ export default function ContactsPage() {
     }
   }
 
+  async function handleRequestPairingCode() {
+    if (!resolvedBotInstanceId) {
+      toast.error("Selecione um WhatsApp antes de conectar por numero.")
+      return
+    }
+
+    const normalizedPhone = pairingPhone.replace(/\D/g, "")
+    if (!normalizedPhone || normalizedPhone.length < 10) {
+      setPairingError("Numero invalido. Ex: 5511999999999")
+      return
+    }
+
+    setPairingLoading(true)
+    setPairingError("")
+    setPairingCode(null)
+
+    try {
+      const res = await fetch("/api/bot/pairing-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: normalizedPhone, instance_id: resolvedBotInstanceId }),
+      })
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Erro ao gerar codigo")
+      }
+
+      setPairingCode(data.code)
+      if (botQrKey) await mutate(botQrKey)
+      await mutate(instancesKey)
+    } catch (err) {
+      setPairingError(err instanceof Error ? err.message : "Erro ao gerar codigo de pareamento")
+    } finally {
+      setPairingLoading(false)
+    }
+  }
+
   async function handleSyncContactsFromBot() {
     if (!resolvedBotInstanceId) {
       toast.error("Selecione um WhatsApp antes de sincronizar os contatos.")
@@ -730,6 +773,19 @@ export default function ContactsPage() {
                 >
                   <RotateCcw className="mr-2 size-4" />
                   {botActionLoading === "restart" ? "Gerando QR..." : "Gerar QR"}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setPairingPhone("")
+                    setPairingCode(null)
+                    setPairingError("")
+                    setPairingDialogOpen(true)
+                  }}
+                  disabled={!canManageSelectedInstance || botActionLoading !== null}
+                >
+                  Conectar por numero
                 </Button>
 
                 <Button
@@ -1035,6 +1091,81 @@ export default function ContactsPage() {
             <Button onClick={handleSave} disabled={saving || !formName.trim()}>
               {saving ? "Salvando..." : "Salvar"}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pairingDialogOpen} onOpenChange={(open) => {
+        if (!pairingLoading) setPairingDialogOpen(open)
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Conectar por numero de telefone</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 pt-2">
+            {!pairingCode ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Digite o numero do WhatsApp que sera conectado. Use o formato internacional sem espacos ou simbolos.
+                </p>
+
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="pairing-phone">Numero (com DDI)</Label>
+                  <Input
+                    id="pairing-phone"
+                    value={pairingPhone}
+                    onChange={(e) => {
+                      setPairingPhone(e.target.value)
+                      setPairingError("")
+                    }}
+                    placeholder="Ex: 5511999999999"
+                    disabled={pairingLoading}
+                  />
+                  {pairingError ? (
+                    <p className="text-xs text-destructive">{pairingError}</p>
+                  ) : null}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  O bot sera reiniciado para gerar o codigo. Pode levar ate 30 segundos.
+                </p>
+
+                <Button onClick={handleRequestPairingCode} disabled={pairingLoading || !pairingPhone.trim()}>
+                  {pairingLoading ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Aguardando codigo...
+                    </>
+                  ) : (
+                    "Gerar codigo de vinculacao"
+                  )}
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Digite este codigo no WhatsApp em <strong>Dispositivos conectados → Conectar com numero de telefone</strong>.
+                </p>
+
+                <div className="flex items-center justify-center rounded-xl border bg-muted/20 py-6">
+                  <span className="font-mono text-3xl font-bold tracking-widest">
+                    {pairingCode.match(/.{1,4}/g)?.join("-") ?? pairingCode}
+                  </span>
+                </div>
+
+                <p className="text-center text-xs text-muted-foreground">
+                  O codigo expira em poucos minutos. Apos inserir, aguarde o status virar Conectado.
+                </p>
+
+                <Button variant="outline" onClick={() => {
+                  setPairingCode(null)
+                  setPairingPhone("")
+                }}>
+                  Gerar novo codigo
+                </Button>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>

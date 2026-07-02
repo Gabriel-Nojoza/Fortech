@@ -274,6 +274,7 @@ function getInstanceEntry(instanceId) {
     chats: new Map(),
     groups: new Map(),
     companyId: null,
+    pendingPairingPhone: null,
   }
 
   instances.set(config.id, entry)
@@ -1217,6 +1218,21 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
       getMessage: async () => ({ conversation: "" }),
     })
 
+    if (instance.pendingPairingPhone) {
+      const phone = instance.pendingPairingPhone
+      instance.pendingPairingPhone = null
+      setTimeout(async () => {
+        try {
+          if (!instance.socket) return
+          const code = await instance.socket.requestPairingCode(phone)
+          await writeRuntimeState(instance.id, { pairing_code: code })
+          console.log(`Codigo de pareamento gerado (${instance.id}): ${code}`)
+        } catch (e) {
+          console.error(`Erro ao gerar codigo de pareamento (${instance.id}):`, e?.message || e)
+        }
+      }, 3000)
+    }
+
     bindSocketEvents(instance, saveCreds)
   } catch (error) {
     instance.socket = null
@@ -1358,6 +1374,52 @@ app.get("/directory", async (req, res) => {
       error: error instanceof Error ? error.message : "Erro ao listar diretorio do bot",
     })
   }
+})
+
+app.post("/pairing-code", async (req, res) => {
+  const instanceId = getRequestInstanceId(req)
+  const phone = (req.body?.phone || "").toString().replace(/\D/g, "")
+
+  if (!phone || phone.length < 10) {
+    return res.status(400).json({ error: "Numero invalido. Use apenas digitos com DDI. Ex: 5511999999999" })
+  }
+
+  const instance = getInstanceEntry(instanceId)
+
+  if (instance.socket?.user) {
+    return res.status(400).json({ error: "Bot ja conectado. Use 'Trocar celular' antes de conectar por numero." })
+  }
+
+  await writeRuntimeState(instance.id, { pairing_code: null })
+  instance.pendingPairingPhone = phone
+
+  if (instance.socket) {
+    instance.pendingControlAction = "restart"
+    instance.socket.end()
+  } else {
+    await resetAuthState(instance.id)
+    clearDirectoryCache(instance)
+    await writeStoppedRuntimeState(instance.id, "starting")
+    scheduleBotStart(instance.id, 100)
+  }
+
+  const maxWait = 30000
+  const started = Date.now()
+  while (Date.now() - started < maxWait) {
+    await new Promise((r) => setTimeout(r, 600))
+    const state = await readRuntimeState(instance.id)
+    if (state?.pairing_code) {
+      const code = state.pairing_code
+      await writeRuntimeState(instance.id, { pairing_code: null })
+      return res.json({ code })
+    }
+    if (state?.status === "connected") {
+      return res.status(400).json({ error: "Bot conectou sem gerar codigo. Tente novamente." })
+    }
+  }
+
+  instance.pendingPairingPhone = null
+  return res.status(504).json({ error: "Timeout ao gerar codigo. Verifique se o numero esta correto." })
 })
 
 app.post("/control", async (req, res) => {
