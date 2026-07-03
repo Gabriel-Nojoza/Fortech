@@ -408,7 +408,7 @@ export async function GET(request: Request) {
       .eq("company_id", companyId)
       .gte("created_at", thirtyDaysAgo.toISOString())
       .order("created_at", { ascending: false })
-      .limit(5000)
+      .limit(2000)
     const schedulesQuery = supabase
       .from("schedules")
       .select("id, name, report_id, report_configs, pbi_page_name, pbi_page_names, cron_expression, export_format, is_active, last_run_at")
