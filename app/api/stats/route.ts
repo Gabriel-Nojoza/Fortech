@@ -361,7 +361,6 @@ export async function GET(request: Request) {
     const context = await getRequestContext()
     const { companyId } = context
     const supabase = createClient()
-    const workspaceScope = await getWorkspaceAccessScope(supabase, context)
 
     const { searchParams } = new URL(request.url)
     const dateParam = searchParams.get("date")?.trim() ?? ""
@@ -370,15 +369,65 @@ export async function GET(request: Request) {
       : new Date()
     const todayStart = getBrazilDayStart(now)
     const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
-
     const chartStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
 
     // Inicio do mes atual no fuso Brasil (UTC-3)
     const brazilNow = new Date(now.getTime() - BRAZIL_OFFSET_MS)
     const startOfMonthUTC = new Date(Date.UTC(brazilNow.getUTCFullYear(), brazilNow.getUTCMonth(), 1))
     const thirtyDaysAgo = new Date(startOfMonthUTC.getTime() + BRAZIL_OFFSET_MS)
-    const hasRestrictedScope =
-      workspaceScope.workspaceRestricted || workspaceScope.datasetRestricted
+
+    // Inicia workspace scope em paralelo com as queries
+    const workspaceScopePromise = getWorkspaceAccessScope(supabase, context)
+
+    // Query leve: apenas logs de HOJE para analise de janelas
+    const todayLogsQuery = supabase
+      .from("dispatch_logs")
+      .select("schedule_id, status, error_message, created_at, started_at, completed_at")
+      .eq("company_id", companyId)
+      .gte("created_at", todayStart.toISOString())
+      .lt("created_at", tomorrowStart.toISOString())
+      .order("created_at", { ascending: false })
+
+    // Query leve: logs dos ultimos 6 dias para o grafico (excluindo hoje)
+    const chartLogsQuery = supabase
+      .from("dispatch_logs")
+      .select("status, created_at, started_at, completed_at")
+      .eq("company_id", companyId)
+      .gte("created_at", chartStart.toISOString())
+      .lt("created_at", todayStart.toISOString())
+      .order("created_at", { ascending: false })
+      .limit(500)
+
+    // Contagens do mes usando COUNT (sem buscar linhas)
+    const monthDeliveredQuery = supabase
+      .from("dispatch_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .gte("created_at", thirtyDaysAgo.toISOString())
+      .eq("status", "delivered")
+
+    const monthFailedQuery = supabase
+      .from("dispatch_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .gte("created_at", thirtyDaysAgo.toISOString())
+      .eq("status", "failed")
+
+    const monthOngoingQuery = supabase
+      .from("dispatch_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .gte("created_at", thirtyDaysAgo.toISOString())
+      .eq("status", "ongoing")
+
+    const schedulesQuery = supabase
+      .from("schedules")
+      .select("id, name, report_id, report_configs, pbi_page_name, pbi_page_names, cron_expression, export_format, is_active, last_run_at")
+      .eq("company_id", companyId)
+      .eq("is_active", true)
+
+    const workspaceScope = await workspaceScopePromise
+    const hasRestrictedScope = workspaceScope.workspaceRestricted || workspaceScope.datasetRestricted
 
     const reportsQuery =
       workspaceScope.workspaceRestricted && workspaceScope.workspaceIds.length === 0
@@ -400,49 +449,47 @@ export async function GET(request: Request) {
               query = query.in("dataset_id", workspaceScope.datasetIds)
             }
 
-             return query
-           })()
-    const dispatchLogsQuery = supabase
-      .from("dispatch_logs")
-      .select("schedule_id, status, error_message, created_at, started_at, completed_at")
-      .eq("company_id", companyId)
-      .gte("created_at", thirtyDaysAgo.toISOString())
-      .order("created_at", { ascending: false })
-      .limit(2000)
-    const schedulesQuery = supabase
-      .from("schedules")
-      .select("id, name, report_id, report_configs, pbi_page_name, pbi_page_names, cron_expression, export_format, is_active, last_run_at")
-      .eq("company_id", companyId)
-      .eq("is_active", true)
+            return query
+          })()
 
-    const [reportsRes, contactsRes, dispatchLogsRes, settingsRes, botInstancesRes, schedulesRes] =
-      await Promise.all([
-        reportsQuery,
-        supabase
-          .from("contacts")
-          .select("id", { count: "exact", head: true })
-          .eq("company_id", companyId)
-          .eq("is_active", true),
-        dispatchLogsQuery,
-        supabase
-          .from("company_settings")
-          .select("key, value")
-          .eq("company_id", companyId)
-          .in("key", ["powerbi", "n8n", "general"]),
-        listCompanyWhatsAppBotInstances(supabase, companyId).catch((error) => {
-          if (isMissingWhatsAppBotInstancesTableError(error)) {
-            return null
-          }
-
-          throw error
-        }),
-        schedulesQuery,
-      ])
+    const [
+      reportsRes, contactsRes, todayLogsRes, chartLogsRes,
+      monthDeliveredRes, monthFailedRes, monthOngoingRes,
+      settingsRes, botInstancesRes, schedulesRes,
+    ] = await Promise.all([
+      reportsQuery,
+      supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true })
+        .eq("company_id", companyId)
+        .eq("is_active", true),
+      todayLogsQuery,
+      chartLogsQuery,
+      monthDeliveredQuery,
+      monthFailedQuery,
+      monthOngoingQuery,
+      supabase
+        .from("company_settings")
+        .select("key, value")
+        .eq("company_id", companyId)
+        .in("key", ["powerbi", "n8n", "general"]),
+      listCompanyWhatsAppBotInstances(supabase, companyId).catch((error) => {
+        if (isMissingWhatsAppBotInstancesTableError(error)) {
+          return null
+        }
+        throw error
+      }),
+      schedulesQuery,
+    ])
 
     const queryError =
       reportsRes.error ??
       contactsRes.error ??
-      dispatchLogsRes.error ??
+      todayLogsRes.error ??
+      chartLogsRes.error ??
+      monthDeliveredRes.error ??
+      monthFailedRes.error ??
+      monthOngoingRes.error ??
       settingsRes.error ??
       schedulesRes.error
 
@@ -463,7 +510,7 @@ export async function GET(request: Request) {
     const totalReports = reportsRes.count ?? 0
     const activeContacts = contactsRes.count ?? 0
 
-    let dispatchLogs = (dispatchLogsRes.data ?? []) as DispatchLogStatsRecord[]
+    let todayLogs = (todayLogsRes.data ?? []) as DispatchLogStatsRecord[]
     const activeSchedules = (schedulesRes.data ?? []) as ActiveScheduleStatsRecord[]
     const accessMaps =
       activeSchedules.length > 0
@@ -480,39 +527,22 @@ export async function GET(request: Request) {
     if (hasRestrictedScope) {
       const currentScheduleIds = await getCompanyScheduleIdSet(supabase, companyId)
       const accessibleScheduleIdSet = new Set(visibleSchedules.map((schedule) => schedule.id))
-      dispatchLogs = dispatchLogs.filter((log) =>
+      todayLogs = todayLogs.filter((log) =>
         canAccessDispatchLog(log.schedule_id, accessibleScheduleIdSet, currentScheduleIds)
       )
     }
 
-    const logsWithDates = dispatchLogs.flatMap((log) => {
-      const effectiveDate = getDispatchLogEffectiveDate(log)
-      if (!effectiveDate) {
-        return []
-      }
-
-      return [
-        {
-          effectiveDate,
-          outcome: getDispatchLogOutcome(log),
-        },
-      ]
-    })
-
-    const dispatchesToday = logsWithDates.filter(
-      (log) => log.effectiveDate >= todayStart && log.effectiveDate < tomorrowStart
-    ).length
-
-    const monthLogs = logsWithDates.filter((log) => log.effectiveDate >= thirtyDaysAgo)
-    const monthOutcomeCounts = countDispatchLogOutcomes(monthLogs)
-    const deliveredCount = monthOutcomeCounts.delivered
-    const failedCount = monthOutcomeCounts.failed
-    const ongoingCount = monthOutcomeCounts.ongoing
-    const completedMonthLogs = monthLogs.filter((log) => log.outcome !== "ongoing")
+    // Contagens do mes a partir das queries de COUNT
+    const deliveredCount = monthDeliveredRes.count ?? 0
+    const failedCount = monthFailedRes.count ?? 0
+    const ongoingCount = monthOngoingRes.count ?? 0
+    const completedMonthCount = deliveredCount + failedCount
     const successRate =
-      completedMonthLogs.length > 0
-        ? Math.round((deliveredCount / completedMonthLogs.length) * 100)
+      completedMonthCount > 0
+        ? Math.round((deliveredCount / completedMonthCount) * 100)
         : null
+
+    const dispatchesToday = todayLogs.length
 
     // Configuration status
     const settingsMap = new Map(
@@ -533,18 +563,24 @@ export async function GET(request: Request) {
       n8n.callback_secret.trim()
     )
 
-    // Chart data: last 7 days (boundaries in Brazil timezone UTC-3)
+    // Grafico: 6 dias anteriores + hoje
+    const chartRawLogs = (chartLogsRes.data ?? []) as DispatchLogStatsRecord[]
+    const allChartLogs = [...todayLogs, ...chartRawLogs]
+    const chartLogsWithDates = allChartLogs.flatMap((log) => {
+      const effectiveDate = getDispatchLogEffectiveDate(log)
+      if (!effectiveDate) return []
+      return [{ effectiveDate, outcome: getDispatchLogOutcome(log) }]
+    })
+
     const chartData = []
     for (let i = 0; i < 7; i++) {
       const dayStart = new Date(chartStart.getTime() + i * 24 * 60 * 60 * 1000)
       const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
       const brazilDay = new Date(dayStart.getTime() - BRAZIL_OFFSET_MS)
       const dayStr = `${String(brazilDay.getUTCDate()).padStart(2, "0")}/${String(brazilDay.getUTCMonth() + 1).padStart(2, "0")}`
-
-      const dayItems = logsWithDates.filter((log) => {
-        return log.effectiveDate >= dayStart && log.effectiveDate < dayEnd
-      })
-
+      const dayItems = chartLogsWithDates.filter(
+        (log) => log.effectiveDate >= dayStart && log.effectiveDate < dayEnd
+      )
       chartData.push({
         date: dayStr,
         delivered: dayItems.filter((log) => log.outcome === "delivered").length,
@@ -554,7 +590,7 @@ export async function GET(request: Request) {
 
     const scheduleDispatchSummary = buildScheduleDispatchSummary(
       visibleSchedules,
-      dispatchLogs,
+      todayLogs,
       todayStart,
       tomorrowStart,
       timeZone
@@ -595,7 +631,7 @@ export async function GET(request: Request) {
       totalWhatsAppInstances,
       dispatchesToday,
       successRate,
-      completed30d: completedMonthLogs.length,
+      completed30d: completedMonthCount,
       delivered30d: deliveredCount,
       failed30d: failedCount,
       ongoing30d: ongoingCount,
