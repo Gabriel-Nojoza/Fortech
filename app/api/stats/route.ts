@@ -506,6 +506,14 @@ export async function GET(request: Request) {
         : 0
     const totalWhatsAppInstances = botInstances?.length ?? (botState ? 1 : 0)
     const whatsappConnected = connectedWhatsAppInstances > 0
+    const whatsappBotStatus: string = botInstances
+      ? (["connected", "reconnecting", "starting", "awaiting_qr"].find((s) =>
+          botInstances.some((i) => i.status === s)
+        ) ?? botInstances[0]?.status ?? "offline")
+      : (botState?.status ?? "offline")
+    const whatsappConnectedAt: string | null = botInstances
+      ? (botInstances.find((i) => i.status === "connected")?.connected_at ?? null)
+      : (botState?.connected_at ?? null)
 
     const totalReports = reportsRes.count ?? 0
     const activeContacts = contactsRes.count ?? 0
@@ -627,6 +635,8 @@ export async function GET(request: Request) {
       totalReports,
       activeContacts,
       whatsappConnected,
+      whatsappBotStatus,
+      whatsappConnectedAt,
       connectedWhatsAppInstances,
       totalWhatsAppInstances,
       dispatchesToday,

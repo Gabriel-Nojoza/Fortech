@@ -7,6 +7,7 @@ import {
   CheckCircle,
   Zap,
   Link2,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +16,8 @@ interface StatsData {
   totalReports: number
   activeContacts: number
   whatsappConnected?: boolean
+  whatsappBotStatus?: string
+  whatsappConnectedAt?: string | null
   connectedWhatsAppInstances?: number
   totalWhatsAppInstances?: number
   dispatchesToday: number
@@ -25,6 +28,34 @@ interface StatsData {
   ongoing30d?: number
   pbiConfigured?: boolean
   n8nConfigured?: boolean
+}
+
+function getWhatsAppStatusBadge(status?: string) {
+  switch (status) {
+    case "connected":
+      return { label: "Conectado", ok: true as const, pending: false }
+    case "reconnecting":
+      return { label: "Reconectando...", ok: false as const, pending: true }
+    case "starting":
+      return { label: "Iniciando...", ok: false as const, pending: true }
+    case "awaiting_qr":
+      return { label: "Aguardando QR", ok: false as const, pending: false }
+    case "error":
+      return { label: "Erro no bot", ok: false as const, pending: false }
+    case "offline":
+      return { label: "Offline", ok: false as const, pending: false }
+    default:
+      return { label: "Aguardando QR", ok: false as const, pending: false }
+  }
+}
+
+function formatConnectedAt(connectedAt?: string | null) {
+  if (!connectedAt) return null
+  try {
+    return new Date(connectedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  } catch {
+    return null
+  }
 }
 
 function formatMetricValue(value: number | string) {
@@ -60,15 +91,18 @@ export function StatsCards({ data }: { data: StatsData }) {
       title: "Contatos Ativos",
       value: data.activeContacts,
       icon: Users,
-      description:
-        totalWhatsAppInstances > 0
-          ? connectedWhatsAppInstances > 0
-            ? `${formatMetricValue(connectedWhatsAppInstances)} WhatsApp(s) conectado(s)`
-            : `Nenhum dos ${formatMetricValue(totalWhatsAppInstances)} WhatsApp(s) esta conectado`
-          : "Nenhum WhatsApp configurado",
-      status: data.whatsappConnected
-        ? { label: "Conectado", ok: true }
-        : { label: "Aguardando QR", ok: false },
+      description: (() => {
+        const connectedAt = formatConnectedAt(data.whatsappConnectedAt)
+        if (totalWhatsAppInstances > 0) {
+          if (connectedWhatsAppInstances > 0) {
+            const base = `${formatMetricValue(connectedWhatsAppInstances)} WhatsApp(s) conectado(s)`
+            return connectedAt ? `${base} desde ${connectedAt}` : base
+          }
+          return `Nenhum dos ${formatMetricValue(totalWhatsAppInstances)} WhatsApp(s) esta conectado`
+        }
+        return "Nenhum WhatsApp configurado"
+      })(),
+      status: getWhatsAppStatusBadge(data.whatsappBotStatus),
     },
     {
       title: "Disparos Hoje",
@@ -119,10 +153,14 @@ export function StatsCards({ data }: { data: StatsData }) {
                   className={`gap-1 text-[10px] leading-tight ${
                     stat.status.ok
                       ? "border-emerald-500/30 text-emerald-500"
-                      : "text-muted-foreground"
+                      : "pending" in stat.status && stat.status.pending
+                        ? "border-amber-500/30 text-amber-500"
+                        : "text-muted-foreground"
                   }`}
                 >
-                  {stat.status.ok ? (
+                  {"pending" in stat.status && stat.status.pending ? (
+                    <Loader2 className="size-2.5 animate-spin" />
+                  ) : stat.status.ok ? (
                     <Link2 className="size-2.5" />
                   ) : (
                     <Zap className="size-2.5" />
