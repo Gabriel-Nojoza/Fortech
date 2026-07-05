@@ -42,7 +42,11 @@ export async function updateSession(request: NextRequest) {
   let user = null
 
   try {
-    const { data } = await supabase.auth.getUser()
+    const userPromise = supabase.auth.getUser()
+    const timeoutPromise = new Promise<{ data: { user: null } }>((resolve) =>
+      setTimeout(() => resolve({ data: { user: null } }), 5000)
+    )
+    const { data } = await Promise.race([userPromise, timeoutPromise])
     user = data?.user ?? null
   } catch {
     // Invalid or stale auth cookies should not break page rendering.
