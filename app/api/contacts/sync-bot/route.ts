@@ -101,11 +101,25 @@ export async function POST(request: Request) {
       return true
     })
 
-    const { data: existingContacts, error } = await supabase
-      .from("contacts")
-      .select("*")
-      .eq("company_id", companyId)
-      .limit(5000)
+    const existingContactsAll: ExistingContact[] = []
+    let syncOffset = 0
+    let syncPageError: { code?: string; message?: string } | null = null
+
+    while (true) {
+      const { data: page, error: pageError } = await supabase
+        .from("contacts")
+        .select("*")
+        .eq("company_id", companyId)
+        .range(syncOffset, syncOffset + 999)
+      if (pageError) { syncPageError = pageError; break }
+      if (!page || page.length === 0) break
+      existingContactsAll.push(...(page as ExistingContact[]))
+      if (page.length < 1000) break
+      syncOffset += 1000
+    }
+
+    const existingContacts = existingContactsAll
+    const error = syncPageError
 
     if (error) {
       if (isMissingBotInstanceIdColumnError(error, "contacts")) {

@@ -30,34 +30,47 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type")
     const botInstanceId = searchParams.get("bot_instance_id")
 
-    function buildBaseQuery(t: string) {
-      let q = supabase
-        .from("contacts")
-        .select("*")
-        .eq("company_id", companyId)
-        .eq("type", t)
-        .order("name", { ascending: true })
-        .limit(20000)
-      if (botInstanceId) {
-        q = q.or(`bot_instance_id.eq.${botInstanceId},bot_instance_id.is.null`)
+    async function fetchAllOfType(t: string) {
+      const all: Record<string, unknown>[] = []
+      const pageSize = 1000
+      let offset = 0
+
+      while (true) {
+        let q = supabase
+          .from("contacts")
+          .select("*")
+          .eq("company_id", companyId)
+          .eq("type", t)
+          .order("name", { ascending: true })
+          .range(offset, offset + pageSize - 1)
+        if (botInstanceId) {
+          q = q.or(`bot_instance_id.eq.${botInstanceId},bot_instance_id.is.null`)
+        }
+        const { data: page, error: pageError } = await q
+        if (pageError) return { data: all, error: pageError }
+        if (!page || page.length === 0) break
+        all.push(...(page as Record<string, unknown>[]))
+        if (page.length < pageSize) break
+        offset += pageSize
       }
-      return q
+
+      return { data: all, error: null as { message: string; code?: string } | null }
     }
 
     let data: unknown[]
     let error: { message: string; code?: string } | null
 
     if (type && type !== "all") {
-      const result = await buildBaseQuery(type)
-      data = result.data ?? []
+      const result = await fetchAllOfType(type)
+      data = result.data
       error = result.error
     } else {
       const [individualsResult, groupsResult] = await Promise.all([
-        buildBaseQuery("individual"),
-        buildBaseQuery("group"),
+        fetchAllOfType("individual"),
+        fetchAllOfType("group"),
       ])
       error = individualsResult.error ?? groupsResult.error
-      data = [...(individualsResult.data ?? []), ...(groupsResult.data ?? [])]
+      data = [...individualsResult.data, ...groupsResult.data]
     }
 
     if (error) {
