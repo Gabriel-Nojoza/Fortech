@@ -8,7 +8,7 @@ import {
 import {
   describeCronValue,
   getNextCronOccurrence,
-  matchesCronValue,
+  listCronValueOccurrencesForDay,
 } from "@/lib/schedule-cron"
 import { resolveScheduleReportConfigs } from "@/lib/schedule-report-configs"
 import {
@@ -205,21 +205,7 @@ function listScheduleOccurrencesToday(
   dayEnd: Date,
   timeZone: string
 ) {
-  const occurrences: Date[] = []
-
-  for (let minuteOffset = 0; minuteOffset < 24 * 60; minuteOffset += 1) {
-    const candidate = new Date(dayStart.getTime() + minuteOffset * 60 * 1000)
-
-    if (candidate >= dayEnd) {
-      break
-    }
-
-    if (matchesCronValue(cronExpression, candidate, timeZone)) {
-      occurrences.push(candidate)
-    }
-  }
-
-  return occurrences
+  return listCronValueOccurrencesForDay(cronExpression, dayStart, dayEnd, timeZone)
 }
 
 function buildScheduleOccurrenceCacheKey(

@@ -468,6 +468,48 @@ export function describeCronValue(cronValue: string) {
   return splitCronExpressions(cronValue).map((expression) => describeCronExpression(expression))
 }
 
+export function listCronValueOccurrencesForDay(
+  cronValue: string,
+  dayStart: Date,
+  dayEnd: Date,
+  timeZone: string
+): Date[] {
+  const expressions = splitCronExpressions(cronValue)
+  if (expressions.length === 0) return []
+
+  const localParts = getTimePartsInTimeZone(dayStart, timeZone)
+  const { year, month, day, weekday } = localParts
+  const all: Date[] = []
+
+  for (const cronExpression of expressions) {
+    const parts = cronExpression.trim().split(/\s+/)
+    if (parts.length !== 5) continue
+    const [minuteExpr, hourExpr, dayExpr, monthExpr, weekdayExpr] = parts
+
+    if (
+      !fieldMatches(monthExpr, month, 1, 12, "month") ||
+      !fieldMatches(dayExpr, day, 1, 31) ||
+      !fieldMatches(weekdayExpr, weekday, 0, 6, "weekday")
+    ) {
+      continue
+    }
+
+    const allowedHours = listFieldValues(hourExpr, 0, 23)
+    const allowedMinutes = listFieldValues(minuteExpr, 0, 59)
+
+    for (const hour of allowedHours) {
+      for (const minute of allowedMinutes) {
+        const candidate = resolveLocalDateTime({ year, month, day, hour, minute }, timeZone)
+        if (candidate && candidate >= dayStart && candidate < dayEnd) {
+          all.push(candidate)
+        }
+      }
+    }
+  }
+
+  return all.sort((a, b) => a.getTime() - b.getTime())
+}
+
 export function isSameMinuteInTimeZone(
   firstDate: Date,
   secondDate: Date,
