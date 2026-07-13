@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { ProviderModeCard } from "@/components/dashboard/provider-mode-card"
 import { formatDateTimePtBr } from "@/lib/datetime"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -65,6 +66,7 @@ import {
 } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
+import type { CompanyFeatures } from "@/app/api/features/route"
 import type { Contact, WhatsAppBotInstance } from "@/lib/types"
 
 const fetcher = async (url: string) => {
@@ -92,9 +94,11 @@ function normalizeDigits(value: string | null | undefined) {
 
 export default function ContactsPage() {
   const instancesKey = "/api/bot/instances"
+  const { data: features, isLoading: isLoadingFeatures } = useSWR<CompanyFeatures>("/api/features", fetcher)
+  const legacyBotEnabled = features?.legacyBotEnabled !== false
   const { data: botInstances, isLoading: isLoadingBotInstances } = useSWR<
     WhatsAppBotInstance[]
-  >(instancesKey, fetcher)
+  >(legacyBotEnabled ? instancesKey : null, fetcher)
 
   const [mounted, setMounted] = useState(false)
   const [selectedBotInstanceId, setSelectedBotInstanceId] = useState("")
@@ -177,7 +181,7 @@ export default function ContactsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [botQrConfig?.contacts_ready, botQrConfig?.connected_at, botQrConfig?.status])
 
-  if (!mounted) {
+  if (!mounted || isLoadingFeatures) {
     return (
       <div className="flex flex-1 flex-col p-6">
         <Skeleton className="h-10 w-56" />
@@ -185,6 +189,21 @@ export default function ContactsPage() {
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-16 rounded-xl" />
           ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (features && !features.legacyBotEnabled) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <PageHeader title="Contatos" description="Gerencie contatos e grupos WhatsApp" />
+        <div className="p-4 sm:p-6">
+          <ProviderModeCard
+            activeProvider={features.whatsappProvider}
+            requiredProvider="bot"
+            description="Esta tela pertence ao fluxo do bot atual da plataforma e fica oculta quando a empresa opera com WAHA."
+          />
         </div>
       </div>
     )

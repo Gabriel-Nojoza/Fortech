@@ -1,3 +1,5 @@
+import type { CompanyPlanCode, CompanySubscriptionStatus } from "@/lib/company-plan"
+
 export interface Workspace {
   id: string
   pbi_workspace_id: string
@@ -51,6 +53,45 @@ export interface WhatsAppBotInstance {
   is_default?: boolean | null
   created_at?: string | null
   contacts_ready?: boolean
+}
+
+export interface CompanyPlanInfo {
+  companyId: string
+  companyName: string
+  planCode: CompanyPlanCode
+  planName: string
+  monthlyPrice: number
+  monthlyPriceLabel: string
+  status: CompanySubscriptionStatus
+  statusLabel: string
+  isActive: boolean
+  nextDueDate: string | null
+  resources: string[]
+  requestedUpgradePlan: CompanyPlanCode | null
+  requestedUpgradeAt: string | null
+  nextPlanCode: CompanyPlanCode | null
+}
+
+export interface WahaSessionInfo {
+  exists: boolean
+  companyId: string
+  sessionName: string
+  status:
+    | "NOT_CREATED"
+    | "STOPPED"
+    | "STARTING"
+    | "SCAN_QR_CODE"
+    | "WORKING"
+    | "FAILED"
+  phoneNumber: string | null
+  connectedName: string | null
+  meId: string | null
+  qrCodeDataUrl: string | null
+  lastConnectionAt: string | null
+  lastSeenAt: string | null
+  lastError: string | null
+  createdAt: string | null
+  updatedAt: string | null
 }
 
 export type ScheduleExportFormat =

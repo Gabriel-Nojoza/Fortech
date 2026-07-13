@@ -455,11 +455,16 @@ export default function UsersPage() {
       notifyError("Preencha todos os campos obrigatorios")
       return
     }
+    if (formRole === "client" && !formCompanyName) {
+      notifyError("Para cliente, preencha o nome da empresa")
+      return
+    }
     if (
       formRole === "client" &&
-      (!formCompanyName || !formPbiTenantId || !formPbiClientId || !formPbiClientSecret)
+      Boolean(formPbiTenantId || formPbiClientId || formPbiClientSecret) &&
+      !(formPbiTenantId && formPbiClientId && formPbiClientSecret)
     ) {
-      notifyError("Para cliente, preencha empresa e credenciais Power BI")
+      notifyError("Preencha todas as credenciais Power BI ou deixe tudo vazio")
       return
     }
     if (
@@ -812,7 +817,7 @@ export default function UsersPage() {
                     <p className="mb-3 text-sm font-medium">Power BI (Cliente)</p>
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col gap-2">
-                        <Label>Tenant ID *</Label>
+                        <Label>Tenant ID</Label>
                         <Input
                           value={formPbiTenantId}
                           onChange={(e) => {
@@ -827,7 +832,7 @@ export default function UsersPage() {
                         />
                       </div>
                       <div className="flex flex-col gap-2">
-                        <Label>Client ID *</Label>
+                        <Label>Client ID</Label>
                         <Input
                           value={formPbiClientId}
                           onChange={(e) => {
@@ -842,7 +847,7 @@ export default function UsersPage() {
                         />
                       </div>
                       <div className="flex flex-col gap-2">
-                        <Label>Client Secret *</Label>
+                        <Label>Client Secret</Label>
                         <Input
                           type="password"
                           value={formPbiClientSecret}
@@ -861,7 +866,12 @@ export default function UsersPage() {
                         type="button"
                         variant="secondary"
                         onClick={handleTestPowerBI}
-                        disabled={testingPowerBI}
+                        disabled={
+                          testingPowerBI ||
+                          !formPbiTenantId ||
+                          !formPbiClientId ||
+                          !formPbiClientSecret
+                        }
                       >
                         {testingPowerBI && <Loader2 className="mr-2 size-4 animate-spin" />}
                         Validar e Mostrar Dados
@@ -927,7 +937,7 @@ export default function UsersPage() {
 
                         {workspaceOptions.length === 0 ? (
                           <div className="rounded-md border border-dashed border-border/60 px-3 py-4 text-xs text-muted-foreground">
-                            Valide as credenciais do Power BI para carregar os workspaces disponiveis.
+                            Credenciais Power BI sao opcionais. Se quiser liberar workspaces especificos, valide as credenciais para carregar os workspaces disponiveis.
                           </div>
                         ) : (
                           <>

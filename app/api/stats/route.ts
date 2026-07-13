@@ -24,6 +24,8 @@ import {
 } from "@/lib/dispatch-log-visibility"
 import { describeCronValue, getNextCronOccurrence, matchesCronValue } from "@/lib/schedule-cron"
 import { resolveScheduleReportConfigs } from "@/lib/schedule-report-configs"
+import { normalizeStoredWahaSession, type WahaSessionRecord } from "@/lib/waha"
+import { parseWhatsAppProviderSetting } from "@/lib/whatsapp-provider"
 
 type DispatchLogStatsRecord = {
   schedule_id?: string | null
@@ -356,6 +358,21 @@ function buildScheduleDispatchSummary(
   }
 }
 
+function mapWahaStatusToDashboardStatus(status: string) {
+  switch (status) {
+    case "WORKING":
+      return "connected"
+    case "SCAN_QR_CODE":
+      return "awaiting_qr"
+    case "STARTING":
+      return "starting"
+    case "FAILED":
+      return "error"
+    default:
+      return "offline"
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const context = await getRequestContext()
@@ -455,7 +472,7 @@ export async function GET(request: Request) {
     const [
       reportsRes, contactsRes, todayLogsRes, chartLogsRes,
       monthDeliveredRes, monthFailedRes, monthOngoingRes,
-      settingsRes, botInstancesRes, schedulesRes,
+      settingsRes, botInstancesRes, schedulesRes, wahaSessionRes,
     ] = await Promise.all([
       reportsQuery,
       supabase
@@ -472,7 +489,7 @@ export async function GET(request: Request) {
         .from("company_settings")
         .select("key, value")
         .eq("company_id", companyId)
-        .in("key", ["powerbi", "n8n", "general"]),
+        .in("key", ["powerbi", "n8n", "general", "whatsapp_provider"]),
       listCompanyWhatsAppBotInstances(supabase, companyId).catch((error) => {
         if (isMissingWhatsAppBotInstancesTableError(error)) {
           return null
@@ -480,6 +497,11 @@ export async function GET(request: Request) {
         throw error
       }),
       schedulesQuery,
+      supabase
+        .from("waha_sessions")
+        .select("*")
+        .eq("company_id", companyId)
+        .maybeSingle(),
     ])
 
     const queryError =
@@ -497,23 +519,55 @@ export async function GET(request: Request) {
       throw new Error(queryError.message)
     }
 
+    if (wahaSessionRes.error && wahaSessionRes.error.code !== "42P01") {
+      throw new Error(wahaSessionRes.error.message)
+    }
+
+    const settingsMap = new Map(
+      (settingsRes.data ?? []).map((s) => [s.key, s.value])
+    )
+    const whatsappProvider = parseWhatsAppProviderSetting(settingsMap.get("whatsapp_provider"))
+    const wahaSession = normalizeStoredWahaSession(
+      companyId,
+      (wahaSessionRes.data as WahaSessionRecord | null) ?? null
+    )
+
     const botInstances = Array.isArray(botInstancesRes) ? botInstancesRes : null
-    const botState = botInstances ? null : await readWhatsAppBotRuntimeState()
-    const connectedWhatsAppInstances = botInstances
-      ? botInstances.filter((instance) => instance.status === "connected").length
-      : botState?.status === "connected"
-        ? 1
-        : 0
-    const totalWhatsAppInstances = botInstances?.length ?? (botState ? 1 : 0)
+    const botState =
+      whatsappProvider === "waha" || botInstances
+        ? null
+        : await readWhatsAppBotRuntimeState()
+    const connectedWhatsAppInstances =
+      whatsappProvider === "waha"
+        ? wahaSession.status === "WORKING"
+          ? 1
+          : 0
+        : botInstances
+          ? botInstances.filter((instance) => instance.status === "connected").length
+          : botState?.status === "connected"
+            ? 1
+            : 0
+    const totalWhatsAppInstances =
+      whatsappProvider === "waha"
+        ? wahaSession.exists
+          ? 1
+          : 0
+        : botInstances?.length ?? (botState ? 1 : 0)
     const whatsappConnected = connectedWhatsAppInstances > 0
-    const whatsappBotStatus: string = botInstances
-      ? (["connected", "reconnecting", "starting", "awaiting_qr"].find((s) =>
-          botInstances.some((i) => i.status === s)
-        ) ?? botInstances[0]?.status ?? "offline")
-      : (botState?.status ?? "offline")
-    const whatsappConnectedAt: string | null = botInstances
-      ? (botInstances.find((i) => i.status === "connected")?.connected_at ?? null)
-      : (botState?.connected_at ?? null)
+    const whatsappBotStatus: string =
+      whatsappProvider === "waha"
+        ? mapWahaStatusToDashboardStatus(wahaSession.status)
+        : botInstances
+          ? (["connected", "reconnecting", "starting", "awaiting_qr"].find((s) =>
+              botInstances.some((i) => i.status === s)
+            ) ?? botInstances[0]?.status ?? "offline")
+          : (botState?.status ?? "offline")
+    const whatsappConnectedAt: string | null =
+      whatsappProvider === "waha"
+        ? wahaSession.lastConnectionAt
+        : botInstances
+          ? (botInstances.find((i) => i.status === "connected")?.connected_at ?? null)
+          : (botState?.connected_at ?? null)
 
     const totalReports = reportsRes.count ?? 0
     const activeContacts = contactsRes.count ?? 0
@@ -553,9 +607,6 @@ export async function GET(request: Request) {
     const dispatchesToday = todayLogs.length
 
     // Configuration status
-    const settingsMap = new Map(
-      (settingsRes.data ?? []).map((s) => [s.key, s.value])
-    )
     const powerbi = settingsMap.get("powerbi") as Record<string, unknown> | undefined
     const n8n = settingsMap.get("n8n") as Record<string, unknown> | undefined
     const general = settingsMap.get("general") as Record<string, unknown> | undefined

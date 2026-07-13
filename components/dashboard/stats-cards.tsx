@@ -41,7 +41,7 @@ function getWhatsAppStatusBadge(status?: string) {
     case "awaiting_qr":
       return { label: "Aguardando QR", ok: false as const, pending: false }
     case "error":
-      return { label: "Erro no bot", ok: false as const, pending: false }
+      return { label: "Erro na conexao", ok: false as const, pending: false }
     case "offline":
       return { label: "Offline", ok: false as const, pending: false }
     default:

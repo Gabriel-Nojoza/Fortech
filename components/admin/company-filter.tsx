@@ -12,14 +12,26 @@ import {
 } from "@/components/ui/select"
 import type { CompanyListItem } from "@/app/api/admin/companies/route"
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+const fetcher = async (url: string) => {
+  const response = await fetch(url)
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    throw new Error(
+      typeof data?.error === "string" ? data.error : "Erro ao carregar empresas"
+    )
+  }
+
+  return data
+}
 
 export function CompanyFilter() {
-  const { data: companies } = useSWR<CompanyListItem[]>("/api/admin/companies", fetcher)
+  const { data } = useSWR<CompanyListItem[]>("/api/admin/companies", fetcher)
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const selected = searchParams.get("empresa") ?? "all"
+  const companies = Array.isArray(data) ? data : []
 
   if (!companies || companies.length <= 1) return null
 

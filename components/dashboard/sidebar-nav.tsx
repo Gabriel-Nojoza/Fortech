@@ -12,6 +12,8 @@ import {
   Activity,
   Workflow,
   Megaphone,
+  Smartphone,
+  CreditCard,
   Moon,
   Sun,
   LogOut,
@@ -37,12 +39,15 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { clearTabSessionMarker } from "@/lib/supabase/tab-session"
+import type { WhatsAppProvider } from "@/lib/whatsapp-provider"
 
 const mainNav = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Workspaces", href: "/workspaces", icon: FolderKanban },
   { title: "Relatorios", href: "/reports", icon: FileBarChart2 },
   { title: "Contatos", href: "/contacts", icon: Users },
+  { title: "WhatsApp", href: "/whatsapp", icon: Smartphone },
+  { title: "Meu Plano", href: "/plan", icon: CreditCard },
 ]
 
 const automationNav = [
@@ -59,11 +64,28 @@ type AppSidebarProps = {
   currentUser: CurrentUserSummaryData | null
   reportBuilderEnabled?: boolean
   campaignsEnabled?: boolean
+  whatsappProvider?: WhatsAppProvider
 }
 
-export function AppSidebar({ currentUser, reportBuilderEnabled = false, campaignsEnabled = false }: AppSidebarProps) {
+export function AppSidebar({
+  currentUser,
+  reportBuilderEnabled = false,
+  campaignsEnabled = false,
+  whatsappProvider = "bot",
+}: AppSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
+  const filteredMainNav = mainNav.filter((item) => {
+    if (item.href === "/contacts") return whatsappProvider === "bot"
+    if (item.href === "/whatsapp") return whatsappProvider === "waha"
+    return true
+  })
+  const filteredAutomationNav = automationNav.filter((item) => {
+    if (item.href === "/automations") return reportBuilderEnabled && whatsappProvider === "bot"
+    if (item.href === "/campaigns") return campaignsEnabled && whatsappProvider === "bot"
+    if (item.href === "/schedules") return whatsappProvider === "bot"
+    return true
+  })
   const handleLogout = () => {
     const supabase = createClient()
     clearTabSessionMarker()
@@ -90,7 +112,7 @@ export function AppSidebar({ currentUser, reportBuilderEnabled = false, campaign
           <SidebarGroupLabel>Principal</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNav.map((item) => (
+              {filteredMainNav.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     asChild
@@ -117,13 +139,7 @@ export function AppSidebar({ currentUser, reportBuilderEnabled = false, campaign
           <SidebarGroupLabel>Automacao</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {automationNav
-                .filter((item) => {
-                  if (item.href === "/automations") return reportBuilderEnabled
-                  if (item.href === "/campaigns") return campaignsEnabled
-                  return true
-                })
-                .map((item) => (
+              {filteredAutomationNav.map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       asChild

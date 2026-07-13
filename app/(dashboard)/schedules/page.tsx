@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { ProviderModeCard } from "@/components/dashboard/provider-mode-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -68,6 +69,7 @@ import {
 } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CronBuilder } from "@/components/schedules/cron-builder"
+import type { CompanyFeatures } from "@/app/api/features/route"
 import type {
   Schedule,
   Report,
@@ -333,11 +335,15 @@ type AutomationItem = {
 }
 
 export default function SchedulesPage() {
+  const { data: features } = useSWR<CompanyFeatures>("/api/features", fetcher)
   const { data: schedules, isLoading } = useSWR<
     ScheduleListItem[]
   >("/api/schedules", fetcher)
   const { data: reports } = useSWR<Report[]>("/api/reports", fetcher)
-  const { data: botInstances } = useSWR<WhatsAppBotInstance[]>("/api/bot/instances", fetcher)
+  const { data: botInstances } = useSWR<WhatsAppBotInstance[]>(
+    features?.legacyBotEnabled === false ? null : "/api/bot/instances",
+    fetcher
+  )
   const { data: automations, isLoading: isLoadingAutomations } = useSWR<AutomationItem[]>(
     "/api/automations",
     fetcher
@@ -347,6 +353,21 @@ export default function SchedulesPage() {
   const reportList = Array.isArray(reports) ? reports : []
   const instanceList = Array.isArray(botInstances) ? botInstances : []
   const automationList = Array.isArray(automations) ? automations : []
+
+  if (features && !features.legacyBotEnabled) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <PageHeader title="Rotinas de Disparo" description="Automatize o envio de relatorios e mensagens." />
+        <div className="p-4 sm:p-6">
+          <ProviderModeCard
+            activeProvider={features.whatsappProvider}
+            requiredProvider="bot"
+            description="As rotinas de disparo ainda usam o bot atual da plataforma. Em clientes WAHA, esse modulo fica oculto para nao exibir o fluxo legado."
+          />
+        </div>
+      </div>
+    )
+  }
 
   async function handleDuplicateAutomation(auto: AutomationItem) {
     try {

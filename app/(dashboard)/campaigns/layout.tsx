@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/server"
+import {
+  getCompanyPlanFeatureDefaults,
+  normalizeCompanySubscriptionSettings,
+} from "@/lib/company-plan"
+import { parseWhatsAppProviderSetting } from "@/lib/whatsapp-provider"
 
 export default async function CampaignsLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -17,15 +22,37 @@ export default async function CampaignsLayout({ children }: { children: React.Re
 
   try {
     const service = createServiceClient()
-    const { data } = await service
-      .from("company_settings")
-      .select("value")
-      .eq("company_id", companyId)
-      .eq("key", "features")
-      .maybeSingle()
+    const [{ data: featuresRow }, { data: subscriptionRow }, { data: providerRow }] = await Promise.all([
+      service
+        .from("company_settings")
+        .select("value")
+        .eq("company_id", companyId)
+        .eq("key", "features")
+        .maybeSingle(),
+      service
+        .from("company_settings")
+        .select("value")
+        .eq("company_id", companyId)
+        .eq("key", "subscription")
+        .maybeSingle(),
+      service
+        .from("company_settings")
+        .select("value")
+        .eq("company_id", companyId)
+        .eq("key", "whatsapp_provider")
+        .maybeSingle(),
+    ])
 
-    const features = data?.value as Record<string, unknown> | null
-    if (features?.campaigns !== true) redirect("/")
+    const features = featuresRow?.value as Record<string, unknown> | null
+    const subscription = normalizeCompanySubscriptionSettings(subscriptionRow?.value)
+    const whatsappProvider = parseWhatsAppProviderSetting(providerRow?.value)
+    const planFeatures = getCompanyPlanFeatureDefaults(subscription.plan_code)
+    const campaignsEnabled =
+      typeof features?.campaigns === "boolean"
+        ? features.campaigns
+        : planFeatures.campaigns
+
+    if (!campaignsEnabled || whatsappProvider !== "bot") redirect("/")
   } catch {
     redirect("/")
   }

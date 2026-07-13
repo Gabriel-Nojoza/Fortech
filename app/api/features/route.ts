@@ -1,6 +1,20 @@
 import { NextResponse } from "next/server"
 import { createServiceClient as createClient } from "@/lib/supabase/server"
+import {
+  computeCompanySubscriptionStatus,
+  getCompanyPlanDefinition,
+  getCompanyPlanFeatureDefaults,
+  getCompanySubscriptionStatusLabel,
+  normalizeCompanySubscriptionSettings,
+} from "@/lib/company-plan"
 import { getRequestContext, isAuthContextError } from "@/lib/tenant"
+import {
+  getWhatsAppProviderLabel,
+  isLegacyBotProvider,
+  isWahaProvider,
+  parseWhatsAppProviderSetting,
+  type WhatsAppProvider,
+} from "@/lib/whatsapp-provider"
 
 export type CompanyFeatures = {
   reportBuilder: boolean
@@ -12,6 +26,17 @@ export type CompanyFeatures = {
   hideZeroRowsIncludeDevolution: boolean
   campaignClientPreview: boolean
   daxPreserveGroupBy: boolean
+  planCode: string
+  planName: string
+  monthlyPrice: number
+  monthlyPriceLabel: string
+  subscriptionStatus: "active" | "suspended" | "past_due"
+  subscriptionStatusLabel: string
+  nextDueDate: string | null
+  whatsappProvider: WhatsAppProvider
+  whatsappProviderLabel: string
+  legacyBotEnabled: boolean
+  wahaEnabled: boolean
 }
 
 export async function GET() {
@@ -23,7 +48,13 @@ export async function GET() {
       .from("company_settings")
       .select("key, value")
       .eq("company_id", companyId)
-      .in("key", ["features", "general"])
+      .in("key", ["features", "general", "subscription", "whatsapp_provider"])
+
+    const { data: companyRow } = await supabase
+      .from("companies")
+      .select("is_active")
+      .eq("id", companyId)
+      .maybeSingle()
 
     const settingsMap: Record<string, Record<string, unknown>> = {}
     for (const row of rows ?? []) {
@@ -32,17 +63,48 @@ export async function GET() {
 
     const features = settingsMap.features ?? {}
     const general = settingsMap.general ?? {}
+    const subscription = normalizeCompanySubscriptionSettings(settingsMap.subscription)
+    const whatsappProvider = parseWhatsAppProviderSetting(settingsMap.whatsapp_provider)
+    const plan = getCompanyPlanDefinition(subscription.plan_code)
+    const planFeatures = getCompanyPlanFeatureDefaults(subscription.plan_code)
+    const subscriptionStatus = computeCompanySubscriptionStatus({
+      isActive: companyRow?.is_active !== false,
+      nextDueDate: subscription.next_due_date,
+    })
 
     return NextResponse.json({
-      reportBuilder: features.report_builder === true,
-      campaigns: features.campaigns === true,
-      excelExport: features.excel_export === true,
+      reportBuilder:
+        typeof features.report_builder === "boolean"
+          ? features.report_builder
+          : planFeatures.reportBuilder,
+      campaigns:
+        typeof features.campaigns === "boolean"
+          ? features.campaigns
+          : planFeatures.campaigns,
+      excelExport:
+        typeof features.excel_export === "boolean"
+          ? features.excel_export
+          : planFeatures.excelExport,
       appName: typeof general.app_name === "string" ? general.app_name : "",
       daxCalculatetable: features.dax_calculatetable === true,
       hideZeroRows: features.hide_zero_rows === true,
       hideZeroRowsIncludeDevolution: features.hide_zero_rows_include_devolution === true,
-      campaignClientPreview: features.campaign_client_preview === true,
+      campaignClientPreview:
+        typeof features.campaign_client_preview === "boolean"
+          ? features.campaign_client_preview
+          : planFeatures.campaignClientPreview,
       daxPreserveGroupBy: features.dax_preserve_groupby === true,
+      planCode: plan.code,
+      planName: plan.name,
+      monthlyPrice: plan.monthlyPrice,
+      monthlyPriceLabel: plan.monthlyPriceLabel,
+      subscriptionStatus,
+      subscriptionStatusLabel: getCompanySubscriptionStatusLabel(subscriptionStatus),
+      nextDueDate: subscription.next_due_date,
+      whatsappProvider,
+      whatsappProviderLabel: getWhatsAppProviderLabel(whatsappProvider),
+      legacyBotEnabled: isLegacyBotProvider(whatsappProvider),
+      wahaEnabled: isWahaProvider(whatsappProvider),
     } satisfies CompanyFeatures)
   } catch (error) {
     if (isAuthContextError(error)) {

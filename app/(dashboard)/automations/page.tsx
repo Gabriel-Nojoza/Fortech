@@ -33,6 +33,7 @@ import { ResultsPanel } from "@/components/automations/results-panel"
 import { SaveAutomationDialog } from "@/components/automations/save-automation-dialog"
 import { SavedAutomationsList, type Automation as SavedAutomation } from "@/components/automations/saved-automations-list"
 import { DispatchDialog } from "@/components/automations/dispatch-dialog"
+import { PageHeader } from "@/components/dashboard/page-header"
 import { buildDAXQuery } from "@/lib/dax-builder"
 import { createId } from "@/lib/id"
 import {
@@ -42,6 +43,8 @@ import {
 } from "@/lib/quick-filters"
 import { toast } from "sonner"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { ProviderModeCard } from "@/components/dashboard/provider-mode-card"
+import type { CompanyFeatures } from "@/app/api/features/route"
 import type {
   Workspace,
   Contact,
@@ -168,9 +171,17 @@ export default function AutomationsPage() {
 
   const SWR_OPTS = { revalidateOnFocus: false }
   const { data: rawWorkspaces } = useSWR("/api/workspaces", fetcher, SWR_OPTS)
-  const { data: rawContacts } = useSWR("/api/contacts", fetcher, SWR_OPTS)
-  const { data: companyFeatures } = useSWR("/api/features", fetcher, SWR_OPTS)
-  const { data: rawBotInstances } = useSWR<WhatsAppBotInstance[]>("/api/bot/instances", fetcher, SWR_OPTS)
+  const { data: companyFeatures } = useSWR<CompanyFeatures>("/api/features", fetcher, SWR_OPTS)
+  const { data: rawContacts } = useSWR(
+    companyFeatures?.legacyBotEnabled === false ? null : "/api/contacts",
+    fetcher,
+    SWR_OPTS
+  )
+  const { data: rawBotInstances } = useSWR<WhatsAppBotInstance[]>(
+    companyFeatures?.legacyBotEnabled === false ? null : "/api/bot/instances",
+    fetcher,
+    SWR_OPTS
+  )
   const { data: stats } = useSWR<{
     n8nConfigured?: boolean
     canSyncAllPowerBi?: boolean
@@ -184,6 +195,21 @@ export default function AutomationsPage() {
   const contacts: Contact[] = Array.isArray(rawContacts) ? rawContacts : []
   const botInstances: WhatsAppBotInstance[] = Array.isArray(rawBotInstances) ? rawBotInstances : []
   const canShowContacts = botQrConfig?.status === "connected"
+
+  if (companyFeatures && !companyFeatures.legacyBotEnabled) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <PageHeader title="Construtor de Relatorios" description="Monte consultas e automatizacoes com seus dados." />
+        <div className="p-4 sm:p-6">
+          <ProviderModeCard
+            activeProvider={companyFeatures.whatsappProvider}
+            requiredProvider="bot"
+            description="O construtor atual ainda publica automacoes no fluxo do bot legado. Para clientes WAHA, ele fica oculto ate a integracao desse modulo ser adaptada."
+          />
+        </div>
+      </div>
+    )
+  }
 
   const selectedWs = workspaces.find((w) => w.id === selectedWorkspace)
   const pbiWorkspaceId = selectedWs?.pbi_workspace_id

@@ -7,6 +7,7 @@ import {
   Activity,
   Users,
   Settings,
+  Building2,
   Moon,
   Sun,
   LogOut,
@@ -40,6 +41,7 @@ import { CompanyFilter } from "@/components/admin/company-filter"
 
 const adminNav = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  { title: "Empresas", href: "/admin/companies", icon: Building2 },
   { title: "Resumo operacional", href: "/admin/operational-summary", icon: Activity },
   { title: "Uso do Chat", href: "/admin/chat-usage", icon: MessageSquare },
   { title: "Rotinas", href: "/admin/schedules", icon: Clock },
@@ -68,7 +70,11 @@ export function AdminSidebar({ currentUser }: AdminSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/admin" className="flex items-center gap-3">
-                <BrandMark imageSize={36} subtitle={BRAND_ADMIN_SUBTITLE} />
+                <BrandMark
+                  logoSrc="/brand/fortech-f-transparent.png"
+                  imageSize={36}
+                  subtitle={BRAND_ADMIN_SUBTITLE}
+                />
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

@@ -6,6 +6,11 @@ import { createServiceClient } from "@/lib/supabase/server"
 import { PowerBIAutoSyncWatcher } from "@/components/powerbi/auto-sync-watcher"
 import { FloatingChatLauncher } from "@/components/chat/floating-chat-launcher"
 import { ThemeScheduler } from "@/components/theme/theme-scheduler"
+import {
+  getCompanyPlanFeatureDefaults,
+  normalizeCompanySubscriptionSettings,
+} from "@/lib/company-plan"
+import { parseWhatsAppProviderSetting, type WhatsAppProvider } from "@/lib/whatsapp-provider"
 
 export default async function DashboardLayout({
   children,
@@ -43,6 +48,7 @@ export default async function DashboardLayout({
 
   let reportBuilderEnabled = false
   let campaignsEnabled = false
+  let whatsappProvider: WhatsAppProvider = "bot"
   let themeSchedule = { enabled: false, light_time: "06:00", dark_time: "18:00" }
 
   if (companyId) {
@@ -54,9 +60,30 @@ export default async function DashboardLayout({
         .eq("company_id", companyId)
         .eq("key", "features")
         .maybeSingle()
+      const subscriptionResult = await service
+        .from("company_settings")
+        .select("value")
+        .eq("company_id", companyId)
+        .eq("key", "subscription")
+        .maybeSingle()
+      const providerResult = await service
+        .from("company_settings")
+        .select("value")
+        .eq("company_id", companyId)
+        .eq("key", "whatsapp_provider")
+        .maybeSingle()
       const features = featuresResult.data?.value as Record<string, unknown> | null
-      reportBuilderEnabled = features?.report_builder === true
-      campaignsEnabled = features?.campaigns === true
+      const subscription = normalizeCompanySubscriptionSettings(subscriptionResult.data?.value)
+      whatsappProvider = parseWhatsAppProviderSetting(providerResult.data?.value)
+      const planFeatures = getCompanyPlanFeatureDefaults(subscription.plan_code)
+      reportBuilderEnabled =
+        typeof features?.report_builder === "boolean"
+          ? features.report_builder
+          : planFeatures.reportBuilder
+      campaignsEnabled =
+        typeof features?.campaigns === "boolean"
+          ? features.campaigns
+          : planFeatures.campaigns
     } catch {
       // silently fallback
     }
@@ -87,7 +114,12 @@ export default async function DashboardLayout({
       <PowerBIAutoSyncWatcher />
       <ThemeScheduler enabled={themeSchedule.enabled} lightTime={themeSchedule.light_time} darkTime={themeSchedule.dark_time} />
       <SidebarProvider>
-        <AppSidebar currentUser={currentUser} reportBuilderEnabled={reportBuilderEnabled} campaignsEnabled={campaignsEnabled} />
+        <AppSidebar
+          currentUser={currentUser}
+          reportBuilderEnabled={reportBuilderEnabled}
+          campaignsEnabled={campaignsEnabled}
+          whatsappProvider={whatsappProvider}
+        />
         <SidebarInset className="min-w-0 overflow-x-hidden">
           {children}
           <FloatingChatLauncher />

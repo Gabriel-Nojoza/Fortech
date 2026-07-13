@@ -122,6 +122,24 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "")
 }
 
+function getOptionalCredentialSet(config: {
+  tenant_id?: unknown
+  client_id?: unknown
+  client_secret?: unknown
+}) {
+  const tenantId = String(config.tenant_id ?? "").trim()
+  const clientId = String(config.client_id ?? "").trim()
+  const clientSecret = String(config.client_secret ?? "").trim()
+
+  return {
+    tenantId,
+    clientId,
+    clientSecret,
+    hasAny: Boolean(tenantId || clientId || clientSecret),
+    isComplete: Boolean(tenantId && clientId && clientSecret),
+  }
+}
+
 async function getPowerBIAccessToken(config: {
   tenant_id: string
   client_id: string
@@ -358,15 +376,24 @@ export async function POST(request: Request) {
 
     if (normalizedRole === "client") {
       const companyName = String(company_name ?? "").trim()
-      const pbiTenantId = String(powerbi?.tenant_id ?? "").trim()
-      const pbiClientId = String(powerbi?.client_id ?? "").trim()
-      const pbiClientSecret = String(powerbi?.client_secret ?? "").trim()
+      const powerBiCredentials = getOptionalCredentialSet({
+        tenant_id: powerbi?.tenant_id,
+        client_id: powerbi?.client_id,
+        client_secret: powerbi?.client_secret,
+      })
       const n8nWebhookUrl = String(n8n?.webhook_url ?? "").trim()
       const n8nCallbackSecret = String(n8n?.callback_secret ?? "").trim()
 
-      if (!companyName || !pbiTenantId || !pbiClientId || !pbiClientSecret) {
+      if (!companyName) {
         return NextResponse.json(
-          { error: "Para Cliente: empresa e credenciais Power BI sao obrigatorios" },
+          { error: "Para Cliente: nome da empresa e obrigatorio" },
+          { status: 400 }
+        )
+      }
+
+      if (powerBiCredentials.hasAny && !powerBiCredentials.isComplete) {
+        return NextResponse.json(
+          { error: "Para Cliente: preencha todas as credenciais Power BI ou deixe tudo vazio" },
           { status: 400 }
         )
       }
@@ -394,93 +421,102 @@ export async function POST(request: Request) {
 
       targetCompanyId = company.id
 
-      await supabase
-        .from("company_settings")
-        .upsert(
-          [
-            {
-              company_id: targetCompanyId,
-              key: "powerbi",
-              value: {
-                tenant_id: pbiTenantId,
-                client_id: pbiClientId,
-                client_secret: pbiClientSecret,
-              },
-              updated_at: new Date().toISOString(),
-            },
-            {
-              company_id: targetCompanyId,
-              key: "n8n",
-              value: {
-                webhook_url: n8nWebhookUrl,
-                callback_secret: n8nCallbackSecret,
-                chat_webhook_url: String(n8n?.chat_webhook_url ?? "").trim(),
-              },
-              updated_at: new Date().toISOString(),
-            },
-            {
-              company_id: targetCompanyId,
-              key: "general",
-              value: { app_name: companyName, timezone: "America/Sao_Paulo" },
-              updated_at: new Date().toISOString(),
-            },
-            {
-              company_id: targetCompanyId,
-              key: "chat_ia",
-              value: buildChatIASettingsValue(chat_ia),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              company_id: targetCompanyId,
-              key: "dispatch_settings",
-              value: buildDispatchSettingsValue(dispatch_settings),
-              updated_at: new Date().toISOString(),
-            },
-          ],
-          { onConflict: "company_id,key" }
-        )
-
-      // Initial Power BI sync so the client logs in with workspaces already available.
-      const token = await getPowerBIAccessToken({
-        tenant_id: pbiTenantId,
-        client_id: pbiClientId,
-        client_secret: pbiClientSecret,
-      })
-      const pbiWorkspaces = await listWorkspaces(token)
-
-      for (const ws of pbiWorkspaces) {
-        await upsertWorkspace(supabase, {
+      const settingsPayload: Array<{
+        company_id: string
+        key: string
+        value: Record<string, unknown>
+        updated_at: string
+      }> = [
+        {
           company_id: targetCompanyId,
-          pbi_workspace_id: ws.id,
-          name: ws.name,
-          is_active: true,
-          synced_at: new Date().toISOString(),
+          key: "n8n",
+          value: {
+            webhook_url: n8nWebhookUrl,
+            callback_secret: n8nCallbackSecret,
+            chat_webhook_url: String(n8n?.chat_webhook_url ?? "").trim(),
+          },
+          updated_at: new Date().toISOString(),
+        },
+        {
+          company_id: targetCompanyId,
+          key: "general",
+          value: { app_name: companyName, timezone: "America/Sao_Paulo" },
+          updated_at: new Date().toISOString(),
+        },
+        {
+          company_id: targetCompanyId,
+          key: "chat_ia",
+          value: buildChatIASettingsValue(chat_ia),
+          updated_at: new Date().toISOString(),
+        },
+        {
+          company_id: targetCompanyId,
+          key: "dispatch_settings",
+          value: buildDispatchSettingsValue(dispatch_settings),
+          updated_at: new Date().toISOString(),
+        },
+      ]
+
+      if (powerBiCredentials.isComplete) {
+        settingsPayload.unshift({
+          company_id: targetCompanyId,
+          key: "powerbi",
+          value: {
+            tenant_id: powerBiCredentials.tenantId,
+            client_id: powerBiCredentials.clientId,
+            client_secret: powerBiCredentials.clientSecret,
+          },
+          updated_at: new Date().toISOString(),
         })
       }
 
-      const { data: dbWorkspaces } = await supabase
-        .from("workspaces")
-        .select("id, pbi_workspace_id")
-        .eq("company_id", targetCompanyId)
+      await supabase
+        .from("company_settings")
+        .upsert(settingsPayload, { onConflict: "company_id,key" })
 
-      for (const ws of dbWorkspaces ?? []) {
-        try {
-          const pbiReports = await listReports(token, ws.pbi_workspace_id)
-          for (const report of pbiReports) {
-            await upsertReport(supabase, {
-              company_id: targetCompanyId,
-              pbi_report_id: report.id,
-              workspace_id: ws.id,
-              name: report.name,
-              web_url: report.webUrl,
-              embed_url: report.embedUrl,
-              dataset_id: report.datasetId,
-              is_active: true,
-              synced_at: new Date().toISOString(),
-            })
+      if (powerBiCredentials.isComplete) {
+        // Initial Power BI sync so the client logs in with workspaces already available.
+        const token = await getPowerBIAccessToken({
+          tenant_id: powerBiCredentials.tenantId,
+          client_id: powerBiCredentials.clientId,
+          client_secret: powerBiCredentials.clientSecret,
+        })
+        const pbiWorkspaces = await listWorkspaces(token)
+
+        for (const ws of pbiWorkspaces) {
+          await upsertWorkspace(supabase, {
+            company_id: targetCompanyId,
+            pbi_workspace_id: ws.id,
+            name: ws.name,
+            is_active: true,
+            synced_at: new Date().toISOString(),
+          })
+        }
+
+        const { data: dbWorkspaces } = await supabase
+          .from("workspaces")
+          .select("id, pbi_workspace_id")
+          .eq("company_id", targetCompanyId)
+
+        for (const ws of dbWorkspaces ?? []) {
+          try {
+            const pbiReports = await listReports(token, ws.pbi_workspace_id)
+            for (const report of pbiReports) {
+              await upsertReport(supabase, {
+                company_id: targetCompanyId,
+                pbi_report_id: report.id,
+                workspace_id: ws.id,
+                name: report.name,
+                web_url: report.webUrl,
+                embed_url: report.embedUrl,
+                dataset_id: report.datasetId,
+                is_active: true,
+                synced_at: new Date().toISOString(),
+              })
+            }
+          } catch {
+            // Ignore workspace-level report sync failures.
           }
-        } catch {
-          // Ignore workspace-level report sync failures.
         }
       }
     }
@@ -638,15 +674,24 @@ export async function PUT(request: Request) {
 
     if (normalizedRole === "client") {
       const companyName = String(company_name ?? "").trim()
-      const pbiTenantId = String(powerbi?.tenant_id ?? "").trim()
-      const pbiClientId = String(powerbi?.client_id ?? "").trim()
-      const pbiClientSecret = String(powerbi?.client_secret ?? "").trim()
+      const powerBiCredentials = getOptionalCredentialSet({
+        tenant_id: powerbi?.tenant_id,
+        client_id: powerbi?.client_id,
+        client_secret: powerbi?.client_secret,
+      })
       const n8nWebhookUrl = String(n8n?.webhook_url ?? "").trim()
       const n8nCallbackSecret = String(n8n?.callback_secret ?? "").trim()
 
-      if (!companyName || !pbiTenantId || !pbiClientId || !pbiClientSecret) {
+      if (!companyName) {
         return NextResponse.json(
-          { error: "Para Cliente: empresa e credenciais Power BI sao obrigatorios" },
+          { error: "Para Cliente: nome da empresa e obrigatorio" },
+          { status: 400 }
+        )
+      }
+
+      if (powerBiCredentials.hasAny && !powerBiCredentials.isComplete) {
+        return NextResponse.json(
+          { error: "Para Cliente: preencha todas as credenciais Power BI ou deixe tudo vazio" },
           { status: 400 }
         )
       }
@@ -688,45 +733,52 @@ export async function PUT(request: Request) {
           .maybeSingle(),
       ])
 
+      const settingsPayload: Array<{
+        company_id: string
+        key: string
+        value: Record<string, unknown>
+        updated_at: string
+      }> = [
+        {
+          company_id: targetCompanyId,
+          key: "n8n",
+          value: {
+            webhook_url: n8nWebhookUrl,
+            callback_secret: n8nCallbackSecret,
+            chat_webhook_url: String(n8n?.chat_webhook_url ?? "").trim(),
+          },
+          updated_at: new Date().toISOString(),
+        },
+        {
+          company_id: targetCompanyId,
+          key: "chat_ia",
+          value: buildChatIASettingsValue(chat_ia, existingChatIA?.value),
+          updated_at: new Date().toISOString(),
+        },
+        {
+          company_id: targetCompanyId,
+          key: "dispatch_settings",
+          value: buildDispatchSettingsValue(dispatch_settings, existingDispatch?.value),
+          updated_at: new Date().toISOString(),
+        },
+      ]
+
+      if (powerBiCredentials.isComplete) {
+        settingsPayload.unshift({
+          company_id: targetCompanyId,
+          key: "powerbi",
+          value: {
+            tenant_id: powerBiCredentials.tenantId,
+            client_id: powerBiCredentials.clientId,
+            client_secret: powerBiCredentials.clientSecret,
+          },
+          updated_at: new Date().toISOString(),
+        })
+      }
+
       const { error: settingsErr } = await supabase
         .from("company_settings")
-        .upsert(
-          [
-            {
-              company_id: targetCompanyId,
-              key: "powerbi",
-              value: {
-                tenant_id: pbiTenantId,
-                client_id: pbiClientId,
-                client_secret: pbiClientSecret,
-              },
-              updated_at: new Date().toISOString(),
-            },
-            {
-              company_id: targetCompanyId,
-              key: "n8n",
-              value: {
-                webhook_url: n8nWebhookUrl,
-                callback_secret: n8nCallbackSecret,
-                chat_webhook_url: String(n8n?.chat_webhook_url ?? "").trim(),
-              },
-              updated_at: new Date().toISOString(),
-            },
-            {
-              company_id: targetCompanyId,
-              key: "chat_ia",
-              value: buildChatIASettingsValue(chat_ia, existingChatIA?.value),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              company_id: targetCompanyId,
-              key: "dispatch_settings",
-              value: buildDispatchSettingsValue(dispatch_settings, existingDispatch?.value),
-              updated_at: new Date().toISOString(),
-            },
-          ],
-          { onConflict: "company_id,key" }
-        )
+        .upsert(settingsPayload, { onConflict: "company_id,key" })
 
       if (settingsErr) throw settingsErr
     }

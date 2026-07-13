@@ -99,6 +99,16 @@ export async function requireAdminContext(): Promise<RequestContext> {
   return context
 }
 
+export async function requirePlatformAdminContext(): Promise<RequestContext> {
+  const context = await requireAdminContext()
+
+  if (!context.isPlatformAdmin) {
+    throw new Error("Acesso restrito ao administrador da plataforma")
+  }
+
+  return context
+}
+
 export async function getCompanySettingsRow(key: string, companyId: string) {
   const supabase = createServiceClient()
 

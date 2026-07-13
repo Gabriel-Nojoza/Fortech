@@ -1,12 +1,13 @@
 "use client"
 
-import Image from "next/image"
+import Image, { type StaticImageData } from "next/image"
 import { BRAND_LOGO_PATH, BRAND_NAME, BRAND_SUBTITLE } from "@/lib/branding"
 import { cn } from "@/lib/utils"
 
 interface BrandMarkProps {
   title?: string
   subtitle?: string
+  logoSrc?: string | StaticImageData
   imageSize?: number
   className?: string
   textClassName?: string
@@ -16,6 +17,7 @@ interface BrandMarkProps {
 export function BrandMark({
   title = BRAND_NAME,
   subtitle = BRAND_SUBTITLE,
+  logoSrc = BRAND_LOGO_PATH,
   imageSize = 44,
   className,
   textClassName,
@@ -24,7 +26,7 @@ export function BrandMark({
   return (
     <div className={cn("flex items-center gap-3", className)}>
       <Image
-        src={BRAND_LOGO_PATH}
+        src={logoSrc}
         alt={title}
         width={imageSize}
         height={imageSize}
@@ -35,9 +37,11 @@ export function BrandMark({
         <span className={cn("truncate font-semibold tracking-tight", textClassName)}>
           {title}
         </span>
-        <span className={cn("text-xs text-muted-foreground", subtitleClassName)}>
-          {subtitle}
-        </span>
+        {subtitle ? (
+          <span className={cn("text-xs text-muted-foreground", subtitleClassName)}>
+            {subtitle}
+          </span>
+        ) : null}
       </div>
     </div>
   )

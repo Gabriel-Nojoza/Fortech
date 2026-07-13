@@ -31,7 +31,7 @@ export function MiniChat() {
         {
           role: "assistant",
           content:
-            "Olá! Eu sou a SIL, a inteligência analítica da Solução Inteligente.\nPosso ajudar com perguntas sobre seus relatórios, indicadores, datasets e análises do Power BI.\nComo posso te ajudar hoje?",
+            "Olá! Eu sou a SIL, a inteligência analítica da FORTECH.\nPosso ajudar com perguntas sobre seus relatórios, indicadores, datasets e análises do Power BI.\nComo posso te ajudar hoje?",
         },
       ])
     }

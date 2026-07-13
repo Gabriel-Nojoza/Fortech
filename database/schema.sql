@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS public.companies (
 -- TABELA: company_settings
 -- Configurações chave/valor por empresa.
 -- Chaves usadas: "powerbi", "n8n", "chat_ia", "dispatch_settings",
---               "usage_limits", "saved_automations"
+--               "usage_limits", "saved_automations", "whatsapp_provider"
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS public.company_settings (
   id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -69,6 +69,17 @@ CREATE INDEX IF NOT EXISTS idx_company_settings_company_id ON public.company_set
 --
 -- key = "usage_limits":
 --   { "chat_limit": 100, "chat_excess_price": 0.50 }
+--
+-- key = "subscription":
+--   {
+--     "plan_code": "START",
+--     "next_due_date": "2026-12-31",
+--     "requested_upgrade_plan": "PRO",
+--     "requested_upgrade_at": "2026-07-13T12:00:00.000Z"
+--   }
+--
+-- key = "whatsapp_provider":
+--   { "provider": "bot" } ou { "provider": "waha" }
 
 -- =============================================================================
 -- TABELA: whatsapp_bot_instances
@@ -91,6 +102,32 @@ CREATE INDEX IF NOT EXISTS idx_whatsapp_bot_instances_company_id
 CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_bot_instances_default
   ON public.whatsapp_bot_instances(company_id)
   WHERE is_default = true;
+
+-- =============================================================================
+-- TABELA: waha_sessions
+-- Sessao do WAHA separada do bot WhatsApp atual.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS public.waha_sessions (
+  id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id          uuid        NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  session_name        text        NOT NULL UNIQUE,
+  status              text        NOT NULL DEFAULT 'STOPPED'
+    CHECK (status IN ('STOPPED', 'STARTING', 'SCAN_QR_CODE', 'WORKING', 'FAILED')),
+  phone_number        text,
+  connected_name      text,
+  me_id               text,
+  qr_code             text,
+  qr_code_mimetype    text,
+  last_connection_at  timestamptz,
+  last_seen_at        timestamptz,
+  last_error          text,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (company_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_waha_sessions_company_id
+  ON public.waha_sessions(company_id);
 
 -- =============================================================================
 -- TABELA: workspaces
