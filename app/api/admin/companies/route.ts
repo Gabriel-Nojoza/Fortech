@@ -4,12 +4,14 @@ import { createServiceClient } from "@/lib/supabase/server"
 import {
   buildCompanySubscriptionValue,
   computeCompanySubscriptionStatus,
-  getCompanyPlanDefinition,
+  findCompanyPlanByCode,
   getCompanySubscriptionStatusLabel,
+  listCompanyPlans,
   normalizeCompanySubscriptionSettings,
   normalizeDateOnly,
   normalizeCompanyPlanCode,
   type CompanyPlanCode,
+  type CompanyPlanDefinition,
 } from "@/lib/company-plan"
 import {
   normalizeStoredWahaSession,
@@ -25,6 +27,7 @@ import {
   parseWhatsAppProviderSetting,
   type WhatsAppProvider,
 } from "@/lib/whatsapp-provider"
+import { normalizeBotModuleSettings } from "@/lib/bot"
 
 function slugify(value: string) {
   return value
@@ -37,10 +40,11 @@ function slugify(value: string) {
 
 const createCompanySchema = z.object({
   name: z.string().trim().min(1, "Nome da empresa obrigatorio"),
-  plan_code: z.enum(["START", "PRO", "PREMIUM"]).default("START"),
+  plan_code: z.string().trim().min(1).default("START"),
   whatsapp_provider: z.enum(["bot", "waha"]).default("bot"),
   next_due_date: z.string().trim().optional().nullable(),
   is_active: z.boolean().optional().default(true),
+  bot_module_enabled: z.boolean().optional().default(true),
   user_email: z.string().trim().email("Email invalido").optional().nullable(),
   user_password: z.string().trim().min(6, "Senha deve ter ao menos 6 caracteres").optional().nullable(),
   user_name: z.string().trim().optional().nullable(),
@@ -49,10 +53,11 @@ const createCompanySchema = z.object({
 const updateCompanySchema = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1, "Nome da empresa obrigatorio"),
-  plan_code: z.enum(["START", "PRO", "PREMIUM"]).optional(),
+  plan_code: z.string().trim().min(1).optional(),
   whatsapp_provider: z.enum(["bot", "waha"]).optional(),
   next_due_date: z.string().trim().optional().nullable(),
   is_active: z.boolean().optional(),
+  bot_module_enabled: z.boolean().optional(),
   clear_upgrade_request: z.boolean().optional(),
 })
 
@@ -74,6 +79,7 @@ export type CompanyListItem = {
   requested_upgrade_at: string | null
   whatsapp_provider: WhatsAppProvider
   whatsapp_provider_label: string
+  bot_module_enabled: boolean
   waha: {
     exists: boolean
     session_name: string
@@ -159,18 +165,22 @@ async function readCompanyList(
   }
 
   const companyIds = companyRows.map((company) => company.id)
-  const [{ data: settingRows, error: settingsError }, { data: wahaRows, error: wahaError }] =
-    await Promise.all([
-      supabase
-        .from("company_settings")
-        .select("company_id, key, value")
-        .in("company_id", companyIds)
-        .in("key", ["subscription", "whatsapp_provider"]),
-      supabase
-        .from("waha_sessions")
-        .select("*")
-        .in("company_id", companyIds),
-    ])
+  const [
+    { data: settingRows, error: settingsError },
+    { data: wahaRows, error: wahaError },
+    allPlans,
+  ] = await Promise.all([
+    supabase
+      .from("company_settings")
+      .select("company_id, key, value")
+      .in("company_id", companyIds)
+      .in("key", ["subscription", "whatsapp_provider", "bot_module"]),
+    supabase
+      .from("waha_sessions")
+      .select("*")
+      .in("company_id", companyIds),
+    listCompanyPlans(supabase, { includeInactive: true }),
+  ])
 
   if (settingsError) {
     throw settingsError
@@ -178,6 +188,26 @@ async function readCompanyList(
 
   if (wahaError && wahaError.code !== "42P01") {
     throw wahaError
+  }
+
+  const plansByCode = new Map<string, CompanyPlanDefinition>(
+    allPlans.map((plan) => [plan.code, plan])
+  )
+  const fallbackPlan: CompanyPlanDefinition = {
+    id: null,
+    code: "START",
+    name: "START",
+    monthlyPrice: 0,
+    monthlyPriceLabel: "-",
+    resources: [],
+    isActive: false,
+    sortOrder: 0,
+    appFeatures: {
+      reportBuilder: false,
+      campaigns: false,
+      excelExport: false,
+      campaignClientPreview: false,
+    },
   }
 
   const settingsByCompany = new Map<string, Map<string, unknown>>()
@@ -198,7 +228,8 @@ async function readCompanyList(
     const whatsappProvider = parseWhatsAppProviderSetting(
       companySettings?.get("whatsapp_provider")
     )
-    const plan = getCompanyPlanDefinition(subscription.plan_code)
+    const botModule = normalizeBotModuleSettings(companySettings?.get("bot_module"))
+    const plan = plansByCode.get(subscription.plan_code) ?? { ...fallbackPlan, code: subscription.plan_code, name: subscription.plan_code }
     const status = computeCompanySubscriptionStatus({
       isActive: company.is_active,
       nextDueDate: subscription.next_due_date,
@@ -223,6 +254,7 @@ async function readCompanyList(
       requested_upgrade_at: subscription.requested_upgrade_at,
       whatsapp_provider: whatsappProvider,
       whatsapp_provider_label: getWhatsAppProviderLabel(whatsappProvider),
+      bot_module_enabled: botModule.enabled,
       waha: {
         exists: waha.exists,
         session_name: waha.sessionName,
@@ -268,6 +300,14 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = data.user_email?.trim().toLowerCase() || ""
     const normalizedPassword = data.user_password?.trim() || ""
     const nextDueDate = normalizeDateOnly(data.next_due_date)
+
+    const plan = await findCompanyPlanByCode(supabase, data.plan_code)
+    if (!plan) {
+      return NextResponse.json(
+        { error: `Plano "${data.plan_code}" nao encontrado.` },
+        { status: 400 }
+      )
+    }
 
     if ((normalizedEmail && !normalizedPassword) || (!normalizedEmail && normalizedPassword)) {
       return NextResponse.json(
@@ -321,6 +361,12 @@ export async function POST(request: NextRequest) {
             company_id: company.id,
             key: "whatsapp_provider",
             value: buildWhatsAppProviderSetting(data.whatsapp_provider),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            company_id: company.id,
+            key: "bot_module",
+            value: { enabled: data.bot_module_enabled },
             updated_at: new Date().toISOString(),
           },
         ],
@@ -405,6 +451,16 @@ export async function PUT(request: NextRequest) {
     const nextDueDate =
       data.next_due_date !== undefined ? normalizeDateOnly(data.next_due_date) : undefined
 
+    if (data.plan_code !== undefined) {
+      const plan = await findCompanyPlanByCode(supabase, data.plan_code)
+      if (!plan) {
+        return NextResponse.json(
+          { error: `Plano "${data.plan_code}" nao encontrado.` },
+          { status: 400 }
+        )
+      }
+    }
+
     const { error: companyError } = await supabase
       .from("companies")
       .update({
@@ -486,6 +542,27 @@ export async function PUT(request: NextRequest) {
       if (upsertProviderError) {
         return NextResponse.json(
           { error: upsertProviderError.message },
+          { status: 400 }
+        )
+      }
+    }
+
+    if (data.bot_module_enabled !== undefined) {
+      const { error: upsertBotModuleError } = await supabase
+        .from("company_settings")
+        .upsert(
+          {
+            company_id: data.id,
+            key: "bot_module",
+            value: { enabled: data.bot_module_enabled },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "company_id,key" }
+        )
+
+      if (upsertBotModuleError) {
+        return NextResponse.json(
+          { error: upsertBotModuleError.message },
           { status: 400 }
         )
       }

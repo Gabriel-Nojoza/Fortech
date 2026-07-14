@@ -41,7 +41,7 @@ async function loadCompanyPlanInfo(companyId: string): Promise<CompanyPlanInfo> 
   }
 
   const subscription = normalizeCompanySubscriptionSettings(subscriptionRow?.value)
-  const plan = getCompanyPlanDefinition(subscription.plan_code)
+  const plan = await getCompanyPlanDefinition(supabase, subscription.plan_code)
   const status = computeCompanySubscriptionStatus({
     isActive: company.is_active,
     nextDueDate: subscription.next_due_date,
@@ -61,7 +61,7 @@ async function loadCompanyPlanInfo(companyId: string): Promise<CompanyPlanInfo> 
     resources: plan.resources,
     requestedUpgradePlan: subscription.requested_upgrade_plan,
     requestedUpgradeAt: subscription.requested_upgrade_at,
-    nextPlanCode: getNextPlanCode(plan.code),
+    nextPlanCode: await getNextPlanCode(supabase, plan.code),
   }
 }
 

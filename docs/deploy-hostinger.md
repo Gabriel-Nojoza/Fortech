@@ -12,15 +12,15 @@ Este projeto funciona melhor em `VPS` da Hostinger, porque precisa de:
 Use a pasta:
 
 ```bash
-~/Solucoes-Inteligente
+~/Fortech
 ```
 
 ## 1. Clonar o repositório
 
 ```bash
 cd ~
-git clone https://github.com/Gabriel-Nojoza/Solucao-Inteligente.git Solucoes-Inteligente
-cd Solucoes-Inteligente
+git clone https://github.com/Gabriel-Nojoza/Fortech.git Fortech
+cd Fortech
 ```
 
 ## 2. Instalar Node e pnpm
@@ -94,7 +94,7 @@ pm2 startup
 Sempre que fizer alteracoes novas no GitHub:
 
 ```bash
-cd ~/Solucoes-Inteligente
+cd ~/Fortech
 git pull origin main
 pnpm install
 pnpm --dir services/whatsapp-bot install

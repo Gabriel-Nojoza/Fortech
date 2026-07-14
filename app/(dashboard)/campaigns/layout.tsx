@@ -46,7 +46,7 @@ export default async function CampaignsLayout({ children }: { children: React.Re
     const features = featuresRow?.value as Record<string, unknown> | null
     const subscription = normalizeCompanySubscriptionSettings(subscriptionRow?.value)
     const whatsappProvider = parseWhatsAppProviderSetting(providerRow?.value)
-    const planFeatures = getCompanyPlanFeatureDefaults(subscription.plan_code)
+    const planFeatures = await getCompanyPlanFeatureDefaults(service, subscription.plan_code)
     const campaignsEnabled =
       typeof features?.campaigns === "boolean"
         ? features.campaigns

@@ -512,7 +512,7 @@ function buildChartExportSvg(presentation: ChartPresentation) {
       <rect x="${cardX}" y="${cardY}" width="${cardWidth}" height="${headerHeight}" rx="30" fill="url(#headerGradient)" />
       <rect x="${cardX}" y="${cardY + headerHeight - 30}" width="${cardWidth}" height="30" fill="url(#headerGradient)" />
 
-      <text x="${cardX + 42}" y="${cardY + 44}" font-size="14" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="600" fill="#93c5fd" letter-spacing="2.4">SOLUÇÃO INTELIGENTE</text>
+      <text x="${cardX + 42}" y="${cardY + 44}" font-size="14" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="600" fill="#93c5fd" letter-spacing="2.4">FORTECH</text>
       <text x="${cardX + 42}" y="${cardY + 88}" font-size="34" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="700" fill="#ffffff">${escapeXml(presentation.title)}</text>
       <text x="${cardX + 42}" y="${cardY + 118}" font-size="18" font-family="Inter, Segoe UI, Arial, sans-serif" fill="#dbeafe">${escapeXml(presentation.subtitle)}</text>
       <text x="${cardX + 42}" y="${cardY + 146}" font-size="14" font-family="Inter, Segoe UI, Arial, sans-serif" fill="#bfdbfe">Exportado do chat analítico</text>

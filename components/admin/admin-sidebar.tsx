@@ -8,6 +8,7 @@ import {
   Users,
   Settings,
   Building2,
+  Layers,
   Moon,
   Sun,
   LogOut,
@@ -42,6 +43,7 @@ import { CompanyFilter } from "@/components/admin/company-filter"
 const adminNav = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Empresas", href: "/admin/companies", icon: Building2 },
+  { title: "Planos", href: "/admin/plans", icon: Layers },
   { title: "Resumo operacional", href: "/admin/operational-summary", icon: Activity },
   { title: "Uso do Chat", href: "/admin/chat-usage", icon: MessageSquare },
   { title: "Rotinas", href: "/admin/schedules", icon: Clock },

@@ -1242,7 +1242,7 @@ async function startBot(instanceId = DEFAULT_INSTANCE_KEY) {
       version,
       auth: state,
       printQRInTerminal: false,
-      browser: ["SolucaoInteligenteBot", "Chrome", "1.0.0"],
+      browser: ["FortechBot", "Chrome", "1.0.0"],
       syncFullHistory: true,
       getMessage: async () => ({ conversation: "" }),
     })

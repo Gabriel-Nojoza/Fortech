@@ -1,6 +1,7 @@
 type N8nSettingsRecord = {
   webhook_url?: string | null
   callback_secret?: string | null
+  bot_webhook_url?: string | null
 }
 
 type DispatchTargetInput = {
@@ -21,6 +22,8 @@ export function normalizeN8nSettings(value: unknown) {
       typeof settings.callback_secret === "string"
         ? settings.callback_secret.trim()
         : "",
+    botWebhookUrl:
+      typeof settings.bot_webhook_url === "string" ? settings.bot_webhook_url.trim() : "",
   }
 }
 

@@ -3,7 +3,6 @@ import { createServiceClient as createClient } from "@/lib/supabase/server"
 import {
   computeCompanySubscriptionStatus,
   getCompanyPlanDefinition,
-  getCompanyPlanFeatureDefaults,
   getCompanySubscriptionStatusLabel,
   normalizeCompanySubscriptionSettings,
 } from "@/lib/company-plan"
@@ -15,6 +14,7 @@ import {
   parseWhatsAppProviderSetting,
   type WhatsAppProvider,
 } from "@/lib/whatsapp-provider"
+import { normalizeBotModuleSettings } from "@/lib/bot"
 
 export type CompanyFeatures = {
   reportBuilder: boolean
@@ -37,6 +37,7 @@ export type CompanyFeatures = {
   whatsappProviderLabel: string
   legacyBotEnabled: boolean
   wahaEnabled: boolean
+  botModuleEnabled: boolean
 }
 
 export async function GET() {
@@ -48,7 +49,7 @@ export async function GET() {
       .from("company_settings")
       .select("key, value")
       .eq("company_id", companyId)
-      .in("key", ["features", "general", "subscription", "whatsapp_provider"])
+      .in("key", ["features", "general", "subscription", "whatsapp_provider", "bot_module"])
 
     const { data: companyRow } = await supabase
       .from("companies")
@@ -65,8 +66,9 @@ export async function GET() {
     const general = settingsMap.general ?? {}
     const subscription = normalizeCompanySubscriptionSettings(settingsMap.subscription)
     const whatsappProvider = parseWhatsAppProviderSetting(settingsMap.whatsapp_provider)
-    const plan = getCompanyPlanDefinition(subscription.plan_code)
-    const planFeatures = getCompanyPlanFeatureDefaults(subscription.plan_code)
+    const botModule = normalizeBotModuleSettings(settingsMap.bot_module)
+    const plan = await getCompanyPlanDefinition(supabase, subscription.plan_code)
+    const planFeatures = plan.appFeatures
     const subscriptionStatus = computeCompanySubscriptionStatus({
       isActive: companyRow?.is_active !== false,
       nextDueDate: subscription.next_due_date,
@@ -105,6 +107,7 @@ export async function GET() {
       whatsappProviderLabel: getWhatsAppProviderLabel(whatsappProvider),
       legacyBotEnabled: isLegacyBotProvider(whatsappProvider),
       wahaEnabled: isWahaProvider(whatsappProvider),
+      botModuleEnabled: botModule.enabled,
     } satisfies CompanyFeatures)
   } catch (error) {
     if (isAuthContextError(error)) {

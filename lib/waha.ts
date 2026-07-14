@@ -149,15 +149,20 @@ async function wahaRequest<T>(
   }
 
   const raw = await response.text()
-  const parsed = tryParseJson<T & { error?: string }>(raw)
+  const parsed = tryParseJson<T & { error?: string; message?: string | string[] }>(raw)
 
   if (options.allowNotFound && response.status === 404) {
     return null
   }
 
   if (!response.ok) {
+    const detailedMessage = Array.isArray(parsed?.message)
+      ? parsed.message.join(", ")
+      : parsed?.message
+
     throw new Error(
-      parsed?.error ||
+      detailedMessage ||
+        parsed?.error ||
         (raw.trim() || `WAHA respondeu com status ${response.status}`)
     )
   }
@@ -359,12 +364,49 @@ export async function getWahaRemoteSession(sessionName: string) {
   })
 }
 
-export async function createWahaRemoteSession(sessionName: string) {
+function buildWahaSessionConfig(webhookUrl?: string | null) {
+  const url = webhookUrl?.trim()
+  if (!url) {
+    return undefined
+  }
+
+  return {
+    webhooks: [
+      {
+        url,
+        events: ["message"],
+      },
+    ],
+  }
+}
+
+export async function updateWahaRemoteSessionConfig(
+  sessionName: string,
+  webhookUrl?: string | null
+) {
+  const config = buildWahaSessionConfig(webhookUrl)
+  if (!config) {
+    return null
+  }
+
+  return wahaRequest<WahaRemoteSession>(
+    `/api/sessions/${encodeURIComponent(sessionName)}`,
+    { method: "PUT", body: JSON.stringify({ config }) }
+  )
+}
+
+export async function createWahaRemoteSession(
+  sessionName: string,
+  webhookUrl?: string | null
+) {
+  const config = buildWahaSessionConfig(webhookUrl)
+
   try {
     return await wahaRequest<WahaRemoteSession>("/api/sessions", {
       method: "POST",
       body: JSON.stringify({
         name: sessionName,
+        ...(config ? { config } : {}),
       }),
     })
   } catch (error) {
@@ -374,6 +416,9 @@ export async function createWahaRemoteSession(sessionName: string) {
       message.includes("duplicate") ||
       message.includes("conflict")
     ) {
+      if (config) {
+        await updateWahaRemoteSessionConfig(sessionName, webhookUrl).catch(() => null)
+      }
       return getWahaRemoteSession(sessionName)
     }
 
@@ -488,4 +533,97 @@ export async function getCompanyWahaSessionSummary(
 ) {
   const record = await getStoredWahaSession(supabase, companyId)
   return normalizeStoredWahaSession(companyId, record)
+}
+
+/** Converte telefone/jid/id de grupo cru no chatId que a API do WAHA espera. */
+export function buildWahaChatId(params: {
+  jid?: string | null
+  phone?: string | null
+  whatsappGroupId?: string | null
+}) {
+  if (params.jid?.trim()) {
+    return params.jid.trim()
+  }
+  if (params.whatsappGroupId?.trim()) {
+    const groupId = params.whatsappGroupId.trim()
+    return groupId.includes("@") ? groupId : `${groupId}@g.us`
+  }
+  if (params.phone?.trim()) {
+    const digits = params.phone.replace(/\D/g, "")
+    return `${digits}@c.us`
+  }
+  return null
+}
+
+export type WahaSendMessagePayload = {
+  jid?: string | null
+  phone?: string | null
+  whatsapp_group_id?: string | null
+  text?: string | null
+  message?: string | null
+  caption?: string | null
+  document_url?: string | null
+  document_base64?: string | null
+  file_name?: string | null
+  mimetype?: string | null
+  audio_base64?: string | null
+}
+
+/**
+ * Envia uma mensagem via API do WAHA (sessao propria da empresa) — texto ou
+ * arquivo/documento. Usado por /api/bot/send quando a empresa esta no canal WAHA.
+ */
+export async function sendWahaMessage(sessionName: string, payload: WahaSendMessagePayload) {
+  const chatId = buildWahaChatId({
+    jid: payload.jid,
+    phone: payload.phone,
+    whatsappGroupId: payload.whatsapp_group_id,
+  })
+
+  if (!chatId) {
+    throw new Error("Informe jid, phone ou whatsapp_group_id para enviar pelo WAHA")
+  }
+
+  const documentSource = payload.document_url || payload.document_base64
+  const text = payload.text || payload.message || ""
+
+  if (documentSource) {
+    const file = payload.document_url
+      ? { url: payload.document_url }
+      : { data: payload.document_base64, mimetype: payload.mimetype || "application/pdf", filename: payload.file_name || "arquivo.pdf" }
+
+    await wahaRequest("/api/sendFile", {
+      method: "POST",
+      body: JSON.stringify({
+        session: sessionName,
+        chatId,
+        file,
+        caption: payload.caption || text || undefined,
+      }),
+    })
+    return { chatId }
+  }
+
+  if (payload.audio_base64) {
+    await wahaRequest("/api/sendVoice", {
+      method: "POST",
+      body: JSON.stringify({
+        session: sessionName,
+        chatId,
+        file: { data: payload.audio_base64, mimetype: "audio/ogg; codecs=opus" },
+      }),
+    })
+    return { chatId }
+  }
+
+  if (!text.trim()) {
+    throw new Error("Informe message, text, caption ou um arquivo para enviar pelo WAHA")
+  }
+
+  await wahaRequest("/api/sendText", {
+    method: "POST",
+    body: JSON.stringify({ session: sessionName, chatId, text }),
+  })
+
+  return { chatId }
 }

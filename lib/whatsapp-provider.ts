@@ -32,7 +32,7 @@ export function buildWhatsAppProviderSetting(provider: WhatsAppProvider) {
 }
 
 export function getWhatsAppProviderLabel(provider: WhatsAppProvider) {
-  return provider === "waha" ? "WAHA" : "Bot atual"
+  return provider === "waha" ? "WAHA" : "WhatsApp Relatorios"
 }
 
 export function isWahaProvider(provider: WhatsAppProvider) {

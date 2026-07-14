@@ -197,7 +197,7 @@ export default function LogsPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `logs-solucao-inteligente-${format(new Date(), "yyyy-MM-dd")}.csv`
+      a.download = `logs-fortech-${format(new Date(), "yyyy-MM-dd")}.csv`
       a.click()
       URL.revokeObjectURL(url)
       toast.success(`${allLogs.length} log(s) exportado(s) para CSV.`)

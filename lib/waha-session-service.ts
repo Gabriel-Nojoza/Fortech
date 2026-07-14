@@ -15,14 +15,27 @@ import {
   syncStoredWahaSessionFromRemote,
   type WahaSessionSummary,
 } from "@/lib/waha"
+import { normalizeN8nSettings } from "@/lib/n8n-webhook"
+
+async function getCompanyBotWebhookUrl(supabase: SupabaseClient, companyId: string) {
+  const { data } = await supabase
+    .from("company_settings")
+    .select("value")
+    .eq("company_id", companyId)
+    .eq("key", "n8n")
+    .maybeSingle()
+
+  return normalizeN8nSettings(data?.value).botWebhookUrl || null
+}
 
 export async function ensureCompanyWahaSession(
   supabase: SupabaseClient,
   companyId: string
 ): Promise<WahaSessionSummary> {
   const stored = await ensureStoredWahaSession(supabase, companyId)
+  const botWebhookUrl = await getCompanyBotWebhookUrl(supabase, companyId)
   const remote =
-    (await createWahaRemoteSession(stored.session_name)) ??
+    (await createWahaRemoteSession(stored.session_name, botWebhookUrl)) ??
     (await getWahaRemoteSession(stored.session_name))
 
   if (!remote) {

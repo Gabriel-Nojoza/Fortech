@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import fortechCover from "@/Fortech.png"
@@ -29,6 +29,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    const blockCtrlZoom = (e: WheelEvent) => {
+      if (e.ctrlKey) e.preventDefault()
+    }
+    window.addEventListener("wheel", blockCtrlZoom, { passive: false })
+    return () => window.removeEventListener("wheel", blockCtrlZoom)
+  }, [])
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -96,7 +104,7 @@ export default function LoginPage() {
         <div className="absolute bottom-[-6rem] right-[8%] h-56 w-56 rounded-full bg-sky-400/[0.15] blur-3xl sm:h-80 sm:w-80" />
       </div>
 
-      <div className="relative z-10 flex min-h-svh items-center px-5 py-6 sm:px-8 md:px-10 lg:px-14 xl:px-16">
+      <div className="fixed inset-0 z-10 flex items-center overflow-y-auto px-5 py-6 sm:px-8 md:px-10 lg:px-14 xl:px-16">
         <div className="w-full max-w-[390px]">
             <div className="mb-5">
               <BrandMark

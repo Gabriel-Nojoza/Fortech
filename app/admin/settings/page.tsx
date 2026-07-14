@@ -31,6 +31,7 @@ export default function SettingsPage() {
   // N8N
   const [webhookUrl, setWebhookUrl] = useState("")
   const [callbackSecret, setCallbackSecret] = useState("")
+  const [botWebhookUrl, setBotWebhookUrl] = useState("")
   const [n8nTesting, setN8nTesting] = useState(false)
   const [n8nTestResult, setN8nTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
@@ -59,6 +60,7 @@ export default function SettingsPage() {
       if (settings.n8n) {
         setWebhookUrl(settings.n8n.webhook_url ?? "")
         setCallbackSecret(settings.n8n.callback_secret ?? "")
+        setBotWebhookUrl(settings.n8n.bot_webhook_url ?? "")
       }
       if (settings.general) {
         setAppName(settings.general.app_name ?? BRAND_NAME)
@@ -154,7 +156,12 @@ export default function SettingsPage() {
       setN8nTesting(false)
       return
     }
-    await saveSetting("n8n", { webhook_url: webhookUrl, callback_secret: callbackSecret })
+    await saveSetting("n8n", {
+      ...(settings?.n8n ?? {}),
+      webhook_url: webhookUrl,
+      callback_secret: callbackSecret,
+      bot_webhook_url: botWebhookUrl,
+    })
     try {
       const res = await fetch(webhookUrl, {
         method: "POST",
@@ -375,12 +382,28 @@ export default function SettingsPage() {
                     placeholder="Segredo usado pelo n8n para enviar no WhatsApp e atualizar os logs"
                   />
                 </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="bot-webhook-url">Bot WhatsApp — Webhook URL</Label>
+                  <Input
+                    id="bot-webhook-url"
+                    value={botWebhookUrl}
+                    onChange={(e) => setBotWebhookUrl(e.target.value)}
+                    placeholder="https://n8n.seudominio.com/webhook/bot-whatsapp"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    URL do fluxo master do n8n que recebe as mensagens do WhatsApp. A
+                    plataforma configura isso automaticamente na sessao WAHA ao conectar ou
+                    reiniciar.
+                  </p>
+                </div>
                 <div className="flex items-center gap-3">
                   <Button
                     onClick={() =>
                       saveSetting("n8n", {
+                        ...(settings?.n8n ?? {}),
                         webhook_url: webhookUrl,
                         callback_secret: callbackSecret,
+                        bot_webhook_url: botWebhookUrl,
                       })
                     }
                     disabled={saving === "n8n"}

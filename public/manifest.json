@@ -1,21 +1,21 @@
 {
-  "name": "SIL Chat",
-  "short_name": "SIL Chat",
-  "description": "Chat de IA da SIL para consulta e analise de dados.",
+  "name": "Fortech",
+  "short_name": "Fortech",
+  "description": "Chat de IA da Fortech para consulta e analise de dados.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f1117",
-  "theme_color": "#0f1117",
+  "background_color": "#0a0e1f",
+  "theme_color": "#0a0e1f",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/brand/icone-logo.png",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/brand/icone-logo.png",
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

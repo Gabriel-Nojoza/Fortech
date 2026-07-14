@@ -54,18 +54,43 @@ function stripN8nPrefix(value: unknown): string | null {
   return s || null
 }
 
+async function getCompanyIdFromWahaSessionName(sessionName: string) {
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from("waha_sessions")
+    .select("company_id")
+    .eq("session_name", sessionName)
+    .maybeSingle()
+
+  return data?.company_id ?? null
+}
+
 async function getCompanyIdFromBody(request: Request): Promise<string | null> {
+  let body: Record<string, unknown> | null = null
   try {
     const cloned = request.clone()
-    const body = await cloned.json().catch(() => null)
-    if (!body || typeof body !== "object") return null
+    const parsed = await cloned.json().catch(() => null)
+    if (parsed && typeof parsed === "object") {
+      body = parsed as Record<string, unknown>
+    }
+  } catch {
+    body = null
+  }
 
+  let searchParams: URLSearchParams | null = null
+  try {
+    searchParams = new URL(request.url).searchParams
+  } catch {
+    searchParams = null
+  }
+
+  try {
     const supabase = createServiceClient()
 
     // Try dispatch_log_id or dispatch_log_ids (strip n8n "=" prefix)
     const logId =
-      stripN8nPrefix(body.dispatch_log_id) ??
-      (Array.isArray(body.dispatch_log_ids) ? stripN8nPrefix(body.dispatch_log_ids[0]) : null)
+      stripN8nPrefix(body?.dispatch_log_id) ??
+      (Array.isArray(body?.dispatch_log_ids) ? stripN8nPrefix(body.dispatch_log_ids[0]) : null)
 
     if (logId) {
       const { data } = await supabase
@@ -77,17 +102,15 @@ async function getCompanyIdFromBody(request: Request): Promise<string | null> {
     }
 
     // Try company_id directly (from body or URL query param)
-    if (typeof body.company_id === "string" && body.company_id.trim()) {
-      return body.company_id.trim()
-    }
-    try {
-      const urlCompanyId = new URL(request.url).searchParams.get("company_id")?.trim()
-      if (urlCompanyId) return urlCompanyId
-    } catch { /* ignore */ }
+    const companyId =
+      (typeof body?.company_id === "string" && body.company_id.trim()) ||
+      searchParams?.get("company_id")?.trim() ||
+      null
+    if (companyId) return companyId
 
     // Try report_id
     const reportId =
-      typeof body.report_id === "string" && body.report_id.trim()
+      typeof body?.report_id === "string" && body.report_id.trim()
         ? body.report_id.trim()
         : null
 
@@ -98,6 +121,18 @@ async function getCompanyIdFromBody(request: Request): Promise<string | null> {
         .eq("id", reportId)
         .single()
       if (data?.company_id) return data.company_id
+    }
+
+    // Try WAHA session name (identifies the company that owns that WhatsApp session)
+    const sessionName =
+      stripN8nPrefix(body?.session) ??
+      stripN8nPrefix(body?.session_name) ??
+      (searchParams?.get("session")?.trim() || null) ??
+      (searchParams?.get("session_name")?.trim() || null)
+
+    if (sessionName) {
+      const companyIdFromSession = await getCompanyIdFromWahaSessionName(sessionName)
+      if (companyIdFromSession) return companyIdFromSession
     }
 
     return null

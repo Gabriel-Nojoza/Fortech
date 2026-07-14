@@ -1,6 +1,6 @@
-const TAB_SESSION_KEY = "solucao-inteligente.active-tab-session"
-const TAB_INSTANCE_ID_KEY = "solucao-inteligente.tab-instance-id"
-const ACTIVE_TABS_STORAGE_KEY = "solucao-inteligente.active-tabs"
+const TAB_SESSION_KEY = "fortech.active-tab-session"
+const TAB_INSTANCE_ID_KEY = "fortech.tab-instance-id"
+const ACTIVE_TABS_STORAGE_KEY = "fortech.active-tabs"
 const TAB_STALE_AFTER_MS = 30_000
 
 function readBrowserCookies() {

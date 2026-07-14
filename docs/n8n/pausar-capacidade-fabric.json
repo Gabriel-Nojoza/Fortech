@@ -161,7 +161,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://appsolucaointeligente.com.br/api/bot/send",
+        "url": "https://fortechoficial.com.br/api/bot/send",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

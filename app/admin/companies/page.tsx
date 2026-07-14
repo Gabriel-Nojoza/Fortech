@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { CompanyPlanCode } from "@/lib/company-plan"
+import type { CompanyPlanCode, CompanyPlanDefinition } from "@/lib/company-plan"
 import type { WhatsAppProvider } from "@/lib/whatsapp-provider"
 
 type AdminCompany = {
@@ -35,6 +35,7 @@ type AdminCompany = {
   requested_upgrade_at: string | null
   whatsapp_provider: WhatsAppProvider
   whatsapp_provider_label: string
+  bot_module_enabled: boolean
   waha: {
     exists: boolean
     session_name: string
@@ -47,7 +48,6 @@ type AdminCompany = {
   }
 }
 
-const PLAN_OPTIONS: CompanyPlanCode[] = ["START", "PRO", "PREMIUM"]
 const WHATSAPP_PROVIDER_OPTIONS: WhatsAppProvider[] = ["bot", "waha"]
 
 const fetcher = async (url: string) => {
@@ -93,8 +93,10 @@ export default function AdminCompaniesPage() {
   const { data: authData } = useSWR<{
     isPlatformAdmin?: boolean
   }>("/api/auth/me", fetcher)
+  const { data: plansData } = useSWR<CompanyPlanDefinition[]>("/api/admin/plans", fetcher)
   const companies = Array.isArray(data) ? data : []
   const canManageCompanies = authData?.isPlatformAdmin === true
+  const planOptions = Array.isArray(plansData) ? plansData.filter((plan) => plan.isActive) : []
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingCompany, setEditingCompany] = useState<AdminCompany | null>(null)
@@ -103,6 +105,7 @@ export default function AdminCompaniesPage() {
   const [formWhatsAppProvider, setFormWhatsAppProvider] = useState<WhatsAppProvider>("bot")
   const [formNextDueDate, setFormNextDueDate] = useState("")
   const [formIsActive, setFormIsActive] = useState(true)
+  const [formBotModuleEnabled, setFormBotModuleEnabled] = useState(true)
   const [formUserEmail, setFormUserEmail] = useState("")
   const [formUserPassword, setFormUserPassword] = useState("")
   const [formUserName, setFormUserName] = useState("")
@@ -112,10 +115,11 @@ export default function AdminCompaniesPage() {
   function openCreate() {
     setEditingCompany(null)
     setFormName("")
-    setFormPlanCode("START")
+    setFormPlanCode(planOptions[0]?.code ?? "START")
     setFormWhatsAppProvider("bot")
     setFormNextDueDate("")
     setFormIsActive(true)
+    setFormBotModuleEnabled(true)
     setFormUserEmail("")
     setFormUserPassword("")
     setFormUserName("")
@@ -129,6 +133,7 @@ export default function AdminCompaniesPage() {
     setFormWhatsAppProvider(company.whatsapp_provider)
     setFormNextDueDate(company.next_due_date ?? "")
     setFormIsActive(company.is_active)
+    setFormBotModuleEnabled(company.bot_module_enabled)
     setFormUserEmail("")
     setFormUserPassword("")
     setFormUserName("")
@@ -146,6 +151,7 @@ export default function AdminCompaniesPage() {
             whatsapp_provider: formWhatsAppProvider,
             next_due_date: formNextDueDate || null,
             is_active: formIsActive,
+            bot_module_enabled: formBotModuleEnabled,
           }
         : {
             name: formName,
@@ -153,6 +159,7 @@ export default function AdminCompaniesPage() {
             whatsapp_provider: formWhatsAppProvider,
             next_due_date: formNextDueDate || null,
             is_active: formIsActive,
+            bot_module_enabled: formBotModuleEnabled,
             user_email: formUserEmail || null,
             user_password: formUserPassword || null,
             user_name: formUserName || null,
@@ -306,6 +313,9 @@ export default function AdminCompaniesPage() {
                             <Badge variant={company.whatsapp_provider === "waha" ? "default" : "secondary"}>
                               {company.whatsapp_provider_label}
                             </Badge>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Bot WhatsApp: {company.bot_module_enabled ? "Habilitado" : "Desabilitado"}
+                            </p>
                           </td>
                           <td className="px-4 py-3 align-top">
                             {company.whatsapp_provider === "waha" ? (
@@ -419,22 +429,28 @@ export default function AdminCompaniesPage() {
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 sm:gap-x-6">
               <div className="grid gap-2">
                 <Label>Plano</Label>
                 <Select
                   value={formPlanCode}
                   onValueChange={(value) => setFormPlanCode(value as CompanyPlanCode)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PLAN_OPTIONS.map((plan) => (
-                      <SelectItem key={plan} value={plan}>
-                        {plan}
+                    {planOptions.map((plan) => (
+                      <SelectItem key={plan.code} value={plan.code}>
+                        {plan.name}
                       </SelectItem>
                     ))}
+                    {editingCompany &&
+                    !planOptions.some((plan) => plan.code === editingCompany.plan_code) ? (
+                      <SelectItem value={editingCompany.plan_code}>
+                        {editingCompany.plan_code} (inativo)
+                      </SelectItem>
+                    ) : null}
                   </SelectContent>
                 </Select>
               </div>
@@ -445,34 +461,41 @@ export default function AdminCompaniesPage() {
                   value={formWhatsAppProvider}
                   onValueChange={(value) => setFormWhatsAppProvider(value as WhatsAppProvider)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {WHATSAPP_PROVIDER_OPTIONS.map((provider) => (
                       <SelectItem key={provider} value={provider}>
-                        {provider === "waha" ? "WAHA" : "Bot atual"}
+                        {provider === "waha" ? "WAHA" : "WhatsApp Relatorios"}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+            </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="company-due-date">Proximo vencimento</Label>
-                <Input
-                  id="company-due-date"
-                  type="date"
-                  value={formNextDueDate}
-                  onChange={(event) => setFormNextDueDate(event.target.value)}
-                />
-              </div>
+            <div className="grid gap-2 sm:max-w-[240px]">
+              <Label htmlFor="company-due-date">Proximo vencimento</Label>
+              <Input
+                id="company-due-date"
+                type="date"
+                value={formNextDueDate}
+                onChange={(event) => setFormNextDueDate(event.target.value)}
+              />
             </div>
 
             <div className="flex items-center gap-3">
               <Switch checked={formIsActive} onCheckedChange={setFormIsActive} />
               <span className="text-sm">
                 {formIsActive ? "Empresa ativa" : "Empresa suspensa"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch checked={formBotModuleEnabled} onCheckedChange={setFormBotModuleEnabled} />
+              <span className="text-sm">
+                {formBotModuleEnabled ? "Bot WhatsApp habilitado" : "Bot WhatsApp desabilitado"}
               </span>
             </div>
 
