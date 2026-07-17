@@ -12,21 +12,10 @@ import {
   Activity,
   Workflow,
   Megaphone,
-  Smartphone,
   CreditCard,
   Moon,
   Sun,
   LogOut,
-  Bot,
-  MessageSquareText,
-  Reply,
-  Sparkles,
-  Headset,
-  Package,
-  Tags,
-  ArrowLeftRight,
-  Settings2,
-  ListTree,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTheme } from "next-themes"
@@ -56,7 +45,6 @@ const mainNav = [
   { title: "Workspaces", href: "/workspaces", icon: FolderKanban },
   { title: "Relatorios", href: "/reports", icon: FileBarChart2 },
   { title: "Contatos", href: "/contacts", icon: Users },
-  { title: "WhatsApp", href: "/whatsapp", icon: Smartphone },
   { title: "Meu Plano", href: "/plan", icon: CreditCard },
 ]
 
@@ -68,22 +56,6 @@ const automationNav = [
   { title: "Logs", href: "/logs", icon: ScrollText },
 ]
 
-const botNav = [
-  { title: "Dashboard do Bot", href: "/bot", icon: Bot },
-  { title: "Mensagem Inicial", href: "/bot/welcome", icon: MessageSquareText },
-  { title: "Menus", href: "/bot/menus", icon: ListTree },
-  { title: "Respostas", href: "/bot/replies", icon: Reply },
-  { title: "IA", href: "/bot/ai", icon: Sparkles },
-  { title: "Horarios", href: "/bot/hours", icon: Clock },
-  { title: "Atendentes", href: "/bot/agents", icon: Headset },
-  { title: "Produtos", href: "/bot/products", icon: Package },
-  { title: "Palavras-chave", href: "/bot/keywords", icon: Tags },
-  { title: "Transferencias", href: "/bot/transfers", icon: ArrowLeftRight },
-  { title: "Configuracoes", href: "/bot/settings", icon: Settings2 },
-]
-
-
-
 type AppSidebarProps = {
   currentUser: CurrentUserSummaryData | null
   reportBuilderEnabled?: boolean
@@ -92,7 +64,6 @@ type AppSidebarProps = {
   operationalSummaryEnabled?: boolean
   logsEnabled?: boolean
   whatsappProvider?: WhatsAppProvider
-  botModuleEnabled?: boolean
 }
 
 export function AppSidebar({
@@ -103,13 +74,11 @@ export function AppSidebar({
   operationalSummaryEnabled = true,
   logsEnabled = true,
   whatsappProvider = "bot",
-  botModuleEnabled = true,
 }: AppSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const filteredMainNav = mainNav.filter((item) => {
     if (item.href === "/contacts") return whatsappProvider === "bot"
-    if (item.href === "/whatsapp") return whatsappProvider === "waha"
     return true
   })
   const filteredAutomationNav = automationNav.filter((item) => {
@@ -190,34 +159,6 @@ export function AppSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-        {botModuleEnabled ? (
-          <SidebarGroup>
-            <SidebarGroupLabel>Bot WhatsApp</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {botNav.map((item) => (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={
-                        item.href === "/bot"
-                          ? pathname === "/bot"
-                          : pathname.startsWith(item.href)
-                      }
-                      tooltip={item.title}
-                    >
-                      <Link href={item.href}>
-                        <item.icon className="size-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ) : null}
 
       </SidebarContent>
 

@@ -321,6 +321,17 @@ create table if not exists public.lead_searches (
   primary key (nicho, cidade)
 );
 
+-- Log de cada mensagem de prospeccao enviada a um lead via WAHA. Usado para
+-- aplicar limite diario e espacamento minimo entre envios, evitando que o
+-- numero conectado seja marcado como spam/restrito pelo WhatsApp.
+create table if not exists public.lead_message_log (
+  id uuid primary key default gen_random_uuid(),
+  lead_id text references public.leads(id) on delete set null,
+  sent_at timestamptz not null default now()
+);
+
+create index if not exists idx_lead_message_log_sent_at on public.lead_message_log(sent_at);
+
 create index if not exists idx_company_settings_company_id on public.company_settings(company_id);
 create index if not exists idx_workspaces_company_id on public.workspaces(company_id);
 create index if not exists idx_reports_company_id on public.reports(company_id);
@@ -387,6 +398,7 @@ alter table public.campaign_sends enable row level security;
 -- acessa estas tabelas; anon/authenticated ficam bloqueados por padrao.
 alter table public.leads enable row level security;
 alter table public.lead_searches enable row level security;
+alter table public.lead_message_log enable row level security;
 
 drop policy if exists companies_select_own on public.companies;
 create policy companies_select_own on public.companies

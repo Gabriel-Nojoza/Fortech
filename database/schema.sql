@@ -490,6 +490,17 @@ CREATE TABLE IF NOT EXISTS public.lead_searches (
   PRIMARY KEY (nicho, cidade)
 );
 
+-- Log de cada mensagem de prospeccao enviada a um lead via WAHA. Usado para
+-- aplicar limite diario e espacamento minimo entre envios, evitando que o
+-- numero conectado seja marcado como spam/restrito pelo WhatsApp.
+CREATE TABLE IF NOT EXISTS public.lead_message_log (
+  id      uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_id text        REFERENCES public.leads(id) ON DELETE SET NULL,
+  sent_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lead_message_log_sent_at ON public.lead_message_log(sent_at);
+
 -- =============================================================================
 -- DADOS INICIAIS
 -- Cria a empresa padrão e o usuário administrador inicial.

@@ -465,7 +465,10 @@ export default function AdminCompaniesPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {WHATSAPP_PROVIDER_OPTIONS.map((provider) => (
+                    {WHATSAPP_PROVIDER_OPTIONS.filter(
+                      (provider) =>
+                        provider !== "waha" || editingCompany?.whatsapp_provider === "waha"
+                    ).map((provider) => (
                       <SelectItem key={provider} value={provider}>
                         {provider === "waha" ? "WAHA" : "WhatsApp Relatorios"}
                       </SelectItem>
