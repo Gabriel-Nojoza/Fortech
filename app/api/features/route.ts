@@ -25,6 +25,9 @@ export type CompanyFeatures = {
   hideZeroRows: boolean
   hideZeroRowsIncludeDevolution: boolean
   campaignClientPreview: boolean
+  schedules: boolean
+  operationalSummary: boolean
+  logs: boolean
   daxPreserveGroupBy: boolean
   planCode: string
   planName: string
@@ -95,6 +98,16 @@ export async function GET() {
         typeof features.campaign_client_preview === "boolean"
           ? features.campaign_client_preview
           : planFeatures.campaignClientPreview,
+      schedules:
+        typeof features.schedules === "boolean"
+          ? features.schedules
+          : planFeatures.schedules,
+      operationalSummary:
+        typeof features.operational_summary === "boolean"
+          ? features.operational_summary
+          : planFeatures.operationalSummary,
+      logs:
+        typeof features.logs === "boolean" ? features.logs : planFeatures.logs,
       daxPreserveGroupBy: features.dax_preserve_groupby === true,
       planCode: plan.code,
       planName: plan.name,

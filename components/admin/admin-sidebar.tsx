@@ -14,6 +14,8 @@ import {
   LogOut,
   MessageSquare,
   Clock,
+  Target,
+  Smartphone,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTheme } from "next-themes"
@@ -43,6 +45,8 @@ import { CompanyFilter } from "@/components/admin/company-filter"
 const adminNav = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Empresas", href: "/admin/companies", icon: Building2 },
+  { title: "Leads", href: "/admin/leads", icon: Target },
+  { title: "WhatsApp", href: "/admin/whatsapp", icon: Smartphone },
   { title: "Planos", href: "/admin/plans", icon: Layers },
   { title: "Resumo operacional", href: "/admin/operational-summary", icon: Activity },
   { title: "Uso do Chat", href: "/admin/chat-usage", icon: MessageSquare },

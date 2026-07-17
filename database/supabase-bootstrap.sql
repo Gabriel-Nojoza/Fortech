@@ -292,6 +292,35 @@ create table if not exists public.campaign_sends (
   created_at timestamptz not null default now()
 );
 
+-- Prospeccao de leads via Google Places API (New). Ferramenta interna do
+-- admin da plataforma, sem company_id (nao e um recurso por empresa cliente).
+create table if not exists public.leads (
+  id text primary key, -- place_id do Google Places
+  nome text not null,
+  classificacao text not null
+    check (classificacao in ('SEM SITE', 'SO REDE SOCIAL', 'TEM SITE')),
+  site text,
+  telefone text,
+  endereco text,
+  avaliacao numeric,
+  num_avaliacoes integer,
+  link_maps text,
+  status text not null default 'Novo',
+  nicho text not null,
+  cidade text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Data da ultima busca real na Google Places API por nicho+cidade, para
+-- reaproveitar o resultado do banco por 7 dias e economizar cota da API.
+create table if not exists public.lead_searches (
+  nicho text not null,
+  cidade text not null,
+  searched_at timestamptz not null default now(),
+  primary key (nicho, cidade)
+);
+
 create index if not exists idx_company_settings_company_id on public.company_settings(company_id);
 create index if not exists idx_workspaces_company_id on public.workspaces(company_id);
 create index if not exists idx_reports_company_id on public.reports(company_id);
@@ -354,6 +383,10 @@ alter table public.chat_logs enable row level security;
 alter table public.campaigns enable row level security;
 alter table public.campaign_executions enable row level security;
 alter table public.campaign_sends enable row level security;
+-- Sem policy: apenas o service_role (usado pela rota /api/leads no servidor)
+-- acessa estas tabelas; anon/authenticated ficam bloqueados por padrao.
+alter table public.leads enable row level security;
+alter table public.lead_searches enable row level security;
 
 drop policy if exists companies_select_own on public.companies;
 create policy companies_select_own on public.companies

@@ -207,6 +207,9 @@ async function readCompanyList(
       campaigns: false,
       excelExport: false,
       campaignClientPreview: false,
+      schedules: true,
+      operationalSummary: true,
+      logs: true,
     },
   }
 

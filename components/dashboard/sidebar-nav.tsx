@@ -88,6 +88,9 @@ type AppSidebarProps = {
   currentUser: CurrentUserSummaryData | null
   reportBuilderEnabled?: boolean
   campaignsEnabled?: boolean
+  schedulesEnabled?: boolean
+  operationalSummaryEnabled?: boolean
+  logsEnabled?: boolean
   whatsappProvider?: WhatsAppProvider
   botModuleEnabled?: boolean
 }
@@ -96,6 +99,9 @@ export function AppSidebar({
   currentUser,
   reportBuilderEnabled = false,
   campaignsEnabled = false,
+  schedulesEnabled = true,
+  operationalSummaryEnabled = true,
+  logsEnabled = true,
   whatsappProvider = "bot",
   botModuleEnabled = true,
 }: AppSidebarProps) {
@@ -109,7 +115,9 @@ export function AppSidebar({
   const filteredAutomationNav = automationNav.filter((item) => {
     if (item.href === "/automations") return reportBuilderEnabled && whatsappProvider === "bot"
     if (item.href === "/campaigns") return campaignsEnabled && whatsappProvider === "bot"
-    if (item.href === "/schedules") return whatsappProvider === "bot"
+    if (item.href === "/schedules") return schedulesEnabled && whatsappProvider === "bot"
+    if (item.href === "/operational-summary") return operationalSummaryEnabled
+    if (item.href === "/logs") return logsEnabled
     return true
   })
   const handleLogout = () => {

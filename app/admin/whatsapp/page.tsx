@@ -2,6 +2,6 @@
 
 import { WahaConnectionPanel } from "@/components/dashboard/waha-connection-panel"
 
-export default function WhatsAppPage() {
+export default function AdminWhatsAppPage() {
   return <WahaConnectionPanel />
 }

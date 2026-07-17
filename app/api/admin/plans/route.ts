@@ -21,6 +21,9 @@ const createPlanSchema = z.object({
   campaigns: z.boolean().default(false),
   excel_export: z.boolean().default(false),
   campaign_client_preview: z.boolean().default(false),
+  schedules: z.boolean().default(true),
+  operational_summary: z.boolean().default(true),
+  logs: z.boolean().default(true),
   is_active: z.boolean().default(true),
 })
 
@@ -33,6 +36,9 @@ const updatePlanSchema = z.object({
   campaigns: z.boolean().optional(),
   excel_export: z.boolean().optional(),
   campaign_client_preview: z.boolean().optional(),
+  schedules: z.boolean().optional(),
+  operational_summary: z.boolean().optional(),
+  logs: z.boolean().optional(),
   is_active: z.boolean().optional(),
 })
 
@@ -95,6 +101,9 @@ export async function POST(request: NextRequest) {
         campaigns: data.campaigns,
         excel_export: data.excel_export,
         campaign_client_preview: data.campaign_client_preview,
+        schedules: data.schedules,
+        operational_summary: data.operational_summary,
+        logs: data.logs,
         is_active: data.is_active,
         sort_order: nextSortOrder,
         updated_at: new Date().toISOString(),
@@ -141,6 +150,10 @@ export async function PUT(request: NextRequest) {
     if (rest.excel_export !== undefined) updatePayload.excel_export = rest.excel_export
     if (rest.campaign_client_preview !== undefined)
       updatePayload.campaign_client_preview = rest.campaign_client_preview
+    if (rest.schedules !== undefined) updatePayload.schedules = rest.schedules
+    if (rest.operational_summary !== undefined)
+      updatePayload.operational_summary = rest.operational_summary
+    if (rest.logs !== undefined) updatePayload.logs = rest.logs
     if (rest.is_active !== undefined) updatePayload.is_active = rest.is_active
 
     const { data: updated, error } = await supabase

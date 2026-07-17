@@ -116,6 +116,27 @@ export function normalizeBotBusinessHours(value: unknown): BotBusinessHours {
   }
 }
 
+export type BotCatalogFile = {
+  url: string
+  mimetype: string
+  file_name: string
+  uploaded_at: string | null
+}
+
+export function normalizeBotCatalogFile(value: unknown): BotCatalogFile | null {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : null
+  if (!raw || typeof raw.url !== "string" || !raw.url.trim()) {
+    return null
+  }
+
+  return {
+    url: raw.url.trim(),
+    mimetype: typeof raw.mimetype === "string" && raw.mimetype ? raw.mimetype : "application/pdf",
+    file_name: typeof raw.file_name === "string" && raw.file_name ? raw.file_name : "catalogo",
+    uploaded_at: typeof raw.uploaded_at === "string" ? raw.uploaded_at : null,
+  }
+}
+
 export function normalizeBotAiConfig(value: unknown): BotAiConfig {
   const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {}
   const provider =

@@ -49,6 +49,9 @@ export default async function DashboardLayout({
 
   let reportBuilderEnabled = false
   let campaignsEnabled = false
+  let schedulesEnabled = true
+  let operationalSummaryEnabled = true
+  let logsEnabled = true
   let whatsappProvider: WhatsAppProvider = "bot"
   let botModuleEnabled = true
   let themeSchedule = { enabled: false, light_time: "06:00", dark_time: "18:00" }
@@ -93,6 +96,16 @@ export default async function DashboardLayout({
         typeof features?.campaigns === "boolean"
           ? features.campaigns
           : planFeatures.campaigns
+      schedulesEnabled =
+        typeof features?.schedules === "boolean"
+          ? features.schedules
+          : planFeatures.schedules
+      operationalSummaryEnabled =
+        typeof features?.operational_summary === "boolean"
+          ? features.operational_summary
+          : planFeatures.operationalSummary
+      logsEnabled =
+        typeof features?.logs === "boolean" ? features.logs : planFeatures.logs
     } catch {
       // silently fallback
     }
@@ -127,6 +140,9 @@ export default async function DashboardLayout({
           currentUser={currentUser}
           reportBuilderEnabled={reportBuilderEnabled}
           campaignsEnabled={campaignsEnabled}
+          schedulesEnabled={schedulesEnabled}
+          operationalSummaryEnabled={operationalSummaryEnabled}
+          logsEnabled={logsEnabled}
           whatsappProvider={whatsappProvider}
           botModuleEnabled={botModuleEnabled}
         />

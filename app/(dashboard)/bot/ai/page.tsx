@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import useSWR, { mutate } from "swr"
-import { Loader2, Save } from "lucide-react"
+import { FileText, Loader2, Save, Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { Card, CardContent } from "@/components/ui/card"
@@ -12,7 +12,14 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { BOT_AI_PROVIDERS, getBotAiProviderLabel, type BotAiConfig, type BotAiProvider } from "@/lib/bot"
+import {
+  BOT_AI_PROVIDERS,
+  getBotAiProviderLabel,
+  type BotAiConfig,
+  type BotAiProvider,
+  type BotCatalogFile,
+} from "@/lib/bot"
+import type { CompanyFeatures } from "@/app/api/features/route"
 
 const fetcher = async (url: string) => {
   const response = await fetch(url)
@@ -28,6 +35,15 @@ const fetcher = async (url: string) => {
 export default function BotAiPage() {
   const key = "/api/bot/ai-config"
   const { data, isLoading, error } = useSWR<BotAiConfig>(key, fetcher)
+  const { data: features } = useSWR<CompanyFeatures>("/api/features", fetcher)
+  const isWaha = features?.wahaEnabled === true
+  const catalogKey = "/api/bot/catalog-file"
+  const { data: catalogFile, isLoading: isLoadingCatalog } = useSWR<BotCatalogFile | null>(
+    isWaha ? catalogKey : null,
+    fetcher
+  )
+  const [uploadingCatalog, setUploadingCatalog] = useState(false)
+  const catalogInputRef = useRef<HTMLInputElement>(null)
   const [provider, setProvider] = useState<BotAiProvider>("none")
   const [apiKey, setApiKey] = useState("")
   const [model, setModel] = useState("")
@@ -93,7 +109,51 @@ export default function BotAiPage() {
     }
   }
 
-  const isDisabled = provider === "none"
+  async function handleCatalogUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploadingCatalog(true)
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      const response = await fetch(catalogKey, { method: "POST", body: formData })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Erro ao enviar catalogo")
+      }
+
+      await mutate(catalogKey, result, false)
+      toast.success("Catalogo enviado.")
+    } catch (uploadError) {
+      toast.error(uploadError instanceof Error ? uploadError.message : "Erro ao enviar catalogo")
+    } finally {
+      setUploadingCatalog(false)
+      if (catalogInputRef.current) catalogInputRef.current.value = ""
+    }
+  }
+
+  async function handleCatalogRemove() {
+    setUploadingCatalog(true)
+    try {
+      const response = await fetch(catalogKey, { method: "DELETE" })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Erro ao remover catalogo")
+      }
+
+      await mutate(catalogKey, null, false)
+      toast.success("Catalogo removido.")
+    } catch (removeError) {
+      toast.error(removeError instanceof Error ? removeError.message : "Erro ao remover catalogo")
+    } finally {
+      setUploadingCatalog(false)
+    }
+  }
+
+  const isDisabled = !isWaha && provider === "none"
 
   return (
     <div className="flex flex-1 flex-col">
@@ -110,46 +170,56 @@ export default function BotAiPage() {
               </p>
             ) : (
               <>
-                <div className="grid gap-2">
-                  <Label>Provedor</Label>
-                  <Select value={provider} onValueChange={(value) => setProvider(value as BotAiProvider)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {BOT_AI_PROVIDERS.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {getBotAiProviderLabel(option)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {isWaha ? (
+                  <p className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+                    Sua empresa usa o canal WAHA: o modelo de IA e controlado no seu fluxo
+                    externo (n8n), nao aqui. Escreva abaixo o prompt do sistema — seu fluxo
+                    pode buscar esse texto automaticamente em <code>/api/bot/n8n-prompt</code>.
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid gap-2">
+                      <Label>Provedor</Label>
+                      <Select value={provider} onValueChange={(value) => setProvider(value as BotAiProvider)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BOT_AI_PROVIDERS.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {getBotAiProviderLabel(option)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="ai-api-key">API Key</Label>
-                    <Input
-                      id="ai-api-key"
-                      type="password"
-                      value={apiKey}
-                      onChange={(event) => setApiKey(event.target.value)}
-                      disabled={isDisabled}
-                      placeholder="sk-..."
-                    />
-                  </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="grid gap-2">
+                        <Label htmlFor="ai-api-key">API Key</Label>
+                        <Input
+                          id="ai-api-key"
+                          type="password"
+                          value={apiKey}
+                          onChange={(event) => setApiKey(event.target.value)}
+                          disabled={isDisabled}
+                          placeholder="sk-..."
+                        />
+                      </div>
 
-                  <div className="grid gap-2">
-                    <Label htmlFor="ai-model">Modelo</Label>
-                    <Input
-                      id="ai-model"
-                      value={model}
-                      onChange={(event) => setModel(event.target.value)}
-                      disabled={isDisabled}
-                      placeholder="gpt-4o-mini"
-                    />
-                  </div>
-                </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="ai-model">Modelo</Label>
+                        <Input
+                          id="ai-model"
+                          value={model}
+                          onChange={(event) => setModel(event.target.value)}
+                          disabled={isDisabled}
+                          placeholder="gpt-4o-mini"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <div className="grid gap-2">
                   <Label htmlFor="ai-prompt">Prompt do sistema</Label>
@@ -163,34 +233,98 @@ export default function BotAiPage() {
                   />
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                {isWaha ? (
                   <div className="grid gap-2">
-                    <Label htmlFor="ai-temperature">Temperatura</Label>
-                    <Input
-                      id="ai-temperature"
-                      type="number"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={temperature}
-                      onChange={(event) => setTemperature(event.target.value)}
-                      disabled={isDisabled}
+                    <Label>Catalogo (PDF ou PNG)</Label>
+                    {isLoadingCatalog ? (
+                      <Skeleton className="h-16 rounded-lg" />
+                    ) : catalogFile ? (
+                      <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
+                        <FileText className="size-5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{catalogFile.file_name}</p>
+                          <a
+                            href={catalogFile.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Ver arquivo
+                          </a>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleCatalogRemove}
+                          disabled={uploadingCatalog}
+                        >
+                          {uploadingCatalog ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-4 text-destructive" />
+                          )}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => catalogInputRef.current?.click()}
+                        className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-6 text-center hover:bg-muted/20"
+                      >
+                        {uploadingCatalog ? (
+                          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                        ) : (
+                          <Upload className="size-6 text-muted-foreground/50" />
+                        )}
+                        <p className="text-sm text-muted-foreground">
+                          {uploadingCatalog ? "Enviando..." : "Clique para enviar o PDF ou PNG do catalogo"}
+                        </p>
+                      </div>
+                    )}
+                    <input
+                      ref={catalogInputRef}
+                      type="file"
+                      accept="application/pdf,image/png,image/jpeg,image/jpg"
+                      className="hidden"
+                      onChange={handleCatalogUpload}
+                      disabled={uploadingCatalog}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Seu fluxo externo (n8n) pode buscar este arquivo automaticamente em{" "}
+                      <code>/api/bot/n8n-prompt</code>.
+                    </p>
                   </div>
+                ) : null}
 
-                  <div className="grid gap-2">
-                    <Label htmlFor="ai-max-tokens">Maximo de tokens</Label>
-                    <Input
-                      id="ai-max-tokens"
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={maxTokens}
-                      onChange={(event) => setMaxTokens(event.target.value)}
-                      disabled={isDisabled}
-                    />
+                {!isWaha ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="ai-temperature">Temperatura</Label>
+                      <Input
+                        id="ai-temperature"
+                        type="number"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        value={temperature}
+                        onChange={(event) => setTemperature(event.target.value)}
+                        disabled={isDisabled}
+                      />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="ai-max-tokens">Maximo de tokens</Label>
+                      <Input
+                        id="ai-max-tokens"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={maxTokens}
+                        onChange={(event) => setMaxTokens(event.target.value)}
+                        disabled={isDisabled}
+                      />
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </>
             )}
 

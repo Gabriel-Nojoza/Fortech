@@ -2,6 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 export type CompanyPlanCode = string
 
+export type CompanyPlanAppFeatures = {
+  reportBuilder: boolean
+  campaigns: boolean
+  excelExport: boolean
+  campaignClientPreview: boolean
+  schedules: boolean
+  operationalSummary: boolean
+  logs: boolean
+}
+
 export type CompanyPlanDefinition = {
   id: string | null
   code: CompanyPlanCode
@@ -11,13 +21,69 @@ export type CompanyPlanDefinition = {
   resources: string[]
   isActive: boolean
   sortOrder: number
-  appFeatures: {
-    reportBuilder: boolean
-    campaigns: boolean
-    excelExport: boolean
-    campaignClientPreview: boolean
-  }
+  appFeatures: CompanyPlanAppFeatures
 }
+
+// Fonte unica de verdade das funcoes da plataforma que podem ser ligadas/desligadas
+// por plano. Usado pelo admin (tela de planos) e pela API de features do cliente.
+export const PLATFORM_FEATURE_REGISTRY: ReadonlyArray<{
+  key: keyof CompanyPlanAppFeatures
+  column: keyof Pick<
+    PlanRow,
+    | "report_builder"
+    | "campaigns"
+    | "excel_export"
+    | "campaign_client_preview"
+    | "schedules"
+    | "operational_summary"
+    | "logs"
+  >
+  label: string
+  description: string
+}> = [
+  {
+    key: "reportBuilder",
+    column: "report_builder",
+    label: "Construtor de Relatorios",
+    description: "Criar consultas DAX personalizadas e automacoes de envio.",
+  },
+  {
+    key: "campaigns",
+    column: "campaigns",
+    label: "Campanhas",
+    description: "Disparos em massa para clientes inativos ou segmentados.",
+  },
+  {
+    key: "excelExport",
+    column: "excel_export",
+    label: "Exportacao para Excel",
+    description: "Exportar relatorios em planilha .xlsx.",
+  },
+  {
+    key: "campaignClientPreview",
+    column: "campaign_client_preview",
+    label: "Preview de campanha para o cliente",
+    description: "Cliente final revisa a mensagem antes do disparo.",
+  },
+  {
+    key: "schedules",
+    column: "schedules",
+    label: "Rotinas de Disparo",
+    description: "Agendamento recorrente de envio de relatorios via WhatsApp.",
+  },
+  {
+    key: "operationalSummary",
+    column: "operational_summary",
+    label: "Resumo Operacional",
+    description: "Painel com visao geral das rotinas e envios.",
+  },
+  {
+    key: "logs",
+    column: "logs",
+    label: "Logs",
+    description: "Historico detalhado de envios e erros.",
+  },
+]
 
 export type CompanySubscriptionSettings = {
   plan_code: CompanyPlanCode
@@ -38,6 +104,9 @@ type PlanRow = {
   campaigns: boolean
   excel_export: boolean
   campaign_client_preview: boolean
+  schedules: boolean
+  operational_summary: boolean
+  logs: boolean
   is_active: boolean
   sort_order: number
 }
@@ -68,6 +137,9 @@ function fallbackPlanDefinition(code: CompanyPlanCode): CompanyPlanDefinition {
       campaigns: false,
       excelExport: false,
       campaignClientPreview: false,
+      schedules: false,
+      operationalSummary: false,
+      logs: false,
     },
   }
 }
@@ -91,6 +163,9 @@ export function mapPlanRow(row: PlanRow): CompanyPlanDefinition {
       campaigns: row.campaigns,
       excelExport: row.excel_export,
       campaignClientPreview: row.campaign_client_preview,
+      schedules: row.schedules,
+      operationalSummary: row.operational_summary,
+      logs: row.logs,
     },
   }
 }

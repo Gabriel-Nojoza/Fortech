@@ -454,6 +454,43 @@ CREATE INDEX IF NOT EXISTS idx_chat_logs_mes         ON public.chat_logs(mes);
 CREATE INDEX IF NOT EXISTS idx_chat_logs_company_mes ON public.chat_logs(company_id, mes);
 
 -- =============================================================================
+-- TABELA: leads
+-- Prospeccao de clientes via Google Places API (New). Ferramenta interna do
+-- admin da plataforma para localizar empresas sem site/rede social apenas
+-- (potenciais clientes Fortech). Nao possui company_id: nao e um recurso por
+-- empresa cliente, e sim do proprio administrador da plataforma.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS public.leads (
+  id             text        PRIMARY KEY, -- place_id do Google Places
+  nome           text        NOT NULL,
+  classificacao  text        NOT NULL
+                             CHECK (classificacao IN ('SEM SITE', 'SO REDE SOCIAL', 'TEM SITE')),
+  site           text,
+  telefone       text,
+  endereco       text,
+  avaliacao      numeric,
+  num_avaliacoes integer,
+  link_maps      text,
+  status         text        NOT NULL DEFAULT 'Novo',
+  nicho          text        NOT NULL,
+  cidade         text        NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_leads_nicho_cidade ON public.leads(nicho, cidade);
+CREATE INDEX IF NOT EXISTS idx_leads_status       ON public.leads(status);
+
+-- Controla a data da ultima busca real na Google Places API por nicho+cidade,
+-- para reaproveitar o resultado do banco por 7 dias e economizar cota da API.
+CREATE TABLE IF NOT EXISTS public.lead_searches (
+  nicho       text        NOT NULL,
+  cidade      text        NOT NULL,
+  searched_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (nicho, cidade)
+);
+
+-- =============================================================================
 -- DADOS INICIAIS
 -- Cria a empresa padrão e o usuário administrador inicial.
 -- Altere email e senha antes de executar em produção!
