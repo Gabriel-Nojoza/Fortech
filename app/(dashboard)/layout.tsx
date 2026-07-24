@@ -10,7 +10,6 @@ import {
   getCompanyPlanFeatureDefaults,
   normalizeCompanySubscriptionSettings,
 } from "@/lib/company-plan"
-import { parseWhatsAppProviderSetting, type WhatsAppProvider } from "@/lib/whatsapp-provider"
 
 export default async function DashboardLayout({
   children,
@@ -51,7 +50,6 @@ export default async function DashboardLayout({
   let schedulesEnabled = true
   let operationalSummaryEnabled = true
   let logsEnabled = true
-  let whatsappProvider: WhatsAppProvider = "bot"
   let themeSchedule = { enabled: false, light_time: "06:00", dark_time: "18:00" }
 
   if (companyId) {
@@ -69,15 +67,8 @@ export default async function DashboardLayout({
         .eq("company_id", companyId)
         .eq("key", "subscription")
         .maybeSingle()
-      const providerResult = await service
-        .from("company_settings")
-        .select("value")
-        .eq("company_id", companyId)
-        .eq("key", "whatsapp_provider")
-        .maybeSingle()
       const features = featuresResult.data?.value as Record<string, unknown> | null
       const subscription = normalizeCompanySubscriptionSettings(subscriptionResult.data?.value)
-      whatsappProvider = parseWhatsAppProviderSetting(providerResult.data?.value)
       const planFeatures = await getCompanyPlanFeatureDefaults(service, subscription.plan_code)
       reportBuilderEnabled =
         typeof features?.report_builder === "boolean"
@@ -134,7 +125,6 @@ export default async function DashboardLayout({
           schedulesEnabled={schedulesEnabled}
           operationalSummaryEnabled={operationalSummaryEnabled}
           logsEnabled={logsEnabled}
-          whatsappProvider={whatsappProvider}
         />
         <SidebarInset className="min-w-0 overflow-x-hidden">
           {children}

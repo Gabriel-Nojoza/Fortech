@@ -392,8 +392,8 @@ export default function SettingsPage() {
                   />
                   <p className="text-xs text-muted-foreground">
                     URL do fluxo master do n8n que recebe as mensagens do WhatsApp. A
-                    plataforma configura isso automaticamente na sessao WAHA ao conectar ou
-                    reiniciar.
+                    plataforma configura isso automaticamente ao conectar ou reiniciar o
+                    bot.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">

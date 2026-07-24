@@ -18,15 +18,39 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { LEAD_STATUSES, type LeadListItem } from "@/lib/leads"
 import type { LeadClassification } from "@/lib/google-places"
+
+const DEFAULT_MESSAGE_BY_CLASSIFICATION: Record<LeadClassification, (nome: string) => string> = {
+  "SEM SITE": (nome) =>
+    `Ola! Vi que a ${nome} ainda nao tem um site e isso pode estar limitando a chegada de novos clientes. Ajudamos empresas a terem presenca digital e automacao no WhatsApp. Podemos conversar?`,
+  "SO REDE SOCIAL": (nome) =>
+    `Ola! Vi o perfil da ${nome} nas redes sociais. Alem das redes, um site proprio ajuda a passar mais confianca e trazer novos clientes. Podemos conversar sobre isso?`,
+  "TEM SITE": (nome) =>
+    `Ola! Vi o site da ${nome} e gostaria de apresentar como podemos ajudar a automatizar o atendimento e os relatorios da empresa pelo WhatsApp. Podemos conversar?`,
+}
+
+function buildDefaultMessage(lead: LeadListItem) {
+  return DEFAULT_MESSAGE_BY_CLASSIFICATION[lead.classificacao](lead.nome)
+}
+
+function buildWhatsAppUrl(telefone: string, message: string) {
+  const digits = telefone.replace(/\D/g, "")
+  const withCountryCode = digits.startsWith("55") ? digits : `55${digits}`
+  return `https://wa.me/${withCountryCode}?text=${encodeURIComponent(message)}`
+}
 
 const fetcher = async (url: string) => {
   const response = await fetch(url)
@@ -98,19 +122,6 @@ function buildLeadsCsv(leads: LeadListItem[]) {
   return [headers.map(escapeCsvCell).join(","), ...rows].join("\n")
 }
 
-const DEFAULT_MESSAGE_BY_CLASSIFICATION: Record<LeadClassification, string> = {
-  "SEM SITE":
-    "Ola! Vi que a {nome} ainda nao tem um site e isso pode estar limitando a chegada de novos clientes. Ajudamos empresas a terem presenca digital e automacao no WhatsApp. Podemos conversar?",
-  "SO REDE SOCIAL":
-    "Ola! Vi o perfil da {nome} e notei que voces ainda nao tem um site proprio, so redes sociais. Um site passa mais credibilidade e ajuda a vender mais. Podemos conversar sobre isso?",
-  "TEM SITE":
-    "Ola! Vi a {nome} no Google e gostaria de apresentar uma solucao que pode ajudar a automatizar o atendimento e os relatorios de vendas de voces. Podemos conversar?",
-}
-
-function buildDefaultMessage(lead: LeadListItem) {
-  return DEFAULT_MESSAGE_BY_CLASSIFICATION[lead.classificacao].replace("{nome}", lead.nome)
-}
-
 function downloadCsv(csv: string, fileName: string) {
   const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" })
   const url = URL.createObjectURL(blob)
@@ -132,7 +143,6 @@ export default function AdminLeadsPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [messageLead, setMessageLead] = useState<LeadListItem | null>(null)
   const [messageText, setMessageText] = useState("")
-  const [sendingMessage, setSendingMessage] = useState(false)
 
   const swrKey = submittedQuery
     ? `/api/leads?nicho=${encodeURIComponent(submittedQuery.nicho)}&cidade=${encodeURIComponent(submittedQuery.cidade)}&max=${encodeURIComponent(submittedQuery.max)}`
@@ -207,40 +217,16 @@ export default function AdminLeadsPage() {
     setMessageText(buildDefaultMessage(lead))
   }
 
-  async function handleSendMessage() {
-    if (!messageLead) return
+  function handleSendMessage() {
+    if (!messageLead?.telefone) return
 
-    const text = messageText.trim()
-    if (!text) {
-      toast.error("Escreva uma mensagem antes de enviar.")
-      return
+    window.open(buildWhatsAppUrl(messageLead.telefone, messageText), "_blank", "noopener,noreferrer")
+
+    if (messageLead.status === "Novo") {
+      handleStatusChange(messageLead, "Contatado")
     }
 
-    setSendingMessage(true)
-    try {
-      const response = await fetch("/api/leads/send-message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: messageLead.id, message: text }),
-      })
-      const result = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        throw new Error(result?.error || "Erro ao enviar mensagem")
-      }
-
-      mutate(
-        leads.map((item) => (item.id === messageLead.id ? { ...item, status: "Contatado" } : item)),
-        { revalidate: false }
-      )
-      toast.success(`Mensagem enviada para ${messageLead.nome}.`)
-      setMessageLead(null)
-      setMessageText("")
-    } catch (sendError) {
-      toast.error(sendError instanceof Error ? sendError.message : "Erro ao enviar mensagem")
-    } finally {
-      setSendingMessage(false)
-    }
+    setMessageLead(null)
   }
 
   function handleExportCsv() {
@@ -470,8 +456,8 @@ export default function AdminLeadsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => openMessageDialog(lead)}
                             disabled={!lead.telefone}
+                            onClick={() => openMessageDialog(lead)}
                           >
                             <MessageCircle className="mr-2 size-4" />
                             Mensagem
@@ -487,68 +473,49 @@ export default function AdminLeadsPage() {
         </Card>
       </div>
 
-      <Dialog
-        open={Boolean(messageLead)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setMessageLead(null)
-            setMessageText("")
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={!!messageLead} onOpenChange={(open) => !open && setMessageLead(null)}>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Enviar mensagem no WhatsApp</DialogTitle>
           </DialogHeader>
-
-          <div className="grid gap-4 py-2">
-            {messageLead ? (
-              <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+          {messageLead ? (
+            <div className="flex flex-col gap-4">
+              <div>
                 <p className="font-medium">{messageLead.nome}</p>
-                <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Phone className="size-3" />
-                  {messageLead.telefone}
-                </p>
+                {messageLead.telefone ? (
+                  <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Phone className="size-3" />
+                    {messageLead.telefone}
+                  </p>
+                ) : null}
               </div>
-            ) : null}
 
-            <div className="grid gap-2">
-              <Label htmlFor="lead-message">Mensagem</Label>
-              <Textarea
-                id="lead-message"
-                rows={6}
-                value={messageText}
-                onChange={(event) => setMessageText(event.target.value)}
-                placeholder="Escreva a mensagem de prospeccao..."
-              />
+              <div className="grid gap-2">
+                <Label htmlFor="lead-message">Mensagem</Label>
+                <Textarea
+                  id="lead-message"
+                  rows={5}
+                  value={messageText}
+                  onChange={(event) => setMessageText(event.target.value)}
+                />
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Ao clicar em enviar, o WhatsApp sera aberto com a mensagem pronta. O status do
+                lead muda automaticamente para &quot;Contatado&quot;.
+              </p>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setMessageLead(null)}>
+                  Cancelar
+                </Button>
+                <Button onClick={handleSendMessage} disabled={!messageText.trim()}>
+                  <Send className="mr-2 size-4" />
+                  Enviar
+                </Button>
+              </div>
             </div>
-
-            <p className="text-xs text-muted-foreground">
-              Enviado pelo WhatsApp (WAHA) conectado na sua conta. Ao enviar, o status do lead
-              muda automaticamente para &quot;Contatado&quot;.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setMessageLead(null)
-                setMessageText("")
-              }}
-              disabled={sendingMessage}
-            >
-              Cancelar
-            </Button>
-            <Button onClick={handleSendMessage} disabled={sendingMessage || !messageText.trim()}>
-              {sendingMessage ? (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              ) : (
-                <Send className="mr-2 size-4" />
-              )}
-              Enviar
-            </Button>
-          </DialogFooter>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import useSWR, { mutate } from "swr"
-import { Building2, Loader2, Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react"
+import { Building2, Loader2, Pencil, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { CompanyPlanCode, CompanyPlanDefinition } from "@/lib/company-plan"
-import type { WhatsAppProvider } from "@/lib/whatsapp-provider"
 
 type AdminCompany = {
   id: string
@@ -33,22 +32,8 @@ type AdminCompany = {
   next_due_date: string | null
   requested_upgrade_plan: CompanyPlanCode | null
   requested_upgrade_at: string | null
-  whatsapp_provider: WhatsAppProvider
-  whatsapp_provider_label: string
   bot_module_enabled: boolean
-  waha: {
-    exists: boolean
-    session_name: string
-    status: string
-    phone_number: string | null
-    connected_name: string | null
-    last_connection_at: string | null
-    last_seen_at: string | null
-    last_error: string | null
-  }
 }
-
-const WHATSAPP_PROVIDER_OPTIONS: WhatsAppProvider[] = ["bot", "waha"]
 
 const fetcher = async (url: string) => {
   const response = await fetch(url)
@@ -66,28 +51,6 @@ function formatDate(value: string | null) {
   return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR")
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) return "-"
-  return new Date(value).toLocaleString("pt-BR")
-}
-
-function getWahaStatusLabel(status: string) {
-  switch (status) {
-    case "WORKING":
-      return "Conectado"
-    case "SCAN_QR_CODE":
-      return "Aguardando QR"
-    case "STARTING":
-      return "Iniciando"
-    case "FAILED":
-      return "Falha"
-    case "STOPPED":
-      return "Desconectado"
-    default:
-      return "Nao criado"
-  }
-}
-
 export default function AdminCompaniesPage() {
   const { data, isLoading, error } = useSWR<AdminCompany[]>("/api/admin/companies", fetcher)
   const { data: authData } = useSWR<{
@@ -102,7 +65,6 @@ export default function AdminCompaniesPage() {
   const [editingCompany, setEditingCompany] = useState<AdminCompany | null>(null)
   const [formName, setFormName] = useState("")
   const [formPlanCode, setFormPlanCode] = useState<CompanyPlanCode>("START")
-  const [formWhatsAppProvider, setFormWhatsAppProvider] = useState<WhatsAppProvider>("bot")
   const [formNextDueDate, setFormNextDueDate] = useState("")
   const [formIsActive, setFormIsActive] = useState(true)
   const [formBotModuleEnabled, setFormBotModuleEnabled] = useState(true)
@@ -110,13 +72,11 @@ export default function AdminCompaniesPage() {
   const [formUserPassword, setFormUserPassword] = useState("")
   const [formUserName, setFormUserName] = useState("")
   const [saving, setSaving] = useState(false)
-  const [sessionActionFor, setSessionActionFor] = useState<string | null>(null)
 
   function openCreate() {
     setEditingCompany(null)
     setFormName("")
     setFormPlanCode(planOptions[0]?.code ?? "START")
-    setFormWhatsAppProvider("bot")
     setFormNextDueDate("")
     setFormIsActive(true)
     setFormBotModuleEnabled(true)
@@ -130,7 +90,6 @@ export default function AdminCompaniesPage() {
     setEditingCompany(company)
     setFormName(company.name)
     setFormPlanCode(company.plan_code)
-    setFormWhatsAppProvider(company.whatsapp_provider)
     setFormNextDueDate(company.next_due_date ?? "")
     setFormIsActive(company.is_active)
     setFormBotModuleEnabled(company.bot_module_enabled)
@@ -148,7 +107,6 @@ export default function AdminCompaniesPage() {
             id: editingCompany.id,
             name: formName,
             plan_code: formPlanCode,
-            whatsapp_provider: formWhatsAppProvider,
             next_due_date: formNextDueDate || null,
             is_active: formIsActive,
             bot_module_enabled: formBotModuleEnabled,
@@ -156,7 +114,6 @@ export default function AdminCompaniesPage() {
         : {
             name: formName,
             plan_code: formPlanCode,
-            whatsapp_provider: formWhatsAppProvider,
             next_due_date: formNextDueDate || null,
             is_active: formIsActive,
             bot_module_enabled: formBotModuleEnabled,
@@ -192,36 +149,9 @@ export default function AdminCompaniesPage() {
     }
   }
 
-  async function handleWahaAction(companyId: string, action: "restart" | "remove") {
-    setSessionActionFor(`${companyId}:${action}`)
-    try {
-      const response = await fetch("/api/admin/waha/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, action }),
-      })
-      const payload = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Erro ao controlar sessao WAHA")
-      }
-
-      await mutate("/api/admin/companies")
-      toast.success(action === "restart" ? "Conexao WAHA reiniciada." : "Sessao WAHA removida.")
-    } catch (sessionError) {
-      toast.error(
-        sessionError instanceof Error
-          ? sessionError.message
-          : "Erro ao controlar sessao WAHA"
-      )
-    } finally {
-      setSessionActionFor(null)
-    }
-  }
-
   return (
     <div className="flex flex-1 flex-col">
-      <PageHeader title="Empresas" description="Gerencie plano, assinatura e o canal WhatsApp por empresa.">
+      <PageHeader title="Empresas" description="Gerencie plano e assinatura por empresa.">
         {canManageCompanies ? (
           <Button onClick={openCreate} size="sm">
             <Plus className="mr-2 size-4" />
@@ -255,17 +185,12 @@ export default function AdminCompaniesPage() {
                       <th className="px-4 py-3 font-medium text-muted-foreground">Empresa</th>
                       <th className="px-4 py-3 font-medium text-muted-foreground">Plano</th>
                       <th className="px-4 py-3 font-medium text-muted-foreground">Assinatura</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground">Canal</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground">WAHA</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground">Conectado</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">Bot WhatsApp</th>
                       <th className="px-4 py-3 font-medium text-muted-foreground text-right">Acoes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {companies.map((company) => {
-                      const restarting = sessionActionFor === `${company.id}:restart`
-                      const removing = sessionActionFor === `${company.id}:remove`
-
                       return (
                         <tr key={company.id} className="hover:bg-muted/20 transition-colors">
                           <td className="px-4 py-3 align-top">
@@ -310,51 +235,9 @@ export default function AdminCompaniesPage() {
                             </p>
                           </td>
                           <td className="px-4 py-3 align-top">
-                            <Badge variant={company.whatsapp_provider === "waha" ? "default" : "secondary"}>
-                              {company.whatsapp_provider_label}
+                            <Badge variant={company.bot_module_enabled ? "default" : "secondary"}>
+                              {company.bot_module_enabled ? "Habilitado" : "Desabilitado"}
                             </Badge>
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Bot WhatsApp: {company.bot_module_enabled ? "Habilitado" : "Desabilitado"}
-                            </p>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            {company.whatsapp_provider === "waha" ? (
-                              <>
-                                <Badge
-                                  variant={
-                                    company.waha.status === "WORKING"
-                                      ? "default"
-                                      : company.waha.status === "FAILED"
-                                        ? "destructive"
-                                        : "secondary"
-                                  }
-                                >
-                                  {getWahaStatusLabel(company.waha.status)}
-                                </Badge>
-                                <p className="mt-2 text-xs text-muted-foreground break-all">
-                                  {company.waha.session_name}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  Ultima conexao: {formatDateTime(company.waha.last_connection_at)}
-                                </p>
-                              </>
-                            ) : (
-                              <p className="text-xs text-muted-foreground">
-                                WAHA desativado para esta empresa.
-                              </p>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            {company.whatsapp_provider === "waha" ? (
-                              <>
-                                <p className="font-medium">{company.waha.phone_number || "-"}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {company.waha.connected_name || "-"}
-                                </p>
-                              </>
-                            ) : (
-                              <p className="text-xs text-muted-foreground">Usando bot atual.</p>
-                            )}
                           </td>
                           <td className="px-4 py-3 align-top">
                             <div className="flex justify-end gap-2">
@@ -366,38 +249,6 @@ export default function AdminCompaniesPage() {
                               >
                                 <Pencil className="mr-2 size-4" />
                                 Editar
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleWahaAction(company.id, "restart")}
-                                disabled={
-                                  restarting ||
-                                  !canManageCompanies ||
-                                  company.whatsapp_provider !== "waha"
-                                }
-                              >
-                                {restarting ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : (
-                                  <RefreshCcw className="size-4" />
-                                )}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleWahaAction(company.id, "remove")}
-                                disabled={
-                                  removing ||
-                                  !canManageCompanies ||
-                                  company.whatsapp_provider !== "waha"
-                                }
-                              >
-                                {removing ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="size-4 text-destructive" />
-                                )}
                               </Button>
                             </div>
                           </td>
@@ -429,53 +280,29 @@ export default function AdminCompaniesPage() {
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 sm:gap-x-6">
-              <div className="grid gap-2">
-                <Label>Plano</Label>
-                <Select
-                  value={formPlanCode}
-                  onValueChange={(value) => setFormPlanCode(value as CompanyPlanCode)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {planOptions.map((plan) => (
-                      <SelectItem key={plan.code} value={plan.code}>
-                        {plan.name}
-                      </SelectItem>
-                    ))}
-                    {editingCompany &&
-                    !planOptions.some((plan) => plan.code === editingCompany.plan_code) ? (
-                      <SelectItem value={editingCompany.plan_code}>
-                        {editingCompany.plan_code} (inativo)
-                      </SelectItem>
-                    ) : null}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>Canal WhatsApp</Label>
-                <Select
-                  value={formWhatsAppProvider}
-                  onValueChange={(value) => setFormWhatsAppProvider(value as WhatsAppProvider)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {WHATSAPP_PROVIDER_OPTIONS.filter(
-                      (provider) =>
-                        provider !== "waha" || editingCompany?.whatsapp_provider === "waha"
-                    ).map((provider) => (
-                      <SelectItem key={provider} value={provider}>
-                        {provider === "waha" ? "WAHA" : "WhatsApp Relatorios"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="grid gap-2">
+              <Label>Plano</Label>
+              <Select
+                value={formPlanCode}
+                onValueChange={(value) => setFormPlanCode(value as CompanyPlanCode)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {planOptions.map((plan) => (
+                    <SelectItem key={plan.code} value={plan.code}>
+                      {plan.name}
+                    </SelectItem>
+                  ))}
+                  {editingCompany &&
+                  !planOptions.some((plan) => plan.code === editingCompany.plan_code) ? (
+                    <SelectItem value={editingCompany.plan_code}>
+                      {editingCompany.plan_code} (inativo)
+                    </SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid gap-2 sm:max-w-[240px]">

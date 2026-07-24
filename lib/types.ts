@@ -72,28 +72,6 @@ export interface CompanyPlanInfo {
   nextPlanCode: CompanyPlanCode | null
 }
 
-export interface WahaSessionInfo {
-  exists: boolean
-  companyId: string
-  sessionName: string
-  status:
-    | "NOT_CREATED"
-    | "STOPPED"
-    | "STARTING"
-    | "SCAN_QR_CODE"
-    | "WORKING"
-    | "FAILED"
-  phoneNumber: string | null
-  connectedName: string | null
-  meId: string | null
-  qrCodeDataUrl: string | null
-  lastConnectionAt: string | null
-  lastSeenAt: string | null
-  lastError: string | null
-  createdAt: string | null
-  updatedAt: string | null
-}
-
 export type ScheduleExportFormat =
   | "PDF"
   | "PNG"

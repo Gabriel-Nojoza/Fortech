@@ -17,7 +17,6 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { ProviderModeCard } from "@/components/dashboard/provider-mode-card"
 import { formatDateTimePtBr } from "@/lib/datetime"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -95,10 +94,9 @@ function normalizeDigits(value: string | null | undefined) {
 export default function ContactsPage() {
   const instancesKey = "/api/bot/instances"
   const { data: features, isLoading: isLoadingFeatures } = useSWR<CompanyFeatures>("/api/features", fetcher)
-  const legacyBotEnabled = features?.legacyBotEnabled !== false
   const { data: botInstances, isLoading: isLoadingBotInstances } = useSWR<
     WhatsAppBotInstance[]
-  >(legacyBotEnabled ? instancesKey : null, fetcher)
+  >(instancesKey, fetcher)
 
   const [mounted, setMounted] = useState(false)
   const [selectedBotInstanceId, setSelectedBotInstanceId] = useState("")
@@ -189,21 +187,6 @@ export default function ContactsPage() {
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-16 rounded-xl" />
           ))}
-        </div>
-      </div>
-    )
-  }
-
-  if (features && !features.legacyBotEnabled) {
-    return (
-      <div className="flex flex-1 flex-col">
-        <PageHeader title="Contatos" description="Gerencie contatos e grupos WhatsApp" />
-        <div className="p-4 sm:p-6">
-          <ProviderModeCard
-            activeProvider={features.whatsappProvider}
-            requiredProvider="bot"
-            description="Esta tela pertence ao fluxo do bot atual da plataforma e fica oculta quando a empresa opera com WAHA."
-          />
         </div>
       </div>
     )

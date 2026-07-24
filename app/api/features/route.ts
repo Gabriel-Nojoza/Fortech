@@ -7,13 +7,6 @@ import {
   normalizeCompanySubscriptionSettings,
 } from "@/lib/company-plan"
 import { getRequestContext, isAuthContextError } from "@/lib/tenant"
-import {
-  getWhatsAppProviderLabel,
-  isLegacyBotProvider,
-  isWahaProvider,
-  parseWhatsAppProviderSetting,
-  type WhatsAppProvider,
-} from "@/lib/whatsapp-provider"
 import { normalizeBotModuleSettings } from "@/lib/bot"
 
 export type CompanyFeatures = {
@@ -36,10 +29,6 @@ export type CompanyFeatures = {
   subscriptionStatus: "active" | "suspended" | "past_due"
   subscriptionStatusLabel: string
   nextDueDate: string | null
-  whatsappProvider: WhatsAppProvider
-  whatsappProviderLabel: string
-  legacyBotEnabled: boolean
-  wahaEnabled: boolean
   botModuleEnabled: boolean
 }
 
@@ -52,7 +41,7 @@ export async function GET() {
       .from("company_settings")
       .select("key, value")
       .eq("company_id", companyId)
-      .in("key", ["features", "general", "subscription", "whatsapp_provider", "bot_module"])
+      .in("key", ["features", "general", "subscription", "bot_module"])
 
     const { data: companyRow } = await supabase
       .from("companies")
@@ -68,7 +57,6 @@ export async function GET() {
     const features = settingsMap.features ?? {}
     const general = settingsMap.general ?? {}
     const subscription = normalizeCompanySubscriptionSettings(settingsMap.subscription)
-    const whatsappProvider = parseWhatsAppProviderSetting(settingsMap.whatsapp_provider)
     const botModule = normalizeBotModuleSettings(settingsMap.bot_module)
     const plan = await getCompanyPlanDefinition(supabase, subscription.plan_code)
     const planFeatures = plan.appFeatures
@@ -116,10 +104,6 @@ export async function GET() {
       subscriptionStatus,
       subscriptionStatusLabel: getCompanySubscriptionStatusLabel(subscriptionStatus),
       nextDueDate: subscription.next_due_date,
-      whatsappProvider,
-      whatsappProviderLabel: getWhatsAppProviderLabel(whatsappProvider),
-      legacyBotEnabled: isLegacyBotProvider(whatsappProvider),
-      wahaEnabled: isWahaProvider(whatsappProvider),
       botModuleEnabled: botModule.enabled,
     } satisfies CompanyFeatures)
   } catch (error) {

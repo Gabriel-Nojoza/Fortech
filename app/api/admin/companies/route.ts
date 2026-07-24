@@ -14,19 +14,9 @@ import {
   type CompanyPlanDefinition,
 } from "@/lib/company-plan"
 import {
-  normalizeStoredWahaSession,
-  type WahaSessionRecord,
-} from "@/lib/waha"
-import {
   requireAdminContext,
   requirePlatformAdminContext,
 } from "@/lib/tenant"
-import {
-  buildWhatsAppProviderSetting,
-  getWhatsAppProviderLabel,
-  parseWhatsAppProviderSetting,
-  type WhatsAppProvider,
-} from "@/lib/whatsapp-provider"
 import { normalizeBotModuleSettings } from "@/lib/bot"
 
 function slugify(value: string) {
@@ -41,7 +31,6 @@ function slugify(value: string) {
 const createCompanySchema = z.object({
   name: z.string().trim().min(1, "Nome da empresa obrigatorio"),
   plan_code: z.string().trim().min(1).default("START"),
-  whatsapp_provider: z.enum(["bot", "waha"]).default("bot"),
   next_due_date: z.string().trim().optional().nullable(),
   is_active: z.boolean().optional().default(true),
   bot_module_enabled: z.boolean().optional().default(true),
@@ -54,7 +43,6 @@ const updateCompanySchema = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1, "Nome da empresa obrigatorio"),
   plan_code: z.string().trim().min(1).optional(),
-  whatsapp_provider: z.enum(["bot", "waha"]).optional(),
   next_due_date: z.string().trim().optional().nullable(),
   is_active: z.boolean().optional(),
   bot_module_enabled: z.boolean().optional(),
@@ -77,19 +65,7 @@ export type CompanyListItem = {
   next_due_date: string | null
   requested_upgrade_plan: CompanyPlanCode | null
   requested_upgrade_at: string | null
-  whatsapp_provider: WhatsAppProvider
-  whatsapp_provider_label: string
   bot_module_enabled: boolean
-  waha: {
-    exists: boolean
-    session_name: string
-    status: string
-    phone_number: string | null
-    connected_name: string | null
-    last_connection_at: string | null
-    last_seen_at: string | null
-    last_error: string | null
-  }
 }
 
 function getAdminClient() {
@@ -167,27 +143,18 @@ async function readCompanyList(
   const companyIds = companyRows.map((company) => company.id)
   const [
     { data: settingRows, error: settingsError },
-    { data: wahaRows, error: wahaError },
     allPlans,
   ] = await Promise.all([
     supabase
       .from("company_settings")
       .select("company_id, key, value")
       .in("company_id", companyIds)
-      .in("key", ["subscription", "whatsapp_provider", "bot_module"]),
-    supabase
-      .from("waha_sessions")
-      .select("*")
-      .in("company_id", companyIds),
+      .in("key", ["subscription", "bot_module"]),
     listCompanyPlans(supabase, { includeInactive: true }),
   ])
 
   if (settingsError) {
     throw settingsError
-  }
-
-  if (wahaError && wahaError.code !== "42P01") {
-    throw wahaError
   }
 
   const plansByCode = new Map<string, CompanyPlanDefinition>(
@@ -219,17 +186,11 @@ async function readCompanyList(
     currentSettings.set(row.key, row.value)
     settingsByCompany.set(row.company_id, currentSettings)
   }
-  const wahaMap = new Map(
-    ((wahaRows ?? []) as WahaSessionRecord[]).map((row) => [row.company_id, row])
-  )
 
   return companyRows.map((company) => {
     const companySettings = settingsByCompany.get(company.id)
     const subscription = normalizeCompanySubscriptionSettings(
       companySettings?.get("subscription")
-    )
-    const whatsappProvider = parseWhatsAppProviderSetting(
-      companySettings?.get("whatsapp_provider")
     )
     const botModule = normalizeBotModuleSettings(companySettings?.get("bot_module"))
     const plan = plansByCode.get(subscription.plan_code) ?? { ...fallbackPlan, code: subscription.plan_code, name: subscription.plan_code }
@@ -237,7 +198,6 @@ async function readCompanyList(
       isActive: company.is_active,
       nextDueDate: subscription.next_due_date,
     })
-    const waha = normalizeStoredWahaSession(company.id, wahaMap.get(company.id) ?? null)
 
     return {
       id: company.id,
@@ -255,19 +215,7 @@ async function readCompanyList(
       next_due_date: subscription.next_due_date,
       requested_upgrade_plan: subscription.requested_upgrade_plan,
       requested_upgrade_at: subscription.requested_upgrade_at,
-      whatsapp_provider: whatsappProvider,
-      whatsapp_provider_label: getWhatsAppProviderLabel(whatsappProvider),
       bot_module_enabled: botModule.enabled,
-      waha: {
-        exists: waha.exists,
-        session_name: waha.sessionName,
-        status: waha.status,
-        phone_number: waha.phoneNumber,
-        connected_name: waha.connectedName,
-        last_connection_at: waha.lastConnectionAt,
-        last_seen_at: waha.lastSeenAt,
-        last_error: waha.lastError,
-      },
     } satisfies CompanyListItem
   })
 }
@@ -358,12 +306,6 @@ export async function POST(request: NextRequest) {
               requested_upgrade_plan: null,
               requested_upgrade_at: null,
             }),
-            updated_at: new Date().toISOString(),
-          },
-          {
-            company_id: company.id,
-            key: "whatsapp_provider",
-            value: buildWhatsAppProviderSetting(data.whatsapp_provider),
             updated_at: new Date().toISOString(),
           },
           {
@@ -527,27 +469,6 @@ export async function PUT(request: NextRequest) {
         { error: upsertSubscriptionError.message },
         { status: 400 }
       )
-    }
-
-    if (data.whatsapp_provider !== undefined) {
-      const { error: upsertProviderError } = await supabase
-        .from("company_settings")
-        .upsert(
-          {
-            company_id: data.id,
-            key: "whatsapp_provider",
-            value: buildWhatsAppProviderSetting(data.whatsapp_provider),
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "company_id,key" }
-        )
-
-      if (upsertProviderError) {
-        return NextResponse.json(
-          { error: upsertProviderError.message },
-          { status: 400 }
-        )
-      }
     }
 
     if (data.bot_module_enabled !== undefined) {

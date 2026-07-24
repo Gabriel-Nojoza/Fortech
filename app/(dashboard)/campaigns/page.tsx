@@ -8,7 +8,6 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { ProviderModeCard } from "@/components/dashboard/provider-mode-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -169,10 +168,7 @@ export default function CampaignsPage() {
   const { data: features } = useSWR<CompanyFeatures>("/api/features", fetcher)
   const { data: campaigns, isLoading } = useSWR<Campaign[]>("/api/campaigns", fetcher)
   const { data: workspaces } = useSWR<Workspace[]>("/api/workspaces", fetcher)
-  const { data: botInstances } = useSWR<WhatsAppBotInstance[]>(
-    features?.legacyBotEnabled === false ? null : "/api/bot/instances",
-    fetcher
-  )
+  const { data: botInstances } = useSWR<WhatsAppBotInstance[]>("/api/bot/instances", fetcher)
 
   const campaignList = Array.isArray(campaigns) ? campaigns : []
   const workspaceList = Array.isArray(workspaces) ? workspaces : []
@@ -201,21 +197,6 @@ export default function CampaignsPage() {
   const [previewClients, setPreviewClients] = useState<PreviewClient[] | null>(null)
   const [removedIndexes, setRemovedIndexes] = useState<Set<number>>(new Set())
   const [loadingPreview, setLoadingPreview] = useState(false)
-
-  if (features && !features.legacyBotEnabled) {
-    return (
-      <div className="flex flex-1 flex-col">
-        <PageHeader title="Campanhas" description="Crie campanhas segmentadas para disparo no WhatsApp." />
-        <div className="p-4 sm:p-6">
-          <ProviderModeCard
-            activeProvider={features.whatsappProvider}
-            requiredProvider="bot"
-            description="Campanhas continuam ligadas ao bot atual. Quando a empresa esta em WAHA, esse modulo fica oculto para nao misturar os dois canais."
-          />
-        </div>
-      </div>
-    )
-  }
 
   // Reset preview when leaving form
   useEffect(() => {

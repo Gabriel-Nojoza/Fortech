@@ -38,7 +38,6 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { clearTabSessionMarker } from "@/lib/supabase/tab-session"
-import type { WhatsAppProvider } from "@/lib/whatsapp-provider"
 
 const mainNav = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -63,7 +62,6 @@ type AppSidebarProps = {
   schedulesEnabled?: boolean
   operationalSummaryEnabled?: boolean
   logsEnabled?: boolean
-  whatsappProvider?: WhatsAppProvider
 }
 
 export function AppSidebar({
@@ -73,18 +71,14 @@ export function AppSidebar({
   schedulesEnabled = true,
   operationalSummaryEnabled = true,
   logsEnabled = true,
-  whatsappProvider = "bot",
 }: AppSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
-  const filteredMainNav = mainNav.filter((item) => {
-    if (item.href === "/contacts") return whatsappProvider === "bot"
-    return true
-  })
+  const filteredMainNav = mainNav
   const filteredAutomationNav = automationNav.filter((item) => {
-    if (item.href === "/automations") return reportBuilderEnabled && whatsappProvider === "bot"
-    if (item.href === "/campaigns") return campaignsEnabled && whatsappProvider === "bot"
-    if (item.href === "/schedules") return schedulesEnabled && whatsappProvider === "bot"
+    if (item.href === "/automations") return reportBuilderEnabled
+    if (item.href === "/campaigns") return campaignsEnabled
+    if (item.href === "/schedules") return schedulesEnabled
     if (item.href === "/operational-summary") return operationalSummaryEnabled
     if (item.href === "/logs") return logsEnabled
     return true

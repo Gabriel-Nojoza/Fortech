@@ -54,17 +54,6 @@ function stripN8nPrefix(value: unknown): string | null {
   return s || null
 }
 
-async function getCompanyIdFromWahaSessionName(sessionName: string) {
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from("waha_sessions")
-    .select("company_id")
-    .eq("session_name", sessionName)
-    .maybeSingle()
-
-  return data?.company_id ?? null
-}
-
 async function getCompanyIdFromBody(request: Request): Promise<string | null> {
   let body: Record<string, unknown> | null = null
   try {
@@ -121,18 +110,6 @@ async function getCompanyIdFromBody(request: Request): Promise<string | null> {
         .eq("id", reportId)
         .single()
       if (data?.company_id) return data.company_id
-    }
-
-    // Try WAHA session name (identifies the company that owns that WhatsApp session)
-    const sessionName =
-      stripN8nPrefix(body?.session) ??
-      stripN8nPrefix(body?.session_name) ??
-      (searchParams?.get("session")?.trim() || null) ??
-      (searchParams?.get("session_name")?.trim() || null)
-
-    if (sessionName) {
-      const companyIdFromSession = await getCompanyIdFromWahaSessionName(sessionName)
-      if (companyIdFromSession) return companyIdFromSession
     }
 
     return null
