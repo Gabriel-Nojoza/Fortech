@@ -9,9 +9,11 @@ import {
   MapPin,
   MessageCircle,
   Phone,
+  Save,
   Search,
   Send,
   Star,
+  Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -20,7 +22,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectLabel, SelectGroup, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -30,20 +32,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { LEAD_STATUSES, type LeadListItem } from "@/lib/leads"
+import {
+  applyLeadMessageTemplate,
+  GENERIC_LEAD_MESSAGE_TEMPLATES,
+  LEAD_MESSAGE_TEMPLATES,
+  LEAD_STATUSES,
+  type LeadListItem,
+  type LeadMessageTemplate,
+} from "@/lib/leads"
 import type { LeadClassification } from "@/lib/google-places"
 
-const DEFAULT_MESSAGE_BY_CLASSIFICATION: Record<LeadClassification, (nome: string) => string> = {
-  "SEM SITE": (nome) =>
-    `Ola! Vi que a ${nome} ainda nao tem um site e isso pode estar limitando a chegada de novos clientes. Ajudamos empresas a terem presenca digital e automacao no WhatsApp. Podemos conversar?`,
-  "SO REDE SOCIAL": (nome) =>
-    `Ola! Vi o perfil da ${nome} nas redes sociais. Alem das redes, um site proprio ajuda a passar mais confianca e trazer novos clientes. Podemos conversar sobre isso?`,
-  "TEM SITE": (nome) =>
-    `Ola! Vi o site da ${nome} e gostaria de apresentar como podemos ajudar a automatizar o atendimento e os relatorios da empresa pelo WhatsApp. Podemos conversar?`,
-}
-
 function buildDefaultMessage(lead: LeadListItem) {
-  return DEFAULT_MESSAGE_BY_CLASSIFICATION[lead.classificacao](lead.nome)
+  return applyLeadMessageTemplate(LEAD_MESSAGE_TEMPLATES[lead.classificacao][0].content, lead.nome)
 }
 
 function buildWhatsAppUrl(telefone: string, message: string) {
@@ -60,7 +60,7 @@ const fetcher = async (url: string) => {
     throw new Error(data?.error || "Erro ao buscar leads")
   }
 
-  return data as LeadListItem[]
+  return data
 }
 
 type ClassificationFilter = "TODOS" | LeadClassification
@@ -143,6 +143,15 @@ export default function AdminLeadsPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [messageLead, setMessageLead] = useState<LeadListItem | null>(null)
   const [messageText, setMessageText] = useState("")
+  const [templateValue, setTemplateValue] = useState("")
+  const [newTemplateLabel, setNewTemplateLabel] = useState("")
+  const [savingTemplate, setSavingTemplate] = useState(false)
+
+  const {
+    data: customTemplates,
+    mutate: mutateTemplates,
+  } = useSWR<LeadMessageTemplate[]>("/api/leads/message-templates", fetcher)
+  const customTemplateList = Array.isArray(customTemplates) ? customTemplates : []
 
   const swrKey = submittedQuery
     ? `/api/leads?nicho=${encodeURIComponent(submittedQuery.nicho)}&cidade=${encodeURIComponent(submittedQuery.cidade)}&max=${encodeURIComponent(submittedQuery.max)}`
@@ -215,6 +224,79 @@ export default function AdminLeadsPage() {
   function openMessageDialog(lead: LeadListItem) {
     setMessageLead(lead)
     setMessageText(buildDefaultMessage(lead))
+    setTemplateValue(`builtin:${LEAD_MESSAGE_TEMPLATES[lead.classificacao][0].id}`)
+    setNewTemplateLabel("")
+  }
+
+  function handleSelectTemplate(value: string) {
+    if (!messageLead) return
+    setTemplateValue(value)
+
+    const [kind, id] = value.split(":")
+    const template =
+      kind === "custom"
+        ? customTemplateList.find((item) => item.id === id)
+        : [...LEAD_MESSAGE_TEMPLATES[messageLead.classificacao], ...GENERIC_LEAD_MESSAGE_TEMPLATES].find(
+            (item) => item.id === id
+          )
+
+    if (template) {
+      setMessageText(applyLeadMessageTemplate(template.content, messageLead.nome))
+    }
+  }
+
+  async function handleSaveTemplate() {
+    const label = newTemplateLabel.trim()
+    const content = messageText.trim()
+
+    if (!label || !content) {
+      toast.error("Informe um nome e uma mensagem para salvar o modelo.")
+      return
+    }
+
+    setSavingTemplate(true)
+    try {
+      const response = await fetch("/api/leads/message-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label, content }),
+      })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Erro ao salvar modelo")
+      }
+
+      await mutateTemplates()
+      setTemplateValue(`custom:${result.id}`)
+      setNewTemplateLabel("")
+      toast.success("Modelo salvo.")
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : "Erro ao salvar modelo")
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  async function handleDeleteTemplate(id: string) {
+    try {
+      const response = await fetch(`/api/leads/message-templates?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      })
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Erro ao remover modelo")
+      }
+
+      await mutateTemplates()
+      if (templateValue === `custom:${id}`) {
+        setTemplateValue("")
+      }
+      toast.success("Modelo removido.")
+    } catch (deleteError) {
+      toast.error(deleteError instanceof Error ? deleteError.message : "Erro ao remover modelo")
+    }
   }
 
   function handleSendMessage() {
@@ -491,6 +573,45 @@ export default function AdminLeadsPage() {
               </div>
 
               <div className="grid gap-2">
+                <Label>Modelo de abordagem</Label>
+                <Select value={templateValue} onValueChange={handleSelectTemplate}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Escolha um modelo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>
+                        Sugestoes para &quot;{CLASSIFICATION_META[messageLead.classificacao].label}&quot;
+                      </SelectLabel>
+                      {LEAD_MESSAGE_TEMPLATES[messageLead.classificacao].map((template) => (
+                        <SelectItem key={template.id} value={`builtin:${template.id}`}>
+                          {template.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>Genericos</SelectLabel>
+                      {GENERIC_LEAD_MESSAGE_TEMPLATES.map((template) => (
+                        <SelectItem key={template.id} value={`builtin:${template.id}`}>
+                          {template.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    {customTemplateList.length > 0 ? (
+                      <SelectGroup>
+                        <SelectLabel>Meus modelos</SelectLabel>
+                        {customTemplateList.map((template) => (
+                          <SelectItem key={template.id} value={`custom:${template.id}`}>
+                            {template.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
                 <Label htmlFor="lead-message">Mensagem</Label>
                 <Textarea
                   id="lead-message"
@@ -499,6 +620,52 @@ export default function AdminLeadsPage() {
                   onChange={(event) => setMessageText(event.target.value)}
                 />
               </div>
+
+              <div className="flex items-end gap-2">
+                <div className="grid flex-1 gap-2">
+                  <Label htmlFor="lead-template-label">Salvar mensagem atual como modelo</Label>
+                  <Input
+                    id="lead-template-label"
+                    placeholder="Nome do modelo"
+                    value={newTemplateLabel}
+                    onChange={(event) => setNewTemplateLabel(event.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSaveTemplate}
+                  disabled={savingTemplate || !newTemplateLabel.trim() || !messageText.trim()}
+                >
+                  {savingTemplate ? (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 size-4" />
+                  )}
+                  Salvar modelo
+                </Button>
+              </div>
+
+              {customTemplateList.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {customTemplateList.map((template) => (
+                    <span
+                      key={template.id}
+                      className="flex items-center gap-1 rounded-full border border-border px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      {template.label}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTemplate(template.id)}
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label={`Remover modelo ${template.label}`}
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
 
               <p className="text-xs text-muted-foreground">
                 Ao clicar em enviar, o WhatsApp sera aberto com a mensagem pronta. O status do

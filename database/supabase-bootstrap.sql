@@ -332,6 +332,15 @@ create table if not exists public.lead_message_log (
 
 create index if not exists idx_lead_message_log_sent_at on public.lead_message_log(sent_at);
 
+-- Modelos de mensagem de abordagem para Leads, criados manualmente pelo
+-- administrador da plataforma (nao pertencem a nenhuma empresa cliente).
+create table if not exists public.lead_message_templates (
+  id uuid primary key default gen_random_uuid(),
+  label text not null,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists idx_company_settings_company_id on public.company_settings(company_id);
 create index if not exists idx_workspaces_company_id on public.workspaces(company_id);
 create index if not exists idx_reports_company_id on public.reports(company_id);
@@ -399,6 +408,7 @@ alter table public.campaign_sends enable row level security;
 alter table public.leads enable row level security;
 alter table public.lead_searches enable row level security;
 alter table public.lead_message_log enable row level security;
+alter table public.lead_message_templates enable row level security;
 
 drop policy if exists companies_select_own on public.companies;
 create policy companies_select_own on public.companies

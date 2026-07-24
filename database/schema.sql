@@ -501,6 +501,15 @@ CREATE TABLE IF NOT EXISTS public.lead_message_log (
 
 CREATE INDEX IF NOT EXISTS idx_lead_message_log_sent_at ON public.lead_message_log(sent_at);
 
+-- Modelos de mensagem de abordagem para Leads, criados manualmente pelo
+-- administrador da plataforma (nao pertencem a nenhuma empresa cliente).
+CREATE TABLE IF NOT EXISTS public.lead_message_templates (
+  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  label      text        NOT NULL,
+  content    text        NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- =============================================================================
 -- DADOS INICIAIS
 -- Cria a empresa padrão e o usuário administrador inicial.
